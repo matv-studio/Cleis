@@ -1,0 +1,29 @@
+[package]
+name = "cleis-app"
+description = "Cleis desktop application (GPUI)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "cleis"
+
+[[bin]]
+name = "cleis"
+path = "src/main.rs"
+
+[dependencies]
+cleis-core.workspace = true
+cleis-crypto.workspace = true
+cleis-store.workspace = true
+# Pinned exactly: GPUI is pre-1.0 and gpui-kit fixes the matching gpui-pre snapshot (D-33).
+gpui-kit = "=0.11.0"
+directories = "6"
+anyhow = "1"
+
+[dev-dependencies]
+gpui-kit = { version = "=0.11.0", features = ["test-support"] }
+tempfile = "3"
+
+[lints]
+workspace = true
