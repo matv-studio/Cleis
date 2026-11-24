@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sésame — maquette</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/ui.css">
+</head>
+<body>
+<div id="root" style="height:100vh"></div>
+<script type="module">
+import { SCREENS } from './js/screens.js';
+const q = new URLSearchParams(location.search);
+const s = q.get('s') || '01-coffre';
+document.documentElement.dataset.theme = q.get('theme') || 'dark';
+document.title = 'Sésame — ' + SCREENS[s][0];
+document.getElementById('root').innerHTML = SCREENS[s][1]();
+document.body.dataset.ready = '1';
+</script>
+</body>
+</html>

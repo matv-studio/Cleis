@@ -1,0 +1,26 @@
+[package]
+name = "cleis-core"
+description = "Cleis domain model: vault entries, contacts, custom columns, formulas, TOTP, imports, health, duplicates, activity log"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cleis-crypto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+csv.workspace = true
+data-encoding.workspace = true
+thiserror.workspace = true
+url.workspace = true
+strsim.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

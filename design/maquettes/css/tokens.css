@@ -1,0 +1,112 @@
+/* Jetons repris tels quels de la charte de design des applications internes (claude/charte-design-apps.md). */
+@font-face {
+  font-family: "Geist"; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url("../fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist"; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url("../fonts/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  --gray-0: #ffffff; --gray-50: #f7f7f7; --gray-100: #efefef; --gray-150: #e6e6e6;
+  --gray-200: #dadada; --gray-300: #bdbdbd; --gray-400: #8f8f8f; --gray-500: #6e6e6e;
+  --gray-600: #4d4d4d; --gray-700: #383838; --gray-750: #2e2e2e; --gray-800: #262626;
+  --gray-850: #1f1f1f; --gray-900: #191919;
+
+  --red-text-dark: #ff9b92;   --red-bg-dark: #3b2120;
+  --red-text-light: #b3261e;  --red-bg-light: #fdeceb;
+  --green-text-dark: #7fd6a3; --green-text-light: #1b7a4b;
+  --red-solid: #d4382c;
+  --blue-text-dark: #7fb0ff;  --blue-text-light: #1f5fd1;
+  --orange-text-dark: #f3aa55; --orange-text-light: #b25b00;
+
+  --font: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px; --text-xl: 20px;
+  --leading: 1.45;
+  --weight-regular: 420; --weight-medium: 530; --weight-strong: 620;
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+
+  --control-sm: 24px; --control-md: 28px; --control-lg: 32px;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-full: 999px;
+  --border: 1px;
+
+  --topbar-h: 44px; --inspector-w: 280px; --content-max: 960px;
+
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --fast: 120ms; --normal: 200ms;
+
+  --range-track: 2px; --range-fill: 4px; --range-handle-w: 3px; --range-handle-h: 14px;
+}
+
+:root, :root[data-theme="dark"], .theme-dark {
+  color-scheme: dark;
+  --bg: var(--gray-900);
+  --surface: var(--gray-850);
+  --chrome: #2a2a2a;
+  --stage-line-base: #3a3a3a;
+  --surface-raised: var(--gray-800);
+  --surface-hover: var(--gray-750);
+  --surface-active: var(--gray-700);
+  --line: var(--gray-750); --line-strong: var(--gray-700);
+  --text: #ededed; --text-muted: #9d9d9d; --text-faint: #8a8a8a;
+  --inverse: #f2f2f2; --inverse-ink: var(--gray-900);
+  --danger-text: var(--red-text-dark); --danger-bg: var(--red-bg-dark);
+  --success-text: var(--green-text-dark);
+  --set-text: var(--blue-text-dark); --set-bg: rgb(64 132 255 / .2);
+  --inherit-text: var(--orange-text-dark); --inherit-bg: rgb(243 160 64 / .14);
+  --warning-text: var(--orange-text-dark);
+  --auto-text: #4fc3d1; --auto-bg: rgb(79 195 209 / .16);
+  --comp: #a684ff; --comp-bg: rgb(166 132 255 / .16);
+  --overlay: rgb(0 0 0 / .55);
+  --range-track-bg: #0c0c0c; --range-handle-ring: rgb(0 0 0 / .55);
+  --shadow-dialog: 0 16px 40px rgb(0 0 0 / .45), 0 0 0 1px var(--line-strong);
+}
+
+:root[data-theme="light"], .theme-light {
+  color-scheme: light;
+  --bg: var(--gray-100); --surface: var(--gray-0); --chrome: #e3e3e3; --stage-line-base: #cfcfcf;
+  --surface-raised: var(--gray-0); --surface-hover: var(--gray-50); --surface-active: var(--gray-150);
+  --line: var(--gray-150); --line-strong: var(--gray-200);
+  --text: #1a1a1a; --text-muted: #626262; --text-faint: #767676;
+  --inverse: #1a1a1a; --inverse-ink: var(--gray-0);
+  --danger-text: var(--red-text-light); --danger-bg: var(--red-bg-light);
+  --success-text: var(--green-text-light);
+  --set-text: var(--blue-text-light); --set-bg: rgb(64 132 255 / .14);
+  --inherit-text: var(--orange-text-light); --inherit-bg: rgb(243 160 64 / .16);
+  --warning-text: var(--orange-text-light);
+  --auto-text: #0d7f8c; --auto-bg: rgb(13 127 140 / .12);
+  --comp: #7446e0; --comp-bg: rgb(116 70 224 / .12);
+  --overlay: rgb(0 0 0 / .28);
+  --range-track-bg: #c9c9c9; --range-handle-ring: rgb(0 0 0 / .28);
+  --shadow-dialog: 0 16px 40px rgb(0 0 0 / .18), 0 0 0 1px var(--line);
+}
+
+:root {
+  --primary: var(--accent, var(--inverse));
+  --primary-ink: var(--accent-ink, var(--inverse-ink));
+  --danger-solid: var(--red-solid); --danger-solid-ink: #ffffff;
+  --focus: var(--accent, var(--text-muted));
+  --stage-line: var(--accent, var(--stage-line-base));
+  --selection: color-mix(in srgb, var(--accent, var(--text)) 14%, transparent);
+}
+:root[data-accent-scope="minimal"] {
+  --primary: var(--inverse); --primary-ink: var(--inverse-ink);
+  --selection: color-mix(in srgb, var(--text) 14%, transparent);
+}
+:root[data-accent-scope="full"] {
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-text: color-mix(in srgb, var(--accent) 72%, var(--text));
+}
+
+/* Extension du système pour l'app (charte : étendre les jetons avant de les utiliser). */
+:root {
+  --row-h: 32px;          /* ligne du tableau du coffre */
+  --sidebar-w: 220px;     /* colonne des espaces */
+  --statusbar-h: 28px;
+  --totp-ring: 14px;      /* anneau du compte à rebours d'un code 2FA */
+}
