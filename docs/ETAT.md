@@ -40,15 +40,19 @@
 - D-69 : onglets de coffre (Preferences › Vaults), plusieurs organisations par coffre, filtre de
   coffre dans Health (maquette 32e). Build Windows : branche `build/full-app`.
 
+- D-70 : fin de l'audit complet (sécurité, logique, interface, scripts, CI, docs), sauf cinq
+  points à trancher par l'utilisateur (« En suspens » 10 à 14 de DECISIONS.md). Version 0.2.0
+  préparée (pas d'étiquette : pas de version tant que l'audit n'est pas fini).
+
 ## Prochaines étapes
-1. Retour de l'utilisateur sur le build.
-2. Reste de l'audit : U-6, U-10 à U-12, S-6, S-7, S-12, L-6, L-10, L-13 à L-19, U-8, X-1 à X-9,
-   D-3 à D-5.
+1. Choix de l'utilisateur sur S-9, S-11, L-9, U-9, U-17 ; puis les faire.
+2. Étiquette `v0.2.0` (poussée par l'utilisateur : le proxy de la session refuse les étiquettes).
 3. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients
-   OAuth Google / Microsoft, serveur hébergé et service installé.
+   OAuth Google / Microsoft, service Windows installé depuis Program Files.
 
+## Historique
 
-## 25/11/2026 (suite, branche `feat/full-app`)
+### 25/11/2026 (suite, branche `feat/full-app`)
 - Essais Windows en pilotage d'écran (builds `651fe04` → `3558b4d`) : Quick Access sur le bon écran et
   au clavier (plus d'Alt simulé : touche F22 factice comme Chromium), remplissage identifiant + mot de
   passe validé sur le formulaire d'essai (`design/tools/autofill-form.hta`, lancé par
@@ -63,14 +67,8 @@
   à la connexion.
 - 101 essais (dont 12 de bout en bout).
 
-## Prochaines étapes
-1. Contacts : menu Colonnes et import CSV.
-2. Fonctions d'organisation (écrans 07-11, 18) et `cleis-server` (D-42) : membres, partage des clés
-   d'espace, politique, journal, rechiffrement.
-3. Places GitHub / OneDrive / Google sans appli de bureau : enregistrement OAuth (en suspens, D-50).
-4. Audit complet demandé par l'utilisateur une fois tout en place.
 
-## 25/11/2026
+### 25/11/2026
 - Apparence : sombre, accent Ochre `#e0a93b` (D-51 ; teinte approfondie calculée en clair), étendue
   « Étendue » ; pastilles et étendue réglables dans *Preferences* ; menu « Sync & backups » unique.
 - Audit avant build : `docs/AUDIT-2026-11-25.md` (corrections : NFC du mot de passe maître, création
@@ -80,16 +78,8 @@
   complets (méthode, vitesse, raccourcis enregistrables, applis liées), Ctrl+L / Ctrl+F.
 - 77 essais. Premier build Windows : workflow `release.yml` (portable zip, brouillon de version).
 
-## Prochaines étapes
-1. Essai du build Windows en pilotage d'écran : Quick Access, Fill best match (Chrome, Edge, appli de
-   bureau), formulaire en deux pages, 2FA ; corriger ce qui en sort.
-2. Icône de zone de notification (tray-icon) : Cleis en arrière-plan, raccourcis actifs fenêtre fermée.
-3. Import CSV / vCard branché (écran 14), export chiffré.
-4. Édition dans l'inspecteur, menu Colonnes, corbeille, anneau TOTP dessiné.
-5. Synchronisation et restauration (D-50, écrans 22, 23, après validation).
-6. `cleis-server`.
 
-## 24/11/2026
+### 24/11/2026
 - Maquettes : 21 écrans × 2 thèmes (coffre, colonnes, premier lancement, déverrouillage, 2FA, sécurité,
   membres, politique, chiffrement, rechiffrement, journal, santé, sauvegardes, import, préférences,
   remplissage, Quick Access, contacts, fusion des doublons). Validées sauf Contacts (20, 21).
@@ -105,11 +95,3 @@
   presse-papiers, générateur, favoris, nouvel élément), contacts (lecture), santé, réglages (Préférences :
   thème, onglets ; Sécurité : presse-papiers ; Remplissage : interrupteurs). 2 essais e2e.
 
-## Prochaines étapes
-1. Édition dans l'inspecteur (coffre et contacts), menu Colonnes (affichage, ordre, colonnes perso),
-   suppression et corbeille, anneau TOTP dessiné (canvas).
-2. Import CSV et vCard branchés à l'interface ; export chiffré.
-3. Remplissage : raccourci global, Quick Access, écriture par accessibilité (macOS AX, Windows UIA),
-   frappe en repli.
-4. `cleis-server` : synchronisation, membres, partage des clés d'espace, journal côté serveur.
-5. Sauvegardes GitHub / SFTP.

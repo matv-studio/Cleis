@@ -2,13 +2,33 @@
 # Captures the real app (demo data) under a virtual X display, dark theme (user's choice,
 # 25/11/2026; pass THEMES="dark light" for both).
 # Needs: Xvfb, ImageMagick `import`, mesa-vulkan-drivers (llvmpipe). Output: target/app-captures/.
+# ONLY="vault-dark members-dark" takes only those. A capture waits until the window is drawn
+# (not a fixed time); an app that stops or never draws fails the run (audit X-5).
 set -e
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cargo build -q -p cleis-app --manifest-path "$root/Cargo.toml"
 out="$root/target/app-captures"; mkdir -p "$out"
+failed=()
 shot() { # name, args...
   local name=$1; shift
-  xvfb-run -a -s "-screen 0 1440x900x24" bash -c "'$root/target/debug/cleis' $* >/dev/null 2>&1 & pid=\$!; sleep 9; import -window root '$out/$name.png'; kill \$pid"
+  if [ -n "$ONLY" ] && [[ " $ONLY " != *" $name "* ]]; then return; fi
+  if ! xvfb-run -a -s "-screen 0 1440x900x24" bash -c "
+      '$root/target/debug/cleis' $* >/dev/null 2>&1 & pid=\$!
+      drawn=0
+      for i in \$(seq 1 60); do
+        sleep 0.5
+        kill -0 \$pid 2>/dev/null || exit 3
+        import -window root /tmp/appshot-probe.png 2>/dev/null || continue
+        sd=\$(convert /tmp/appshot-probe.png -format '%[fx:standard_deviation>0.02]' info: 2>/dev/null)
+        if [ \"\$sd\" = 1 ]; then drawn=\$((drawn+1)); else drawn=0; fi
+        [ \$drawn -ge 3 ] && break
+      done
+      [ \$drawn -ge 3 ] || { kill \$pid; exit 4; }
+      sleep 1.5
+      import -window root '$out/$name.png'
+      kill \$pid"; then
+    failed+=("$name")
+  fi
 }
 for theme in ${THEMES:-dark}; do
   shot "unlock-$theme" --demo --theme $theme
@@ -62,5 +82,10 @@ for theme in ${THEMES:-dark}; do
   shot "vault-tabs-personal-$theme" --demo --unlocked --two-orgs --vault-tab personal --theme $theme
   shot "vault-tabs-settings-$theme" --demo --unlocked --two-orgs --tab settings --theme $theme
   shot "health-vault-$theme" --demo --unlocked --two-orgs --tab health --menu health-vault --theme $theme
+  shot "confirm-remove-$theme" --demo --unlocked --tab settings --page members --menu confirm-remove --theme $theme
 done
 echo "captures in $out"
+if [ ${#failed[@]} -gt 0 ]; then
+  echo "failed: ${failed[*]}" >&2
+  exit 1
+fi

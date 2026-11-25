@@ -28,7 +28,11 @@ Google / Microsoft sign-in). Without `--data`: `CLEIS_DATA`, else `/var/lib/clei
 | Docker | `docker compose -f deploy/compose.yaml up -d` |
 
 `--print` shows the service file without installing it. `cleis-server uninstall` removes the
-service and keeps the data.
+service and keeps the data. Windows: the service runs a copy in `%ProgramFiles%\Cleis Server`,
+and the data folder keeps only SYSTEM, the Administrators and the account that made it. Linux:
+when the data folder belongs to root, the service runs as a `cleis-server` system account that
+`install` creates. `cleis-server status --data DATA` fails when nothing answers on this computer
+(Docker's health check).
 
 To try without installing: `cleis-server run --data DATA`.
 
@@ -45,7 +49,10 @@ Automatic copies of the server file every 24 h in `DATA/backups` (30 kept), set 
 stop the server, `cleis-server restore --data DATA FILE`, start it again. Admins can also back up
 and restore from the app (Settings › Sync & backups › the organization).
 
-Items are sealed by the apps: the server and its copies never hold a key that opens them.
+Items are sealed by the apps: the server and its copies never hold a key that opens them. The
+server file itself holds the server's key and the members' authenticator keys: keep `backups`
+where only the server's account reads it. From the app, a restore is refused when the copy's
+activity log does not verify, and members removed since the copy stay removed.
 
 ## 5. Second sign-in step
 
@@ -61,9 +68,15 @@ can carry them out; add the section to `cleis-server.toml`, then restart the ser
   `client_secret` (a desktop client's secret is not secret: it is handed to the apps).
 - **Microsoft**: register an application in Microsoft Entra with the redirect address
   `http://localhost` (public client), then `[[oidc]] name = "microsoft"`,
-  `issuer = "https://login.microsoftonline.com/<tenant id>/v2.0"` (or `{tenantid}` in place of
-  the id to accept any work account), `client_id`.
+  `issuer = "https://login.microsoftonline.com/<tenant id>/v2.0"`, `client_id`. With
+  `{tenantid}` in place of the id, any work account is accepted: then do not rely on `domains`,
+  since Microsoft does not guarantee that an account's address is verified.
 - `domains = ["example-studio.com"]` in an `[[oidc]]` section accepts only those addresses.
+- `max_token_age` (seconds, 600 by default): an ID token older than this is refused.
 
-Codes last 10 minutes, five wrong tries cancel one, a new one goes out at most once a minute. An
-ID token is checked against the provider's published keys and used only once.
+Codes last 10 minutes, five wrong tries cancel one, a new one goes out at most once a minute and
+ten a day per member. An ID token is checked against the provider's published keys, must be
+recent and issued to Cleis, and is used only once.
+
+With `[smtp]`, invitations also go by e-mail, with the server's address as the admin's app knows
+it; *Resend* sends a new code the same way.

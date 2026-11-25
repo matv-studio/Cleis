@@ -27,7 +27,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 - **D-10 Codes 2FA des comptes partagés** stockés dans le coffre (type de colonne « Code 2FA »).
 - **D-11 Colonnes personnalisables.** Ajouter, masquer, réordonner ; types : texte, texte secret,
   nombre, prix, date, liste de choix, code 2FA, calcul, adresse web. Coût annuel calculé.
-- **D-12 Sauvegardes chiffrées.** Dépôt GitHub privé ou SFTP. FTP non chiffré exclu. Clé de sauvegarde
+- **D-12 Sauvegardes chiffrées.** *(Fait par D-65.)* Dépôt GitHub privé ou SFTP. FTP non chiffré exclu. Clé de sauvegarde
   à conserver hors de l'application. Vérification par restauration d'essai.
 - **D-13 Import CSV** (sortie de Notion) avec correspondance de colonnes ; export chiffré.
 - **D-14 Outils admin.** Journal d'audit, rapport de santé ; historique des versions de chaque élément.
@@ -39,7 +39,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 
 - **D-18 Langue.** Maquettes et développement en anglais ; versions publiées en anglais et en français
   (fichiers de traduction). Thème sombre / clair / système dans Settings › Preferences (24/11/2026).
-- **D-19 Export de l'organisation** autorisé personne par personne par l'admin (colonne « Export » de
+- **D-19 Export de l'organisation** *(Appliqué à l'export vCard des contacts partagés, journalisé ; aucun export des éléments d'organisation n'existe : l'export chiffré ne prend que le coffre personnel.)* autorisé personne par personne par l'admin (colonne « Export » de
   Members) ; les administrateurs peuvent toujours exporter ; chaque export est inscrit au journal.
 - **D-20 Stockage au choix, même interface.** Ce poste seul ; serveur de l'organisation (adresse saisie au
   premier lancement, ici le serveur de l'entreprise) ; stockage partagé sans serveur (dossier réseau,
@@ -63,7 +63,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 - **D-25 Premier lancement à deux choix** : « This computer only » (coffre personnel) et « Add an
   organization server » ; un seul champ accepte une adresse de serveur, de dossier réseau, SFTP ou GitHub,
   le type est détecté (24/11/2026, demande de l'utilisateur).
-- **D-26 Serveur Sésame sur le serveur de l'entreprise**, joint par le VPN existant. Le mode dossier
+- **D-26 Serveur Sésame sur le serveur de l'entreprise** *(Mode dossier partagé sans serveur : non fait, sans demande ; le serveur universel D-63 couvre le besoin.)*, joint par le VPN existant. Le mode dossier
   partagé reste pour l'usage sans serveur, avec ses limites : droits de lecture par espace assurés par le
   chiffrement ; droits d'écriture, journal fiable et révocation non garantis.
 - **D-27 Bibliothèques reconnues autorisées** (demande du 24/11/2026) : aucune primitive de chiffrement
@@ -73,7 +73,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 - **D-29 Safari** : extension emballée dans une app macOS ; diffusion hors App Store par signature
   Developer ID + notarisation (Apple Developer Program, 99 USD / an : dépense à valider).
 
-- **D-30 Journal écrit par l'app**, interrupteur dans *Security policy* (Record activity, Detail : Admin
+- **D-30 Journal écrit par l'app** *(Journal tenu par le serveur depuis D-59 ; le journal par appareil n'est pas fait.)*, interrupteur dans *Security policy* (Record activity, Detail : Admin
   actions / Changes / Everything, Keep, Integrity + « Verify now ») — demande du 24/11/2026.
   Avec serveur : le serveur écrit le journal. En dossier partagé : chaque appareil écrit son propre fichier
   (pas de conflit d'écriture), ajout seul ; chaque événement est signé (Ed25519, clé de l'appareil) et lié
@@ -87,7 +87,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   accessibilité (interrupteur, coût de performance dans Chrome/Edge). Applis liées apprises au premier
   remplissage. macOS : permission Accessibilité. Plus tard : fournisseur d'identifiants macOS (signature à
   vérifier) ; plugin passkeys Windows 11 (passkeys seulement). Écrans 16, 17, 19.
-- **D-32 Serveur à notre échelle** (proposé) : un binaire Rust unique, service système sur le serveur de
+- **D-32 Serveur à notre échelle** *(En partie remplacé par D-63 : écoute sur toutes les interfaces par défaut, réglable ; dossier restreint au service, Windows compris depuis l'audit S-7.)* (proposé) : un binaire Rust unique, service système sur le serveur de
   l'entreprise, écoute sur l'interface VPN seulement, TLS avec empreinte épinglée par le code d'invitation,
   SQLite (WAL) dans un dossier lisible par le seul compte du service ; le serveur ne voit que du chiffré et
   applique droits d'écriture, suppression, révocation, journal, versions, sauvegardes. Le « dossier chiffré
@@ -139,12 +139,12 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   (fenêtre sans écran, vrais clics et frappes) ; les éléments visés portent `.test_support()`.
 - **D-47 Icône des préférences** (25/11/2026) : l'ancienne icône ressemblait à un soleil ; remplacée par le
   rouage de Lucide (ISC, attribution dans `icons.js` et `THIRD_PARTY.md`), ramené à la grille 16 px.
-- **D-48 Apparence par défaut** (25/11/2026) : thème sombre, accent `#a57118` (« Bronze », encre noire : meilleur contraste, 5,0:1 ; remplace `#84580b`, changement du
+- **D-48 Apparence par défaut** *(Accent remplacé par D-51 ; le reste tient. D-51 prime sur la charte « aucun accent par défaut » pour Cleis : règle propre à l'app, audit U-13.)* (25/11/2026) : thème sombre, accent `#a57118` (« Bronze », encre noire : meilleur contraste, 5,0:1 ; remplace `#84580b`, changement du
   25/11/2026),
   étendue « Étendue » (onglets, choix, lignes actives en plus de l'action principale, des interrupteurs, de
   la sélection, du focus et du contour du plateau). Réglables dans *Preferences*.
 - **D-49 Maquettes Contacts validées** (écrans 20, 21), 25/11/2026.
-- **D-50 Connexion GitHub / Microsoft / Google et nouvel appareil** (proposé, 25/11/2026, écrans 03, 22, 23).
+- **D-50 Connexion GitHub / Microsoft / Google et nouvel appareil** *(Code de configuration jamais fait ; GitHub par jeton (D-65), OneDrive / Google Drive par leur appli de bureau ; OAuth en suspens 4.)* (proposé, 25/11/2026, écrans 03, 22, 23).
   L'identification (qui je suis, où est mon coffre) reste séparée du déchiffrement (mot de passe maître),
   comme chez Bitwarden et 1Password. Se connecter à GitHub, Microsoft ou Google donne accès à
   l'emplacement du coffre chiffré (dépôt privé, dossier d'application OneDrive `Files.ReadWrite.AppFolder`,
@@ -434,6 +434,26 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Health : filtre de coffre en premier (tous, personnel, chaque organisation), puis les espaces
     de ce coffre (maquette 32e, demande du 25/11/2026 à 16 h).
 
+- **D-70 Fin de l'audit complet** (25/11/2026, « pas de version tant que l'audit n'est pas fini ») :
+  - Sécurité : plancher Argon2 (OWASP 19 Mio, 2 passes ; un coffre en dessous est relevé après
+    déverrouillage), jeton GitHub en HTTPS seulement hors essais, jeton « appareil mémorisé » scellé
+    dans le coffre, jetons d'identité récents (`iat`, `max_token_age` réglable, 600 s par défaut) et
+    émis pour Cleis (`azp`), 10 codes e-mail / SMS par jour et par membre, actions GitHub épinglées
+    par empreinte, restauration refusée si le journal de la copie ne se vérifie pas et membres
+    retirés depuis gardés dehors, service Windows lancé depuis `Program Files` et dossier de
+    données sans héritage, service Linux sous un compte `cleis-server` quand le dossier est à root.
+  - Logique : adresse du serveur modifiable (clé épinglée inchangée), nom saisi à la création d'une
+    organisation, groupes de contacts par organisation, invitations par e-mail quand `[smtp]` est
+    réglé, Activity masquable, proposition de couper la biométrie après un nouveau mot de passe.
+  - Interface : clic ailleurs ferme tout menu (le clic ne passe pas dessous, comme les menus
+    système), Ctrl+N et flèches, noms unifiés, gris et voile de la charte, un seul dialogue de 420 px,
+    explications en info-bulle (marque « i »), menus de 220 px.
+  - Outils : licences dans les archives (`tools/licenses.py`), CI sur `feat/**` et `fix/**`, essais
+    sautés interdits sur Linux (`CLEIS_REQUIRE_ALL`), `cargo audit` (échec sur vulnérabilité ; les
+    crates non maintenues viennent presque toutes de GPUI, `chrono` aussi), `.dockerignore` et
+    contrôle de santé qui joint le serveur, scripts de captures qui échouent quand une vue échoue.
+  - Restent à décider (voir « En suspens » 10 à 14).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -446,3 +466,12 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).
 9. ~~Onglets de coffre~~ (D-69). L'essai à deux serveurs réels n'est pas demandé pour l'instant.
+10. S-9 : biométrie liée au matériel (Windows Hello `KeyCredentialManager`, Secure Enclave) au lieu
+    de DPAPI / trousseau — plus fort contre un logiciel sous la session, plus long à faire.
+11. S-11 : sauvegardes automatiques du serveur chiffrées (avec la clé de récupération ? une clé à
+    part ?) — la restauration demanderait alors cette clé.
+12. L-9 : historique GitHub qui grossit à chaque synchronisation (branche dédiée réécrite, ou garder).
+13. U-9 : langue de l'interface (anglais seul selon D-18, ou fichiers de traduction FR selon la
+    charte).
+14. U-17 : fonctions prévues affichées grisées (fuites de mots de passe, extension de navigateur) :
+    les retirer de l'écran jusqu'à leur arrivée, ou les garder.

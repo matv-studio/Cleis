@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-69,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-70,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -17,7 +17,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp|
    ctx-entry|ctx-space|ctx-contact|ctx-member|confirm-transfer|confirm-remove|health-vault]
-   [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
+   [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
+   [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
    `install [--print]`, `backup`, `restore`, `invite`, `status` ; configuration `cleis-server.toml`,
@@ -49,13 +50,15 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   les inspecteurs), `open_code` (code à l'ouverture).
 - `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), `biometric/` (Windows Hello,
   Touch ID, DPAPI / trousseau ; doublure `test-support`), fenêtre au premier plan, adresse
-  de l'onglet (UIA), remplissage (`run` + `Driver`), `platform/{windows,macos,other}.rs` (seul `unsafe`).
+  de l'onglet (UIA), remplissage (`run` + `Driver`) ; `unsafe` seulement dans
+  `platform/{windows,macos,other}.rs` et `biometric/`.
 - `crates/cleis-store` — fichier coffre SQLite ; tout le sensible est scellé, AAD = `type/id/espace` ;
   `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique ;
   `org.rs` : espaces d'organisation (`spaces.org`, `key_gen`, `records.pushed`), rechiffrement.
 - `crates/cleis-net` — client HTTPS du serveur (rustls, certificat épinglé, HTTP/1.1 minimal).
 - `crates/cleis-server` — serveur d'organisation (D-59, D-63) : `api.rs` (requêtes), `db.rs`
-  (schéma, journal chaîné), `tls.rs` (certificat), `config.rs` (`cleis-server.toml`), `delivery.rs` (codes par
+  (schéma, journal chaîné), `tls.rs` (certificat), `config.rs` (`cleis-server.toml`), `delivery.rs`
+  (codes et invitations par
   e-mail / SMS), `oidc.rs` (jetons d'identité), `main.rs`
   (ligne de commande, services systemd / launchd / Windows) ; `tests/flow.rs`.
 - `crates/cleis-app` — appli GPUI : `theme.rs` (jetons de la charte), `ui.rs` (composants), `app.rs`
@@ -63,8 +66,10 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
-  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `bio.rs` (déverrouillage biométrique), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google / Microsoft par le
-  navigateur), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
+  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `bio.rs` (déverrouillage
+  biométrique), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google /
+  Microsoft par le navigateur), `screens/ctx.rs` (menus du clic droit, raccourcis d'un élément),
+  `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
   `tests/org.rs` (deux fenêtres contre un vrai serveur).
 
@@ -108,6 +113,10 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Une boîte de saisie demande la fenêtre : créée au rendu suivant (`ensure_org_inputs`), pas dans une
   tâche de fond.
 - Empreinte d'un certificat : `fingerprint_of_hash` (le hash est déjà fait), pas `fingerprint`.
-- Essai SFTP : il faut `openssh-server` et le dossier `/run/sshd` (sinon l'essai est sauté).
+- Essai SFTP : il faut `openssh-server` et le dossier `/run/sshd` (sinon l'essai est sauté ; avec
+  `CLEIS_REQUIRE_ALL=1`, comme sur la CI Linux, un essai sauté échoue).
+- Menus : tout menu flottant doit être dans `deferred(...)` : la couche « clic ailleurs »
+  (`ctx::outside`) est sous les menus différés et au-dessus du reste.
+- Licences des archives : `python3 tools/licenses.py -o FICHIER cleis-app cleis-server`.
 - `target/debug/build/<crate>/` garde les anciennes compilations : supprimer les dossiers de plus
   d'une heure si le disque se remplit.
