@@ -12,7 +12,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    `python3 design/tools/shots.py all dark,light` (Playwright Chromium) → `target/captures/`.
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
-   [--page autofill|security|sync] [--quick-access] [--theme light]`. Captures de l'appli : `design/tools/appshots.sh` (Linux : Xvfb, ImageMagick,
+   [--page autofill|security|sync|import|merge] [--menu filter|columns|new-column|open-code]
+   [--import FICHIER [--review]] [--quick-access] [--restore] [--theme light]`. Captures de l'appli : `design/tools/appshots.sh` (Linux : Xvfb, ImageMagick,
    `mesa-vulkan-drivers` pour le rendu logiciel llvmpipe ; paquets de compilation GPUI listés dans la CI).
 5. Toute fonction d'interface nouvelle ou refaite passe d'abord par une maquette validée.
 
@@ -33,14 +34,17 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - `crates/cleis-crypto` — Argon2id, AES-256-GCM, X25519 (enveloppe de clés), Ed25519, empreintes.
 - `crates/cleis-core` — modèle sans E/S : `entry`, `contact`, `column`, `formula`, `money`, `totp`,
   `import_csv`, `vcard`, `health`, `dedupe`, `journal`, `generator`, `settings`, `text`, `autofill`
-  (correspondance fenêtre ↔ éléments, séquences de remplissage).
+  (correspondance fenêtre ↔ éléments, séquences de remplissage), `edit` / `contact_edit` (saisie dans
+  les inspecteurs), `open_code` (code à l'ouverture).
 - `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), fenêtre au premier plan, adresse
   de l'onglet (UIA), remplissage (`run` + `Driver`), `platform/{windows,macos,other}.rs` (seul `unsafe`).
-- `crates/cleis-store` — fichier coffre SQLite ; tout le sensible est scellé, AAD = `type/id/espace`.
+- `crates/cleis-store` — fichier coffre SQLite ; tout le sensible est scellé, AAD = `type/id/espace` ;
+  `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique.
 - `crates/cleis-app` — appli GPUI : `theme.rs` (jetons de la charte), `ui.rs` (composants), `app.rs`
   (états premier lancement / verrouillé / ouvert), `autofill.rs` (raccourcis, remplissages en attente,
-  liens appris), `screens/` (un fichier par écran, dont `quick_access.rs`), `demo.rs` (données fictives),
-  `tests/e2e.rs`.
+  liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
+  sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
+  connexion), `screens/` (un fichier par écran), `demo.rs` (données fictives), `tests/e2e.rs`.
 - À venir : `crates/cleis-server` (binaire unique, SQLite, VPN).
 
 ## Pièges
@@ -63,3 +67,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   + `window.focus` (raccourcis Ctrl+L / Ctrl+F, enregistrement d'un raccourci).
 - Captures et essais : `--demo` et les essais mettent `no_shortcuts` et `autofill.dry_run` ; jamais de
   raccourci système pris ni de frappe envoyée.
+- Menus flottants : `menu_box` (avec `.occlude()`) dans `deferred(...)`, sinon le clic atteint aussi
+  l'élément dessous. `Window::window_handle()` (GPUI) masque le trait de `raw-window-handle` : l'appeler
+  par `HasWindowHandle::window_handle(window)`.
+- Windows : jamais d'appui simulé sur Alt pour prendre le premier plan (l'appli devant affiche ses
+  touches d'accès) ; `cleis_autofill::activate` utilise F22.
+- Minuteries dans les essais e2e : `cx.executor().advance_clock(...)` puis `run_until_parked()`.
