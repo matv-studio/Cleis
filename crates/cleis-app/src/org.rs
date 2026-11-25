@@ -1198,7 +1198,7 @@ impl CleisApp {
                                 if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
                                     o.code = None;
                                 }
-                                app.toast("Second step set up", cx);
+                                app.toast("Two-step verification set up", cx);
                                 app.org_sync(None, cx);
                             }
                             Err(e) => app.org_identity_failed(e, cx),
@@ -1251,7 +1251,7 @@ impl CleisApp {
                             // The session stays: the server lifted its set-up restriction.
                             Ok(_) => {
                                 o.code = None;
-                                app.toast("Second step set up", cx);
+                                app.toast("Two-step verification set up", cx);
                             }
                             Err(_) => {
                                 if let Some(c) = o.code.as_mut() {
@@ -1451,6 +1451,34 @@ impl CleisApp {
             |app, r, cx| {
                 if r.is_ok() {
                     app.toast("Removed · re-encrypt its spaces", cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Clears a member's second sign-in step: set up again at the next sign-in (mockup 33d).
+    pub fn org_reset_step(&mut self, member: MemberId, cx: &mut Context<Self>) {
+        self.org_request::<_, PushReply>(
+            "/v1/members/reset-step",
+            IdOnly { id: member.0 },
+            |app, r, cx| {
+                if r.is_ok() {
+                    app.toast("Two-step verification reset", cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Ends a member's sessions on every device.
+    pub fn org_sign_out_member(&mut self, member: MemberId, cx: &mut Context<Self>) {
+        self.org_request::<_, PushReply>(
+            "/v1/members/sign-out",
+            IdOnly { id: member.0 },
+            |app, r, cx| {
+                if r.is_ok() {
+                    app.toast("Signed out everywhere", cx);
                 }
             },
             cx,

@@ -405,10 +405,12 @@ fn labels_row(t: &Tokens, c: &Contact) -> Div {
 fn select(
     id: ContactId,
 ) -> impl Fn(&mut CleisApp, &gpui_kit::ClickEvent, &mut Window, &mut Context<CleisApp>) {
-    move |this, _, _, cx| {
+    move |this, _, window, cx| {
         if let Some(s) = this.session() {
             s.selected_contact = Some(id);
             s.contacts_ui.menu = None;
+            let f = s.main_focus.clone();
+            window.focus(&f, cx);
         }
         cx.notify();
     }
@@ -570,6 +572,10 @@ fn table(
             .cursor_pointer()
             .when(selected, |d| d.bg(t.selection))
             .when(!selected, |d| d.hover(|s| s.bg(t.surface_hover)))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                super::ctx::on_right(super::ctx::CtxTarget::Contact(id), cx),
+            )
             .on_click(cx.listener(select(id)));
         for col in &cols {
             row = row.child(contact_cell(s, c, col, selected, t, cx));
@@ -610,6 +616,10 @@ fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context
                 .rounded(RADIUS_LG)
                 .cursor_pointer()
                 .hover(|d| d.bg(t.surface_hover))
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::Contact(id), cx),
+                )
                 .on_click(cx.listener(select(id)))
                 .child(
                     div()
@@ -1838,7 +1848,7 @@ impl CleisApp {
         cx.notify();
     }
 
-    fn ask_delete_contact(&mut self, id: ContactId, cx: &mut Context<Self>) {
+    pub fn ask_delete_contact(&mut self, id: ContactId, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         s.contacts_ui.menu = None;
         let name = s
@@ -1853,6 +1863,52 @@ impl CleisApp {
             button: "Delete".into(),
             action: ConfirmAction::DeleteContact(id),
         });
+        cx.notify();
+    }
+
+    /// Moves a contact to another contacts space; an organization's contact stays in it and,
+    /// between two of its spaces, becomes a new contact there (as items, audit L-2).
+    pub fn move_contact(&mut self, id: ContactId, to: cleis_core::SpaceId, cx: &mut Context<Self>) {
+        use cleis_core::org::Perm;
+        let Some(s) = self.session() else { return };
+        let Some(from) = s.contacts.iter().find(|c| c.id == id).map(|c| c.space) else {
+            return;
+        };
+        let refusal = if s.is_org_space(from) && !s.is_org_space(to) {
+            Some("An organization's contacts stay in the organization")
+        } else if !s.may(to, Perm::Edit) || !s.may(from, Perm::Delete) {
+            Some("Your role does not allow moving it")
+        } else {
+            None
+        };
+        if let Some(why) = refusal {
+            s.toast = Some(why.into());
+            cx.notify();
+            return;
+        }
+        let Some(i) = s.contacts.iter().position(|c| c.id == id) else {
+            return;
+        };
+        let mut c = s.contacts[i].clone();
+        c.space = to;
+        c.updated = cleis_core::now();
+        let r = if s.is_org_space(from) {
+            c.id = ContactId::new();
+            s.vault
+                .put_contact(&c)
+                .and_then(|()| s.vault.purge_contact(id).map(|_| ()))
+        } else {
+            s.vault.put_contact(&c)
+        };
+        match r {
+            Ok(()) => {
+                s.selected_contact = Some(c.id);
+                s.contacts[i] = c;
+                s.contacts_ui.editor = None;
+                s.toast = Some("Moved".into());
+            }
+            Err(e) => s.toast = Some(format!("Not moved: {e}").into()),
+        }
         cx.notify();
     }
 

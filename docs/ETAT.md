@@ -31,11 +31,18 @@
 - D-66 : déverrouillage par Windows Hello / Touch ID.
 
 - Audit complet fait : `docs/AUDIT-2026-11-25-complet.md` (1 critique, 8 élevés, 28 moyens,
-  31 faibles ; rien de corrigé).
+  31 faibles).
+
+- Corrections (D-67, D-68) : droits délégués à l'Admin ; S-1, S-4, S-5, S-8, S-10, L-1 à L-5, L-7,
+  L-8, L-12 ; menus contextuels (clic droit), raccourcis de l'élément, confirmations, Échap (U-1,
+  U-2), nom « Two-step verification » (U-4). Maquettes 07f, 08b, 32–34b validées.
 
 ## Prochaines étapes
-1. Corrections de l'audit, dans l'ordre de sa section 8 (S-1 d'abord), après accord.
-2. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients
+1. Onglets de coffre et plusieurs organisations par coffre (maquettes 32 à 32d, réglages
+   Preferences › Vaults).
+2. Reste de l'audit : U-6, U-10 à U-12, S-6, S-7, S-12, L-6, L-10, L-13 à L-19, U-8, X-1 à X-9,
+   D-3 à D-5.
+3. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients
    OAuth Google / Microsoft, serveur hébergé et service installé.
 
 

@@ -1365,3 +1365,80 @@ fn biometric_unlock(cx: &mut TestAppContext) {
     assert!(!cleis_app::bio::enabled(&path));
     *FAKE.lock().unwrap() = None;
 }
+
+/// Scenario (mockups 33, 34): right-click an item, Escape closes the menu, Duplicate from the
+/// menu, Delete key to the trash, Move to ▸ a folder, Ctrl+D; a question is cancelled by
+/// Escape and Enter.
+#[gpui_kit::test]
+fn context_menu_and_shortcuts(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let (figma, banking, count) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        (
+            s.entries.iter().find(|e| e.name == "Figma").unwrap().id,
+            s.spaces.iter().find(|x| x.name == "Banking").unwrap().id,
+            s.entries.len(),
+        )
+    });
+    let main = |cx: &mut TestAppContext, f: &dyn Fn(&cleis_app::app::Session)| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            f(s)
+        })
+    };
+
+    act(cx, h, |w, cx| w.right_click(format!("row-{figma}"), cx));
+    main(cx, &|s| {
+        assert!(s.ctx.is_some());
+        assert_eq!(s.selected, Some(figma));
+    });
+    act(cx, h, |w, cx| w.press("escape", cx));
+    main(cx, &|s| assert!(s.ctx.is_none()));
+
+    act(cx, h, |w, cx| w.right_click(format!("row-{figma}"), cx));
+    act(cx, h, |w, cx| w.click("cx-duplicate", cx));
+    main(cx, &|s| {
+        assert!(s.ctx.is_none());
+        assert_eq!(s.entries.len(), count + 1);
+        assert_eq!(s.selected_entry().unwrap().name, "Figma copy");
+    });
+    // The copy is selected and no box has the keyboard: Delete moves it to the trash.
+    act(cx, h, |w, cx| w.press("delete", cx));
+    main(cx, &|s| {
+        assert_eq!(s.entries.len(), count);
+        assert!(s.trash.iter().any(|e| e.name == "Figma copy"));
+    });
+
+    act(cx, h, |w, cx| w.right_click(format!("row-{figma}"), cx));
+    act(cx, h, |w, cx| w.click("cx-move", cx));
+    act(cx, h, |w, cx| w.click(format!("cx-move-{banking}"), cx));
+    main(cx, &|s| {
+        let e = s.entries.iter().find(|e| e.name == "Figma").unwrap();
+        assert_eq!(e.space, banking);
+    });
+
+    act(cx, h, |w, cx| w.press("ctrl-d", cx));
+    main(cx, &|s| assert_eq!(s.entries.len(), count + 1));
+
+    // A question: Escape cancels it, and Enter too (Cancel holds the focus).
+    app.update(cx, |a, cx| {
+        a.ask_action(cleis_app::app::ConfirmAction::RotateKey, cx)
+    });
+    act(cx, h, |w, cx| w.press("escape", cx));
+    main(cx, &|s| assert!(s.confirm.is_none()));
+    app.update(cx, |a, cx| {
+        a.ask_action(cleis_app::app::ConfirmAction::RotateKey, cx)
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.press("enter", cx));
+    main(cx, &|s| assert!(s.confirm.is_none()));
+}

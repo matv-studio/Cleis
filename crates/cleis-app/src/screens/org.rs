@@ -108,6 +108,30 @@ pub struct OrgUi {
 }
 
 impl OrgUi {
+    /// Escape: the open menu first, then the open dialog. Returns whether one was open.
+    pub fn close_top(&mut self) -> bool {
+        if self.menu.take().is_some() {
+            return true;
+        }
+        let open = self.invite.is_some()
+            || self.invite_code.is_some()
+            || self.new_space.is_some()
+            || self.new_role.is_some()
+            || self.rekey.is_some()
+            || self.restore.is_some()
+            || self.rename.is_some()
+            || self.delete_space.is_some();
+        self.invite = None;
+        self.invite_code = None;
+        self.new_space = None;
+        self.new_role = None;
+        self.rekey = None;
+        self.restore = None;
+        self.rename = None;
+        self.delete_space = None;
+        open
+    }
+
     pub fn log_query(&self) -> LogQuery {
         LogQuery {
             member: self.log_member,
@@ -256,7 +280,7 @@ pub fn org_mut(app: &mut CleisApp) -> Option<&mut OrgSession> {
     app.session().and_then(|s| s.org.as_mut())
 }
 
-fn check_box(t: &Tokens, on: bool) -> Div {
+pub fn check_box(t: &Tokens, on: bool) -> Div {
     div()
         .size(px(16.))
         .flex_none()
@@ -325,7 +349,6 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             ),
     );
     let i_admins = o.can(Perm::Admins);
-    let i_super = st.me.role == SUPER_ADMIN;
     let role_name = |id: &str| {
         st.roles
             .iter()
@@ -345,7 +368,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(div().w(px(240.)).child("Member"))
             .child(div().w(px(130.)).child("Role"))
             .child(div().flex_1().child("Spaces"))
-            .child(div().w(px(80.)).child("2FA"))
+            .child(div().w(px(80.)).child("2-step"))
             .child(
                 div()
                     .id("h-export")
@@ -498,69 +521,20 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 }))
             })
             .test_support();
-        let mut more_menu = menu_box(t).top(px(28.)).right_0().w(px(220.));
-        if i_super && m.role != SUPER_ADMIN {
-            more_menu = more_menu
-                .child(
-                    menu_item(
-                        format!("mksuper-{id}"),
-                        t,
-                        Some("shield"),
-                        "Make Super Admin",
-                        false,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(o) = org_mut(this) {
-                            o.ui.menu = None;
-                        }
-                        this.org_member(
-                            MemberChange {
-                                member: id,
-                                role: Some(SUPER_ADMIN.into()),
-                                ..Default::default()
-                            },
-                            cx,
-                        );
-                    }))
-                    .test_support(),
-                )
-                .child(
-                    menu_item(
-                        format!("transfer-{id}"),
-                        t,
-                        Some("refresh"),
-                        "Transfer Super Admin",
-                        false,
-                    )
-                    .tooltip(tip("You become Admin"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(o) = org_mut(this) {
-                            o.ui.menu = None;
-                        }
-                        this.org_transfer(id, cx);
-                    }))
-                    .test_support(),
-                )
-                .child(div().h(px(1.)).my(px(4.)).bg(t.line));
-        }
         let removable = !admin || i_admins;
-        if removable {
-            more_menu = more_menu.child(
-                menu_item(format!("revoke-{id}"), t, Some("trash"), "Remove", true)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(o) = org_mut(this) {
-                            o.ui.menu = None;
-                        }
-                        this.org_revoke(id, cx);
-                    }))
-                    .test_support(),
-            );
-        }
+        let more_menu = member_menu(o, st, m, t, cx).top(px(28.)).right_0();
         let editable = !me && (!admin || i_admins);
         table = table.child(
             cols(div())
+                .id(SharedString::from(format!("member-{id}")))
                 .min_h(px(52.))
                 .py(px(8.))
+                .when(!me, |d| {
+                    d.on_mouse_down(
+                        gpui_kit::MouseButton::Right,
+                        super::ctx::on_right(super::ctx::CtxTarget::Member(id), cx),
+                    )
+                })
                 .border_b_1()
                 .border_color(t.line)
                 .child(
@@ -633,7 +607,8 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .when(o.ui.menu == Some(OrgMenu::More(id)), |d| {
                             d.child(deferred(more_menu))
                         }),
-                ),
+                )
+                .test_support(),
         );
     }
     for inv in &st.invites {
@@ -690,9 +665,9 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         true,
                     )
                     .child("Revoke")
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.org_invite_action(id, false, cx)),
-                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.ask_action(crate::app::ConfirmAction::RevokeInvite(id), cx)
+                    }))
                     .test_support(),
                 ),
         );
@@ -809,6 +784,103 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 )
             }),
     )
+}
+
+/// Actions on a member (row "⋯" and right-click, mockup 33d); the irreversible ones ask first.
+fn ask(
+    a: crate::app::ConfirmAction,
+    cx: &mut Context<CleisApp>,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static {
+    cx.listener(
+        move |this: &mut CleisApp, _: &gpui_kit::ClickEvent, _, cx| {
+            if let Some(o) = org_mut(this) {
+                o.ui.menu = None;
+            }
+            if let Some(s) = this.session() {
+                s.ctx = None;
+            }
+            this.ask_action(a, cx);
+        },
+    )
+}
+
+pub fn member_menu(
+    o: &OrgSession,
+    st: &State,
+    m: &MemberView,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    use crate::app::ConfirmAction as A;
+    let id = m.id;
+    let me = m.id == st.me.id;
+    let admin = is_admin_role(&m.role);
+    let i_admins = o.can(Perm::Admins);
+    let i_super = st.me.role == SUPER_ADMIN;
+    let mut menu = menu_box(t).w(px(240.));
+    let reach = !me && (!admin || i_admins);
+    if reach && o.can(Perm::Rules) {
+        menu = menu.child(
+            menu_item(
+                format!("resetstep-{id}"),
+                t,
+                Some("key"),
+                "Reset two-step verification",
+                false,
+            )
+            .tooltip(tip("Set up again at the next sign-in"))
+            .on_click(ask(A::ResetStep(id), cx))
+            .test_support(),
+        );
+    }
+    if reach && o.can(Perm::Manage) {
+        menu = menu.child(
+            menu_item(
+                format!("signout-{id}"),
+                t,
+                Some("logout"),
+                "Sign out everywhere",
+                false,
+            )
+            .on_click(ask(A::SignOutMember(id), cx))
+            .test_support(),
+        );
+    }
+    if i_super && m.role != SUPER_ADMIN {
+        menu = menu
+            .child(div().h(px(1.)).my(px(4.)).bg(t.line))
+            .child(
+                menu_item(
+                    format!("mksuper-{id}"),
+                    t,
+                    Some("shield"),
+                    "Make Super Admin",
+                    false,
+                )
+                .on_click(ask(A::MakeSuper(id), cx))
+                .test_support(),
+            )
+            .child(
+                menu_item(
+                    format!("transfer-{id}"),
+                    t,
+                    Some("refresh"),
+                    "Transfer Super Admin…",
+                    false,
+                )
+                .tooltip(tip("You become Admin"))
+                .on_click(ask(A::TransferSuper(id), cx))
+                .test_support(),
+            );
+    }
+    if reach {
+        menu = menu.child(div().h(px(1.)).my(px(4.)).bg(t.line)).child(
+            menu_item(format!("revoke-{id}"), t, Some("trash"), "Remove…", true)
+                .on_click(ask(A::RemoveMember(id), cx))
+                .test_support(),
+        );
+    }
+    menu
 }
 
 fn perm_tip(p: Perm) -> Option<&'static str> {
@@ -1524,7 +1596,9 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     button("rotate", t, BtnKind::Default, false)
                         .child(icon("refresh", 14., t.text))
                         .child("Rotate")
-                        .on_click(cx.listener(|this, _, _, cx| this.org_rotate(cx)))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.ask_action(crate::app::ConfirmAction::RotateKey, cx)
+                        }))
                         .test_support(),
                 ),
         );
@@ -1705,7 +1779,9 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             button("org-leave", t, BtnKind::DangerGhost, false)
                                 .child("Leave")
                                 .tooltip(tip("Forgets the organization's spaces on this vault"))
-                                .on_click(cx.listener(|this, _, _, cx| this.org_leave(cx)))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.ask_action(crate::app::ConfirmAction::LeaveOrg, cx)
+                                }))
                                 .test_support(),
                         ),
                 ),
@@ -2516,7 +2592,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             "{} · {}",
             o.m.name,
             if c.setup {
-                "second sign-in step"
+                "two-step verification"
             } else {
                 "verification"
             }
@@ -3446,6 +3522,61 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 _ => {}
             }
         }
+        "ctx-entry" | "ctx-space" | "ctx-contact" | "ctx-member" | "confirm-transfer"
+        | "confirm-remove" => {
+            use super::ctx::{CtxMenu, CtxTarget, Sub};
+            use gpui_kit::point;
+            let Some(s) = app.session() else { return };
+            let member = s
+                .org
+                .as_ref()
+                .and_then(|o| o.state.as_ref())
+                .and_then(|st| st.members.get(1).map(|m| m.id));
+            let (target, at, sub) = match m {
+                "ctx-entry" => {
+                    let id = s.visible.get(1).map(|i| s.entries[*i].id);
+                    s.selected = id;
+                    (
+                        id.map(CtxTarget::Entry),
+                        point(px(470.), px(196.)),
+                        Some(Sub::Move),
+                    )
+                }
+                "ctx-space" => (
+                    s.spaces
+                        .iter()
+                        .find(|x| x.name == "Design")
+                        .map(|x| CtxTarget::Space(x.id)),
+                    point(px(120.), px(400.)),
+                    None,
+                ),
+                "ctx-contact" => {
+                    let id = super::contacts::listed(s).get(1).map(|c| c.id);
+                    s.selected_contact = id;
+                    (id.map(CtxTarget::Contact), point(px(420.), px(196.)), None)
+                }
+                "ctx-member" => (
+                    member.map(CtxTarget::Member),
+                    point(px(640.), px(250.)),
+                    Some(Sub::Role),
+                ),
+                _ => (None, point(px(0.), px(0.)), None),
+            };
+            if let Some(target) = target {
+                s.ctx = Some(CtxMenu { at, target, sub });
+            }
+            if let Some(id) = member {
+                match m {
+                    "confirm-transfer" => {
+                        app.ask_action(crate::app::ConfirmAction::TransferSuper(id), cx)
+                    }
+                    "confirm-remove" => {
+                        app.ask_action(crate::app::ConfirmAction::RemoveMember(id), cx)
+                    }
+                    _ => {}
+                }
+            }
+        }
         "rekey" => {
             if let Some(o) = org_mut(app) {
                 let acc = o
@@ -3630,7 +3761,7 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 .id("second-step")
                                 .flex_1()
                                 .tooltip(tip("Asked at sign-in, after the account key"))
-                                .child("Second step"),
+                                .child("Two-step verification"),
                         )
                         .child(
                             div().text_color(t.text_muted).child(

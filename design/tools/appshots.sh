@@ -53,5 +53,10 @@ for theme in ${THEMES:-dark}; do
   shot "folder-menu-$theme" --demo --unlocked --menu folder-menu --theme $theme
   shot "delete-folder-$theme" --demo --unlocked --menu delete-folder --theme $theme
   shot "delete-space-$theme" --demo --unlocked --tab settings --page spaces --menu delete-space --theme $theme
+  shot "ctx-entry-$theme" --demo --unlocked --menu ctx-entry --theme $theme
+  shot "ctx-space-$theme" --demo --unlocked --menu ctx-space --theme $theme
+  shot "ctx-contact-$theme" --demo --unlocked --tab contacts --menu ctx-contact --theme $theme
+  shot "ctx-member-$theme" --demo --unlocked --tab settings --page members --menu ctx-member --theme $theme
+  shot "confirm-transfer-$theme" --demo --unlocked --tab settings --page members --menu confirm-transfer --theme $theme
 done
 echo "captures in $out"

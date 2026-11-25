@@ -26,6 +26,10 @@ pub fn render(
     let Phase::Main(s) = &app.phase else {
         unreachable!()
     };
+    // A question takes the keyboard: Enter and Escape cancel it (mockup 34).
+    if s.confirm.is_some() && !s.main_focus.is_focused(window) {
+        window.focus(&s.main_focus.clone(), cx);
+    }
     let tab = s.tab;
     let page: AnyElement = match tab {
         Tab::Vault => vault_page(s, &t, window, cx).into_any_element(),
@@ -49,6 +53,27 @@ pub fn render(
         .on_key_down(
             cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
+                // Audit U-2: Escape closes the topmost menu or dialog.
+                if k.key == "escape" {
+                    if this.close_top(cx) {
+                        cx.stop_propagation();
+                    }
+                    return;
+                }
+                if k.key == "enter" && this.session().is_some_and(|s| s.confirm.is_some()) {
+                    cx.stop_propagation();
+                    this.cancel_confirm(cx);
+                    return;
+                }
+                // Item shortcuts (mockup 33) while no box has the keyboard.
+                if this
+                    .session()
+                    .is_some_and(|s| s.main_focus.is_focused(window) && s.confirm.is_none())
+                    && this.item_key(k, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 let cmd = if cfg!(target_os = "macos") {
                     k.modifiers.platform
                 } else {
@@ -126,6 +151,7 @@ pub fn render(
         .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::folders::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::places::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(super::ctx::render(s, &t, cx), |d, m| d.child(m))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
@@ -470,8 +496,13 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         let menu_open = s.folder_menu == Some(sp.id);
         d = d.child(
             div()
+                .id(SharedString::from(format!("pfw-{}", sp.id)))
                 .relative()
                 .group(gname.clone())
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::Space(sp.id), cx),
+                )
                 .child(item(
                     &format!("sp-{}", sp.id),
                     if sp.id == home { "user" } else { "folder" },
@@ -526,14 +557,22 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     for sp in org {
         let n = s.entries.iter().filter(|e| e.space == sp.id).count();
         let reserved = s.org.as_ref().is_some_and(|o| o.is_reserved(sp.id));
-        d = d.child(item(
-            &format!("sp-{}", sp.id),
-            if reserved { "lock" } else { "folder" },
-            sp.name.clone(),
-            Some(n),
-            Filter::Space(sp.id),
-            cx,
-        ));
+        d = d.child(
+            div()
+                .id(SharedString::from(format!("osw-{}", sp.id)))
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::Space(sp.id), cx),
+                )
+                .child(item(
+                    &format!("sp-{}", sp.id),
+                    if reserved { "lock" } else { "folder" },
+                    sp.name.clone(),
+                    Some(n),
+                    Filter::Space(sp.id),
+                    cx,
+                )),
+        );
     }
     d.child(div().flex_1())
         .child(
@@ -828,10 +867,16 @@ fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
                 .rounded(RADIUS_LG)
                 .cursor_pointer()
                 .hover(|d| d.bg(t.surface_hover))
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::Entry(id), cx),
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
                     if let Some(s) = this.session() {
                         s.selected = Some(id);
                         s.reveal = false;
+                        let f = s.main_focus.clone();
+                        window.focus(&f, cx);
                     }
                     cx.notify();
                 }))
@@ -1071,17 +1116,23 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                             .cursor_pointer()
                             .when(selected, |d| d.bg(t.selection))
                             .when(!selected, |d| d.hover(|s| s.bg(t.surface_hover)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Right,
+                                super::ctx::on_right(super::ctx::CtxTarget::Entry(id), cx),
+                            )
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 if let Some(s) = this.session() {
                                     s.selected = Some(id);
                                     s.reveal = false;
+                                    let f = s.main_focus.clone();
+                                    window.focus(&f, cx);
                                 }
                                 cx.notify();
                             }));
                         for c in &cols {
                             row = row.child(row_cell(&e, c, &all_cols, &t, now, selected, cx));
                         }
-                        row
+                        row.test_support()
                     })
                     .collect()
             },

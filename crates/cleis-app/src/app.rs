@@ -52,6 +52,16 @@ pub enum ConfirmAction {
     PurgeEntry(EntryId),
     EmptyTrash,
     DeleteContact(cleis_core::ContactId),
+    // Audit U-1: the organization's actions that cannot be undone from this window.
+    RemoveMember(cleis_core::MemberId),
+    TransferSuper(cleis_core::MemberId),
+    MakeSuper(cleis_core::MemberId),
+    ResetStep(cleis_core::MemberId),
+    SignOutMember(cleis_core::MemberId),
+    RevokeInvite(uuid::Uuid),
+    LeaveOrg,
+    RotateKey,
+    DisconnectPlace,
 }
 
 pub struct Welcome {
@@ -137,6 +147,8 @@ pub struct Session {
     /// Sync & backups: GitHub / SFTP place being set up (D-65).
     pub place: Option<crate::screens::places::PlaceDialog>,
     pub folder_menu: Option<cleis_core::SpaceId>,
+    /// Menu opened by a right-click (mockups 33 to 33d).
+    pub ctx: Option<crate::screens::ctx::CtxMenu>,
     /// Settings › Organization: joining one from an open vault.
     pub join: crate::screens::org::JoinForm,
     pub join_subs: Vec<Subscription>,
@@ -669,6 +681,7 @@ impl CleisApp {
             folder: None,
             place: None,
             folder_menu: None,
+            ctx: None,
             join: Default::default(),
             join_subs: vec![],
         };

@@ -164,7 +164,10 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .justify_end()
                         .gap(px(8.))
                         .child(
+                            // Mockup 34: Cancel holds the focus, Enter or Escape cancels.
                             button("confirm-cancel", t, BtnKind::Default, false)
+                                .border_2()
+                                .border_color(t.focus)
                                 .child("Cancel")
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if let Some(s) = this.session() {
@@ -192,6 +195,94 @@ impl CleisApp {
         cx.notify();
     }
 
+    /// Asks before an organization or sync action (audit U-1, mockups 34 and 34b).
+    pub fn ask_action(&mut self, action: ConfirmAction, cx: &mut Context<Self>) {
+        use ConfirmAction as A;
+        let Some(s) = self.session() else { return };
+        let member = |id: cleis_core::MemberId| {
+            s.org
+                .as_ref()
+                .and_then(|o| o.state.as_ref())
+                .and_then(|st| st.members.iter().find(|m| m.id == id))
+                .map(|m| m.name.clone())
+                .unwrap_or_default()
+        };
+        let org = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
+        let (title, body, button) = match action {
+            A::RemoveMember(id) => (
+                format!("Remove {}?", member(id)),
+                "Their access ends on every device. Re-encrypt the spaces they could open."
+                    .to_owned(),
+                "Remove",
+            ),
+            A::TransferSuper(id) => (
+                format!("Transfer Super Admin to {}?", member(id)),
+                "You become Admin.".to_owned(),
+                "Transfer",
+            ),
+            A::MakeSuper(id) => (
+                format!("Make {} Super Admin?", member(id)),
+                "They can do everything, including taking this role from you.".to_owned(),
+                "Make Super Admin",
+            ),
+            A::ResetStep(id) => (
+                format!("Reset two-step verification for {}?", member(id)),
+                "They are signed out and set it up again at their next sign-in.".to_owned(),
+                "Reset",
+            ),
+            A::SignOutMember(id) => (
+                format!("Sign {} out everywhere?", member(id)),
+                "Every device asks them to sign in again.".to_owned(),
+                "Sign out",
+            ),
+            A::RevokeInvite(id) => (
+                format!(
+                    "Revoke the invitation to {}?",
+                    s.org
+                        .as_ref()
+                        .and_then(|o| o.state.as_ref())
+                        .and_then(|st| st.invites.iter().find(|i| i.id == id))
+                        .map(|i| i.email.clone())
+                        .unwrap_or_default()
+                ),
+                "Its code stops working.".to_owned(),
+                "Revoke",
+            ),
+            A::LeaveOrg => (
+                format!("Leave {org}?"),
+                "Its spaces are removed from this vault. Joining again needs a new invitation."
+                    .to_owned(),
+                "Leave",
+            ),
+            A::RotateKey => (
+                "Rotate the server key?".to_owned(),
+                "The new key is used after the server's next restart, 7 days from now.".to_owned(),
+                "Rotate",
+            ),
+            A::DisconnectPlace => (
+                format!("Disconnect {}?", s.sync.provider.name()),
+                "This device stops syncing there. The copy already there is kept.".to_owned(),
+                "Disconnect",
+            ),
+            _ => return,
+        };
+        s.confirm = Some(Confirm {
+            title: title.into(),
+            body: body.into(),
+            button: button.into(),
+            action,
+        });
+        cx.notify();
+    }
+
+    /// Closes the question without acting (Cancel, Escape, Enter).
+    pub fn cancel_confirm(&mut self, cx: &mut Context<Self>) {
+        if let Some(s) = self.session() {
+            s.confirm = None;
+        }
+        cx.notify();
+    }
+
     fn confirmed(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let Some(c) = s.confirm.take() else { return };
@@ -205,6 +296,22 @@ impl CleisApp {
             ConfirmAction::DeleteContact(id) => {
                 self.delete_contact(id);
             }
+            ConfirmAction::RemoveMember(id) => self.org_revoke(id, cx),
+            ConfirmAction::TransferSuper(id) => self.org_transfer(id, cx),
+            ConfirmAction::MakeSuper(id) => self.org_member(
+                cleis_core::org::MemberChange {
+                    member: id,
+                    role: Some(cleis_core::org::SUPER_ADMIN.into()),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            ConfirmAction::ResetStep(id) => self.org_reset_step(id, cx),
+            ConfirmAction::SignOutMember(id) => self.org_sign_out_member(id, cx),
+            ConfirmAction::RevokeInvite(id) => self.org_invite_action(id, false, cx),
+            ConfirmAction::LeaveOrg => self.org_leave(cx),
+            ConfirmAction::RotateKey => self.org_rotate(cx),
+            ConfirmAction::DisconnectPlace => self.disconnect_sync(cx),
             ConfirmAction::EmptyTrash => {
                 let ids: Vec<_> = s.trash.iter().map(|e| e.id).collect();
                 let mut failed = 0;

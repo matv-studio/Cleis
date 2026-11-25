@@ -382,6 +382,37 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     vérifié par clippy pour Windows et macOS ; essai `biometric_unlock` avec une doublure
     (`test-support`). Reste à essayer sur un vrai Windows Hello et un vrai Touch ID.
 
+- **D-67 Droits délégués à l'Admin** (25/11/2026, après l'audit complet) :
+  - Quatre droits « délégables » : journal et rapport de santé (`Audit`), sauvegardes du serveur
+    (`Backups`), clé de récupération et clés du serveur (`Keys`), règles de connexion et du journal
+    (`Rules`). Seul un Super Admin les coche, et seulement dans la colonne Admin ; par défaut
+    l'Admin n'a que le journal. Les autres rôles n'en reçoivent aucun.
+  - Pourquoi : le Super Admin (comptabilité ou direction) décide ce qu'il confie ; la sauvegarde du
+    serveur contient la clé du serveur et les clés des authentificateurs des membres.
+  - Le serveur vérifie chaque droit (`backup`, `recovery`, `rotate`, `set_policy` si une règle
+    change, `reset_step`) ; l'appli grise et verrouille les sections (« Set by a Super Admin »).
+  - Corrige aussi S-1 (une invitation d'admin ne se renouvelle que par un Super Admin), L-1 (un
+    changement refusé par le rôle est remis), L-2 (un élément de l'organisation n'en sort pas).
+  - Maquettes 07f, 08b.
+
+- **D-68 Menus contextuels, confirmations, Échap** (25/11/2026) :
+  - Clic droit sur un élément du coffre, un espace ou un dossier de la barre latérale, un contact,
+    un membre (maquettes 33 à 33d) : menu à la position du pointeur, sous-menus « ▸ » au survol,
+    actions grisées avec leur raison en info-bulle (droits du rôle, règle L-2). Le menu « ⋯ » d'un
+    membre et le clic droit partagent la même liste.
+  - Raccourcis de l'élément choisi, quand aucune case n'a le clavier : Ctrl+C identifiant,
+    Ctrl+Maj+C mot de passe, Ctrl+Alt+C code 2FA, Ctrl+D dupliquer, Suppr corbeille (⌘ sur Mac) ;
+    Suppr sur un contact demande confirmation.
+  - Confirmation (bouton rouge, Annuler a le focus ; Entrée et Échap annulent) avant : retirer un
+    membre, transférer ou donner le rôle Super Admin, réinitialiser la vérification en deux
+    étapes, déconnecter un membre partout, révoquer une invitation, quitter l'organisation,
+    changer la clé du serveur, déconnecter la place de synchronisation (audit U-1, maquettes 34).
+  - Échap ferme le menu ou le dialogue du dessus ; un clic hors d'un menu contextuel le ferme
+    sans atteindre l'élément dessous (audit U-2).
+  - Nouvelles routes du serveur : `/v1/members/reset-step` (droit Rules), `/v1/members/sign-out`
+    (Manage) ; un admin visé demande le droit Admins.
+  - Nom unique « Two-step verification » / « 2-step » pour la deuxième étape du serveur (U-4).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -393,3 +424,5 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 8. Essai de Windows Hello et Touch ID sur de vraies machines (D-66).
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).
+9. Onglets de coffre (coffre personnel dans les onglets, un onglet par organisation, maquettes
+   32 à 32d) : validés, à construire (plusieurs organisations par coffre).

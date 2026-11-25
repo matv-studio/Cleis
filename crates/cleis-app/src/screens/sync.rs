@@ -125,7 +125,9 @@ pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>
                     div().flex().items_center().gap(px(8.)).child(status).child(
                         button("sync-disconnect", t, BtnKind::Ghost, true)
                             .child("Disconnect")
-                            .on_click(cx.listener(|this, _, _, cx| this.disconnect_sync(cx)))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
+                            }))
                             .test_support(),
                     ),
                     true,

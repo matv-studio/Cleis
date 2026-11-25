@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-60,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-68,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -15,7 +15,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
    profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
-   delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp]
+   delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp|
+   ctx-entry|ctx-space|ctx-contact|ctx-member|confirm-transfer|confirm-remove]
    [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
@@ -30,7 +31,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   dans l'historique (D-41). Messages en anglais, à l'impératif, préfixés par la zone :
   `crypto: …`, `core: …`, `store: …`, `app: …`, `server: …`, `docs: …`, `ci: …`. Terminer par les
   lignes `Co-Authored-By` et `Claude-Session`.
-- Branches : `feat/<sujet>`, `fix/<sujet>`, fusion par PR. `main` reste vert.
+- Branches : `feat/<sujet>`, `fix/<sujet>`. Les choix validés sont poussés directement sur la
+  branche de travail (`feat/full-app`), sans PR (demande de l'utilisateur). `main` reste vert.
 - Langue : anglais pour l'interface et le code ; anglais + français à la sortie des versions.
 - Chiffrement : aucune primitive écrite à la main ; tout passe par `cleis-crypto`, qui fixe les formats
   (octet de version en tête). Toute nouvelle combinaison reçoit un test avec un vecteur officiel.
@@ -93,6 +95,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   par `HasWindowHandle::window_handle(window)`.
 - Windows : jamais d'appui simulé sur Alt pour prendre le premier plan (l'appli devant affiche ses
   touches d'accès) ; `cleis_autofill::activate` utilise F22.
+- Clic droit dans les essais : `w.right_click(id)` ; l'élément doit porter `.test_support()`. Les
+  raccourcis d'un élément (Suppr, Ctrl+D…) ne partent que si `main_focus` a le clavier (clic sur
+  une ligne ou ouverture d'un menu contextuel).
 - Minuteries dans les essais e2e : `cx.executor().advance_clock(...)` puis `run_until_parked()`.
 - Réseau : jamais d'appel bloquant sur le fil de l'interface ; `cx.background_spawn` (trait
   `AppContext` à importer par `gpui_kit::prelude::*`), puis application au coffre dans `update`.

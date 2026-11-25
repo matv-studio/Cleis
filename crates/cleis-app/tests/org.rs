@@ -395,6 +395,7 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
     act(cx, lh, |w, cx| w.click("set-Members", cx));
     act(cx, lh, |w, cx| w.click(format!("more-{hugo_id0}"), cx));
     act(cx, lh, |w, cx| w.click(format!("transfer-{hugo_id0}"), cx));
+    act(cx, lh, |w, cx| w.click("confirm-ok", cx));
     sync(cx, &lea);
     sync(cx, &hugo);
     session(cx, &lea, |s| {
@@ -407,8 +408,12 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
     });
     act(cx, hh, |w, cx| w.click("tab-Settings", cx));
     act(cx, hh, |w, cx| w.click("set-Members", cx));
-    act(cx, hh, |w, cx| w.click(format!("more-{lea_id}"), cx));
+    // Hugo goes through the row's right-click menu (mockup 33d).
+    act(cx, hh, |w, cx| {
+        w.right_click(format!("member-{lea_id}"), cx)
+    });
     act(cx, hh, |w, cx| w.click(format!("transfer-{lea_id}"), cx));
+    act(cx, hh, |w, cx| w.click("confirm-ok", cx));
     sync(cx, &lea);
     session(cx, &lea, |s| {
         let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
@@ -480,6 +485,7 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
     act(cx, lh, |w, cx| w.click("set-Members", cx));
     act(cx, lh, |w, cx| w.click(format!("more-{hugo_id}"), cx));
     act(cx, lh, |w, cx| w.click(format!("revoke-{hugo_id}"), cx));
+    act(cx, lh, |w, cx| w.click("confirm-ok", cx));
     sync(cx, &lea);
     sync(cx, &hugo);
     session(cx, &hugo, |s| {
