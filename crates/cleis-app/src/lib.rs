@@ -10,6 +10,7 @@ pub mod demo;
 pub mod editor;
 pub mod format;
 pub mod kit;
+pub mod org;
 pub mod screens;
 pub mod sync;
 pub mod theme;

@@ -38,6 +38,23 @@ impl Vault {
         let _ = std::fs::remove_file(&tmp);
         self.conn
             .execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])?;
+        // Organization spaces live on their server, not in personal copies (D-59).
+        let stripped = (|| -> Result<()> {
+            let c = Connection::open(&tmp)?;
+            c.pragma_update(None, "secure_delete", "ON")?;
+            c.execute_batch(
+                "DELETE FROM records WHERE space IN (SELECT id FROM spaces WHERE org IS NOT NULL);
+                 DELETE FROM purged WHERE space IN (SELECT id FROM spaces WHERE org IS NOT NULL);
+                 DELETE FROM spaces WHERE org IS NOT NULL;
+                 DELETE FROM meta WHERE key LIKE 'org_seq:%';
+                 VACUUM;",
+            )?;
+            Ok(())
+        })();
+        if let Err(e) = stripped {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
         std::fs::rename(&tmp, dest).map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
             StoreError::Io(e.to_string())
@@ -91,9 +108,10 @@ impl Vault {
                 c,
                 "SELECT
                    (SELECT count(*) FROM main.records m LEFT JOIN o.records t USING (kind, id)
-                      WHERE t.id IS NULL OR m.changed > t.changed)
+                      WHERE (t.id IS NULL OR m.changed > t.changed)
+                        AND m.space NOT IN (SELECT id FROM main.spaces WHERE org IS NOT NULL))
                  + (SELECT count(*) FROM main.spaces m LEFT JOIN o.spaces t USING (id)
-                      WHERE t.id IS NULL OR m.changed > t.changed)
+                      WHERE m.org IS NULL AND (t.id IS NULL OR m.changed > t.changed))
                  + (SELECT count(*) FROM main.settings m LEFT JOIN o.settings t USING (key)
                       WHERE t.key IS NULL OR m.changed > t.changed)",
             )?;
@@ -104,23 +122,24 @@ impl Vault {
                       LEFT JOIN main.purged p USING (kind, id)
                       WHERE (m.id IS NULL OR t.changed > m.changed) AND (p.id IS NULL OR t.changed > p.at))
                  + (SELECT count(*) FROM o.spaces t LEFT JOIN main.spaces m USING (id)
-                      WHERE m.id IS NULL OR t.changed > m.changed)
+                      WHERE t.org IS NULL AND (m.id IS NULL OR t.changed > m.changed))
                  + (SELECT count(*) FROM o.settings t LEFT JOIN main.settings m USING (key)
                       WHERE m.key IS NULL OR t.changed > m.changed)",
             )?;
             // Spaces first: records point at them.
             c.execute_batch(
                 "INSERT INTO main.spaces(id, wrapped_key, sealed, rev, changed)
-                   SELECT id, wrapped_key, sealed, rev, changed FROM o.spaces t WHERE true
+                   SELECT id, wrapped_key, sealed, rev, changed FROM o.spaces t WHERE t.org IS NULL
                    ON CONFLICT(id) DO UPDATE SET wrapped_key = excluded.wrapped_key,
                      sealed = excluded.sealed, rev = excluded.rev, changed = excluded.changed
-                   WHERE excluded.changed > main.spaces.changed;
+                   WHERE excluded.changed > main.spaces.changed AND main.spaces.org IS NULL;
                  INSERT INTO main.purged(kind, id, at)
-                   SELECT kind, id, at FROM o.purged WHERE true
+                   SELECT kind, id, at FROM o.purged WHERE sent = 1
                    ON CONFLICT(kind, id) DO UPDATE SET at = max(main.purged.at, excluded.at);
                  INSERT INTO main.records(kind, id, space, sealed, rev, updated, deleted, changed)
                    SELECT kind, id, space, sealed, rev, updated, deleted, changed FROM o.records t
-                   WHERE true
+                   WHERE t.space NOT IN (SELECT id FROM o.spaces WHERE org IS NOT NULL)
+                     AND t.space NOT IN (SELECT id FROM main.spaces WHERE org IS NOT NULL)
                    ON CONFLICT(kind, id) DO UPDATE SET space = excluded.space,
                      sealed = excluded.sealed, rev = excluded.rev, updated = excluded.updated,
                      deleted = excluded.deleted, changed = excluded.changed

@@ -231,6 +231,19 @@ impl Client {
         decode(r)
     }
 
+    /// [`Client::call`], also giving the hash of the certificate the server presented (signed
+    /// into the sign-in, stored after joining).
+    pub fn call_cert<Q: Serialize, R: DeserializeOwned>(
+        &self,
+        path: &str,
+        req: &Q,
+    ) -> Result<(R, [u8; 32]), NetError> {
+        let body = serde_json::to_vec(req).map_err(|e| NetError::Bad(e.to_string()))?;
+        let r = self.send("POST", path, Some(&body))?;
+        let cert = r.cert;
+        Ok((decode(r)?, cert))
+    }
+
     pub fn get<R: DeserializeOwned>(&self, path: &str) -> Result<R, NetError> {
         decode(self.send("GET", path, None)?)
     }

@@ -186,7 +186,7 @@ impl QuickAccess {
                 (e.password.clone(), "Password")
             }
         };
-        a.update(cx, |a, cx| a.copy(text, what, cx));
+        a.update(cx, |a, cx| a.copy_of(it.id, text, what, cx));
         self.close(window, cx);
     }
 

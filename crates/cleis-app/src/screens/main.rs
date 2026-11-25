@@ -22,6 +22,7 @@ pub fn render(
     let t = app.tokens(cx).clone();
     app.ensure_editor(window, cx);
     app.ensure_contact_editor(window, cx);
+    app.ensure_org_inputs(window, cx);
     let Phase::Main(s) = &app.phase else {
         unreachable!()
     };
@@ -30,7 +31,10 @@ pub fn render(
         Tab::Vault => vault_page(s, &t, window, cx).into_any_element(),
         Tab::Contacts => super::contacts::page(s, &t, cx).into_any_element(),
         Tab::Health => super::health::page(s, &t, cx).into_any_element(),
-        Tab::Settings => super::settings::page(s, &app.autofill, &t, cx).into_any_element(),
+        Tab::Activity => super::org::activity(s, &t, cx).into_any_element(),
+        Tab::Settings => {
+            super::settings::page(s, &app.autofill, &app.path, &t, cx).into_any_element()
+        }
     };
     let toast = s.toast.clone();
     div()
@@ -119,6 +123,7 @@ pub fn render(
         .when_some(s.security.dialog.as_ref(), |d, dlg| {
             d.child(super::security::dialog(s, dlg, &t, cx))
         })
+        .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
@@ -133,6 +138,12 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
         tabs.push((Tab::Health, "Health"));
     }
     // Activity exists only for an organisation (D-38): a personal vault has no log.
+    if s.org
+        .as_ref()
+        .is_some_and(|o| o.can(cleis_core::org::Perm::Audit))
+    {
+        tabs.push((Tab::Activity, "Activity"));
+    }
     tabs.push((Tab::Settings, "Settings"));
     let mut nav = div().flex().items_end().h(TOPBAR_H);
     for (tab, label) in tabs {
@@ -148,6 +159,9 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(s) = this.session() {
                     s.tab = tab;
+                }
+                if tab == Tab::Activity {
+                    this.org_query_log(cx);
                 }
                 cx.notify();
             }));
@@ -209,7 +223,11 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                         .items_center()
                         .gap(px(6.))
                         .font_weight(W_MEDIUM)
-                        .child("My vault"),
+                        .child(
+                            s.org
+                                .as_ref()
+                                .map_or("My vault".to_owned(), |o| o.m.name.clone()),
+                        ),
                 ),
         )
         .child(nav)
@@ -221,16 +239,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                 .items_center()
                 .justify_end()
                 .gap(px(8.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .child(div().size(px(6.)).rounded_full().bg(t.success_text))
-                        .child("On this computer"),
-                )
+                .child(sync_status(s, t, cx))
                 .child(
                     icon_button("lock", t, "lock", false)
                         .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx)))
@@ -258,6 +267,69 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
         .border_b_0()
         .pr(px(8.))
         .child(bar)
+}
+
+/// Top bar: where the vault lives and whether it is in step (mockup: "Synced").
+fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
+    let (dot, label, tip_text): (gpui_kit::Hsla, String, String) = match &s.org {
+        None => (
+            t.success_text,
+            "On this computer".into(),
+            "Personal vault, on this computer".into(),
+        ),
+        Some(o) if o.busy && o.local.last_ok.is_none() => (
+            t.text_faint,
+            "Syncing…".into(),
+            format!("Reaching {}", o.m.address),
+        ),
+        Some(o) if o.error.is_some() || o.offline_locked => (
+            t.warning_text,
+            "Offline".into(),
+            format!(
+                "{} not reached{}",
+                o.m.address,
+                o.error
+                    .as_ref()
+                    .map(|e| format!(": {e}"))
+                    .unwrap_or_default()
+            ),
+        ),
+        Some(o) => (
+            t.success_text,
+            "Synced".into(),
+            o.local.last_ok.map_or(String::new(), |ts| {
+                format!(
+                    "Synced with {} · {}",
+                    o.m.address,
+                    crate::format::when(ts, cleis_core::now())
+                )
+            }),
+        ),
+    };
+    let tip_text: SharedString = tip_text.into();
+    div()
+        .id("sync-status")
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(TEXT_SM)
+        .text_color(t.text_muted)
+        .cursor_pointer()
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(tip_text.clone()).build(window, cx)
+        })
+        .child(div().size(px(6.)).rounded_full().bg(dot))
+        .child(label)
+        .when(s.org.is_some(), |d| {
+            d.on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
+        })
+        .when_some(s.org.as_ref().and_then(|o| o.me()), |d, m| {
+            d.child(
+                div()
+                    .ml(px(4.))
+                    .child(avatar(t, &crate::org::initials(&m.name), 24.)),
+            )
+        })
 }
 
 fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -383,19 +455,42 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             ));
         }
     }
-    if !org.is_empty() {
+    if let Some(o) = &s.org {
+        let manage = o.can(cleis_core::org::Perm::Manage);
+        d = d.child(
+            div()
+                .flex()
+                .items_center()
+                .child(div().flex_1().child(group(&o.m.name)))
+                .when(manage, |d| {
+                    d.child(
+                        div().pt(px(8.)).child(
+                            icon_button("new-space", t, "plus", true)
+                                .tooltip(|window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new("New space")
+                                        .build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_new_space(window, cx)
+                                }))
+                                .test_support(),
+                        ),
+                    )
+                }),
+        );
+    } else if !org.is_empty() {
         d = d.child(group("Organization"));
-        for sp in org {
-            let n = s.entries.iter().filter(|e| e.space == sp.id).count();
-            d = d.child(item(
-                &format!("sp-{}", sp.id),
-                "folder",
-                sp.name.clone(),
-                Some(n),
-                Filter::Space(sp.id),
-                cx,
-            ));
-        }
+    }
+    for sp in org {
+        let n = s.entries.iter().filter(|e| e.space == sp.id).count();
+        d = d.child(item(
+            &format!("sp-{}", sp.id),
+            "folder",
+            sp.name.clone(),
+            Some(n),
+            Filter::Space(sp.id),
+            cx,
+        ));
     }
     d.child(div().flex_1())
         .child(
@@ -529,7 +624,7 @@ fn row_cell(
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
-                            this.copy(u.clone(), "Username", cx);
+                            this.copy_of(id, u.clone(), "Username", cx);
                         }))
                         .test_support(),
                 )
@@ -554,7 +649,7 @@ fn row_cell(
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.copy(p.clone(), "Password", cx);
+                        this.copy_of(id, p.clone(), "Password", cx);
                     })),
             )
             .into_any_element()

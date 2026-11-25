@@ -1,0 +1,2702 @@
+//! Organization screens (mockups 07 Members, 08/18 Security policy, 09/10 Encryption, 11
+//! Activity, 13 Sync & backups of the organization) and their dialogs: invitation, new space,
+//! new role, re-encryption, verification code asked by the server.
+
+use crate::app::{CleisApp, Session};
+use crate::org::{OrgSession, initials};
+use crate::theme::*;
+use crate::ui::*;
+use cleis_core::org::*;
+use cleis_core::{MemberId, SpaceId};
+use gpui_kit::TestSupportExt;
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::prelude::*;
+use gpui_kit::{Context, Div, Entity, SharedString, Subscription, Window, deferred, div, px};
+use std::collections::BTreeSet;
+use std::rc::Rc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrgMenu {
+    Role(MemberId),
+    Spaces(MemberId),
+    More(MemberId),
+    Policy(&'static str),
+    Log(&'static str),
+    InviteRole,
+}
+
+pub struct InviteForm {
+    pub email: Entity<InputState>,
+    pub name: Entity<InputState>,
+    pub role: String,
+    pub spaces: BTreeSet<SpaceId>,
+    pub error: Option<SharedString>,
+}
+
+pub struct SpaceForm {
+    pub name: Entity<InputState>,
+    pub mode: SpaceMode,
+}
+
+pub struct RoleForm {
+    pub name: Entity<InputState>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RekeyForm {
+    pub space: SpaceId,
+    pub to: SpaceMode,
+    pub backup_first: bool,
+}
+
+/// Join form of Settings › Organization and of the first launch.
+#[derive(Default)]
+pub struct JoinForm {
+    pub address: Option<Entity<InputState>>,
+    pub code: Option<Entity<InputState>>,
+    pub name: Option<Entity<InputState>>,
+    pub email: Option<Entity<InputState>>,
+    /// What the code is for, once checked.
+    pub info: Option<InviteInfo>,
+    pub checking: bool,
+    pub error: Option<SharedString>,
+    pub busy: bool,
+}
+
+#[derive(Default)]
+pub struct OrgUi {
+    pub subs: Vec<Subscription>,
+    pub menu: Option<OrgMenu>,
+    pub invite: Option<InviteForm>,
+    /// Code of the invitation just made, shown with a copy button.
+    pub invite_code: Option<String>,
+    pub new_space: Option<SpaceForm>,
+    pub new_role: Option<RoleForm>,
+    pub rekey: Option<RekeyForm>,
+    /// Encryption page: modes chosen but not applied yet.
+    pub changes: Vec<(SpaceId, SpaceMode)>,
+    pub search: Option<Entity<InputState>>,
+    pub log_search: Option<Entity<InputState>>,
+    pub log: Option<LogPage>,
+    pub log_busy: bool,
+    pub log_member: Option<MemberId>,
+    pub log_action: Option<Action>,
+    pub log_space: Option<SpaceId>,
+    /// Last N days (None: all kept).
+    pub log_days: Option<u32>,
+    /// Sync & backups: the organization's view rather than "Mine".
+    pub org_backups: bool,
+    /// Backup asked to be restored (confirmation).
+    pub restore: Option<std::path::PathBuf>,
+}
+
+impl OrgUi {
+    pub fn log_query(&self) -> LogQuery {
+        LogQuery {
+            member: self.log_member,
+            action: self.log_action,
+            space: self.log_space,
+            after: self
+                .log_days
+                .map(|d| cleis_core::now() - i64::from(d) * 86_400),
+            before: None,
+            limit: 2000,
+        }
+    }
+}
+
+fn tip(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
+    let text: SharedString = text.into();
+    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+}
+
+pub type Pick = Rc<dyn Fn(&mut CleisApp, usize, &mut Context<CleisApp>)>;
+
+/// Segmented control whose options call `pick(index)`.
+pub fn segment(
+    id: &str,
+    t: &Tokens,
+    options: &[&str],
+    selected: usize,
+    pick: Pick,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    seg(id, t, options, selected, pick, cx)
+}
+
+fn seg(
+    id: &str,
+    t: &Tokens,
+    options: &[&str],
+    selected: usize,
+    pick: Pick,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    let mut d = div()
+        .flex()
+        .flex_none()
+        .p(px(2.))
+        .gap(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD);
+    for (i, o) in options.iter().enumerate() {
+        let on = i == selected;
+        let pick = pick.clone();
+        d = d.child(
+            div()
+                .id(SharedString::from(format!("{id}-{i}")))
+                .h(px(22.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .rounded(RADIUS_SM)
+                .text_size(TEXT_MD)
+                .font_weight(W_MEDIUM)
+                .cursor_pointer()
+                .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
+                .when(!on, |d| d.text_color(t.text_muted))
+                .child((*o).to_owned())
+                .on_click(cx.listener(move |this, _, _, cx| pick(this, i, cx)))
+                .test_support(),
+        );
+    }
+    d
+}
+
+/// A select box opening a menu of `(label, current)`; `pick(index)` on choice.
+#[allow(clippy::too_many_arguments)]
+fn select(
+    id: &'static str,
+    t: &Tokens,
+    w: f32,
+    open: bool,
+    menu: OrgMenu,
+    options: Vec<(String, bool)>,
+    pick: Pick,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    let label = options
+        .iter()
+        .find(|o| o.1)
+        .map(|o| o.0.clone())
+        .unwrap_or_default();
+    let mut m = menu_box(t).top(px(30.)).left_0().min_w(px(w));
+    for (i, (name, on)) in options.into_iter().enumerate() {
+        let pick = pick.clone();
+        m = m.child(
+            menu_item(format!("{id}-{i}"), t, None, name, false)
+                .when(on, |d| d.text_color(t.accent_text))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(o) = org_mut(this) {
+                        o.ui.menu = None;
+                    }
+                    pick(this, i, cx);
+                    cx.notify();
+                }))
+                .test_support(),
+        );
+    }
+    div()
+        .relative()
+        .child(
+            div()
+                .id(id)
+                .child(
+                    value_box(t)
+                        .w(px(w))
+                        .h(px(26.))
+                        .cursor_pointer()
+                        .child(
+                            div()
+                                .flex_1()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .child(label),
+                        )
+                        .child(icon("chevron", 14., t.text_muted)),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(o) = org_mut(this) {
+                        o.ui.menu = if o.ui.menu == Some(menu) {
+                            None
+                        } else {
+                            Some(menu)
+                        };
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        )
+        .when(open, |d| d.child(deferred(m)))
+}
+
+pub fn org_mut(app: &mut CleisApp) -> Option<&mut OrgSession> {
+    app.session().and_then(|s| s.org.as_mut())
+}
+
+fn check_box(t: &Tokens, on: bool) -> Div {
+    div()
+        .size(px(16.))
+        .flex_none()
+        .rounded(RADIUS_SM)
+        .border_1()
+        .border_color(if on { t.accent_text } else { t.line_strong })
+        .when(on, |d| d.bg(t.accent_text))
+        .flex()
+        .items_center()
+        .justify_center()
+        .when(on, |d| d.child(icon("check", 12., t.primary_ink)))
+}
+
+fn head(t: &Tokens, title: &str) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .child(
+            div()
+                .flex_1()
+                .text_size(TEXT_XL)
+                .font_weight(W_STRONG)
+                .child(title.to_owned()),
+        )
+        .text_color(t.text)
+}
+
+fn titled(t: &Tokens, title: &str, info: Option<&'static str>) -> gpui_kit::Stateful<Div> {
+    let d = div()
+        .id(SharedString::from(format!("st-{title}")))
+        .child(section_title(t, title));
+    match info {
+        Some(i) => d.tooltip(tip(i)),
+        None => d,
+    }
+}
+
+// ---------- Members (07) ----------
+
+pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let Some(st) = o.state.as_ref() else {
+        return head(t, "Members").child(chip(t, Tone::Neutral, "Not reached yet", false));
+    };
+    let q =
+        o.ui.search
+            .as_ref()
+            .map(|i| i.read(cx).value().to_string())
+            .unwrap_or_default();
+    let ql = cleis_core::text::fold(q.trim());
+    let mut page = div().flex().flex_col().gap(px(16.));
+    page = page.child(
+        head(t, "Members")
+            .when_some(o.ui.search.as_ref(), |d, i| {
+                d.child(div().w(px(220.)).child(Input::new(i).id("member-search")))
+            })
+            .child(
+                button("invite", t, BtnKind::Primary, false)
+                    .child(icon("plus", 16., t.primary_ink))
+                    .child("Invite")
+                    .on_click(cx.listener(|this, _, window, cx| this.open_invite(window, cx)))
+                    .test_support(),
+            ),
+    );
+    let role_name = |id: &str| {
+        st.roles
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| id.to_owned())
+    };
+    let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(16.));
+    let mut table = div().flex().flex_col().child(
+        cols(div())
+            .h(px(32.))
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .child(div().w(px(240.)).child("Member"))
+            .child(div().w(px(130.)).child("Role"))
+            .child(div().flex_1().child("Spaces"))
+            .child(div().w(px(80.)).child("2FA"))
+            .child(
+                div()
+                    .id("h-export")
+                    .w(px(56.))
+                    .child("Export")
+                    .tooltip(tip("Allowed to export the organization's passwords")),
+            )
+            .child(div().w(px(140.)).child("Last sign-in"))
+            .child(div().w(px(28.))),
+    );
+    for m in st.members.iter().filter(|m| {
+        ql.is_empty()
+            || cleis_core::text::fold(&m.name).contains(&ql)
+            || cleis_core::text::fold(&m.email).contains(&ql)
+    }) {
+        let id = m.id;
+        let me = m.id == st.me.id;
+        let admin = m.role == ADMIN;
+        let roles: Vec<(String, bool)> = st
+            .roles
+            .iter()
+            .map(|r| (r.name.clone(), r.id == m.role))
+            .collect();
+        let role_ids: Vec<String> = st.roles.iter().map(|r| r.id.clone()).collect();
+        let role_sel = select(
+            leak(format!("role-{id}")),
+            t,
+            120.,
+            o.ui.menu == Some(OrgMenu::Role(id)),
+            OrgMenu::Role(id),
+            roles,
+            Rc::new(move |app, i, cx| {
+                app.org_member(
+                    MemberChange {
+                        member: id,
+                        role: role_ids.get(i).cloned(),
+                        ..Default::default()
+                    },
+                    cx,
+                )
+            }),
+            cx,
+        );
+        let mut chips = div().flex().flex_wrap().gap(px(4.));
+        if admin {
+            chips = chips.child(chip(t, Tone::Neutral, "All", false));
+        } else if m.spaces.is_empty() {
+            chips = chips.child(div().text_color(t.text_faint).child("—"));
+        } else {
+            for sp in &m.spaces {
+                chips = chips.child(chip(t, Tone::Neutral, o.space_name(*sp), false));
+            }
+        }
+        // Spaces menu: each space with a check.
+        let mut sm = menu_box(t).top(px(26.)).left_0().w(px(220.));
+        for sv in &st.spaces {
+            let on = m.spaces.contains(&sv.id);
+            let sid = sv.id;
+            let current = m.spaces.clone();
+            sm = sm.child(
+                menu_item(format!("msp-{id}-{sid}"), t, None, o.space_name(sid), false)
+                    .child(div().flex_1())
+                    .child(check_box(t, on))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let mut next = current.clone();
+                        if on {
+                            next.retain(|x| *x != sid);
+                        } else {
+                            next.push(sid);
+                        }
+                        this.org_member(
+                            MemberChange {
+                                member: id,
+                                spaces: Some(next),
+                                ..Default::default()
+                            },
+                            cx,
+                        );
+                    }))
+                    .test_support(),
+            );
+        }
+        let spaces_cell = div()
+            .relative()
+            .flex_1()
+            .child(
+                div()
+                    .id(SharedString::from(format!("spaces-{id}")))
+                    .cursor_pointer()
+                    .when(!admin, |d| d.tooltip(tip("Change the spaces")))
+                    .child(chips)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if admin {
+                            return;
+                        }
+                        if let Some(o) = org_mut(this) {
+                            o.ui.menu = if o.ui.menu == Some(OrgMenu::Spaces(id)) {
+                                None
+                            } else {
+                                Some(OrgMenu::Spaces(id))
+                            };
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .when(o.ui.menu == Some(OrgMenu::Spaces(id)), |d| {
+                d.child(deferred(sm))
+            });
+        let two_fa = if m.two_fa {
+            chip(t, Tone::Ok, "On", true)
+        } else {
+            chip(t, Tone::Warn, "To set up", true)
+        };
+        let export = switch(SharedString::from(format!("export-{id}")), t, m.export)
+            .when(admin, |d| {
+                d.opacity(0.5)
+                    .tooltip(tip("Administrators can always export"))
+            })
+            .when(!admin, |d| {
+                let on = m.export;
+                d.on_click(cx.listener(move |this, _, _, cx| {
+                    this.org_member(
+                        MemberChange {
+                            member: id,
+                            export: Some(!on),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                }))
+            })
+            .test_support();
+        let more_menu = menu_box(t).top(px(28.)).right_0().w(px(180.)).child(
+            menu_item(format!("revoke-{id}"), t, Some("trash"), "Remove", true)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(o) = org_mut(this) {
+                        o.ui.menu = None;
+                    }
+                    this.org_revoke(id, cx);
+                }))
+                .test_support(),
+        );
+        table = table.child(
+            cols(div())
+                .min_h(px(52.))
+                .py(px(8.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(
+                    div()
+                        .w(px(240.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(avatar(t, &initials(&m.name), 28.))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(m.name.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(TEXT_SM)
+                                        .text_color(t.text_muted)
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(m.email.clone()),
+                                ),
+                        ),
+                )
+                .child(div().w(px(130.)).child(if me {
+                    div().child(role_name(&m.role)).text_color(t.text_muted)
+                } else {
+                    role_sel
+                }))
+                .child(spaces_cell)
+                .child(div().w(px(80.)).child(two_fa))
+                .child(div().w(px(56.)).child(export))
+                .child(div().w(px(140.)).text_color(t.text_muted).child(
+                    m.last_sign_in.map_or("—".into(), |ts| {
+                        crate::format::when(ts, cleis_core::now())
+                    }),
+                ))
+                .child(
+                    div()
+                        .w(px(28.))
+                        .relative()
+                        .when(!me, |d| {
+                            d.child(
+                                icon_button(
+                                    SharedString::from(format!("more-{id}")),
+                                    t,
+                                    "more",
+                                    true,
+                                )
+                                .tooltip(tip("More"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(o) = org_mut(this) {
+                                        o.ui.menu = if o.ui.menu == Some(OrgMenu::More(id)) {
+                                            None
+                                        } else {
+                                            Some(OrgMenu::More(id))
+                                        };
+                                    }
+                                    cx.notify();
+                                }))
+                                .test_support(),
+                            )
+                        })
+                        .when(o.ui.menu == Some(OrgMenu::More(id)), |d| {
+                            d.child(deferred(more_menu))
+                        }),
+                ),
+        );
+    }
+    for inv in &st.invites {
+        let id = inv.id;
+        let days = (inv.expires - cleis_core::now()).div_euclid(86_400).max(0);
+        table = table.child(
+            cols(div())
+                .min_h(px(52.))
+                .py(px(8.))
+                .text_color(t.text_muted)
+                .child(
+                    div()
+                        .size(px(28.))
+                        .rounded_full()
+                        .border_1()
+                        .border_dashed()
+                        .border_color(t.line_strong)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(icon("mail", 14., t.text_muted)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_color(t.text).child(inv.email.clone()))
+                        .child(div().text_size(TEXT_SM).child(format!(
+                            "Invited {} · expires in {days} day{}",
+                            crate::format::date(inv.created),
+                            if days == 1 { "" } else { "s" }
+                        ))),
+                )
+                .child(
+                    button(
+                        SharedString::from(format!("resend-{id}")),
+                        t,
+                        BtnKind::Ghost,
+                        true,
+                    )
+                    .child("Resend")
+                    .tooltip(tip("New code, valid 7 days"))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.org_invite_action(id, true, cx)),
+                    )
+                    .test_support(),
+                )
+                .child(
+                    button(
+                        SharedString::from(format!("unvite-{id}")),
+                        t,
+                        BtnKind::DangerGhost,
+                        true,
+                    )
+                    .child("Revoke")
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.org_invite_action(id, false, cx)),
+                    )
+                    .test_support(),
+                ),
+        );
+    }
+    page = page.child(section(t).p_0().overflow_hidden().child(table));
+
+    // Roles matrix.
+    let mut matrix = div().flex().flex_col().child(
+        div()
+            .flex()
+            .h(px(32.))
+            .items_center()
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .border_b_1()
+            .border_color(t.line)
+            .child(div().flex_1())
+            .children(st.roles.iter().map(|r| {
+                div()
+                    .w(px(110.))
+                    .flex()
+                    .justify_center()
+                    .child(r.name.clone())
+            })),
+    );
+    for p in Perm::ALL {
+        let mut line = div()
+            .flex()
+            .h(px(34.))
+            .items_center()
+            .border_b_1()
+            .border_color(t.line)
+            .child(div().flex_1().child(p.label()));
+        for (ri, r) in st.roles.iter().enumerate() {
+            let on = r.can(p);
+            let fixed = r.is_admin();
+            let roles = st.roles.clone();
+            line = line.child(
+                div().w(px(110.)).flex().justify_center().child(
+                    div()
+                        .id(SharedString::from(format!("perm-{}-{p:?}", r.id)))
+                        .when(!fixed, |d| d.cursor_pointer())
+                        .when(fixed, |d| {
+                            d.opacity(0.6)
+                                .tooltip(tip("Admin can always do everything"))
+                        })
+                        .child(check_box(t, on))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if fixed {
+                                return;
+                            }
+                            let mut roles = roles.clone();
+                            let set = &mut roles[ri].perms;
+                            if !set.remove(&p) {
+                                set.insert(p);
+                            }
+                            this.org_set_roles(roles, cx);
+                        }))
+                        .test_support(),
+                ),
+            );
+        }
+        matrix = matrix.child(line);
+    }
+    page.child(
+        section(t)
+            .child(titled(
+                t,
+                "Roles",
+                Some("What each role can do in the spaces it can access."),
+            ))
+            .child(matrix)
+            .child(
+                div().child(
+                    button("new-role", t, BtnKind::Ghost, true)
+                        .child(icon("plus", 14., t.text_muted))
+                        .child("New role")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_new_role(window, cx)))
+                        .test_support(),
+                ),
+            ),
+    )
+}
+
+/// Element ids must live long enough: the few dynamic ids of selects are kept for the session.
+fn leak(s: String) -> &'static str {
+    use std::sync::Mutex;
+    static IDS: Mutex<Vec<&'static str>> = Mutex::new(vec![]);
+    let mut ids = IDS.lock().expect("ids");
+    if let Some(found) = ids.iter().find(|x| **x == s) {
+        return found;
+    }
+    let l: &'static str = Box::leak(s.into_boxed_str());
+    ids.push(l);
+    l
+}
+
+// ---------- Security policy (08, 18) ----------
+
+const REMEMBER: [(u32, &str); 4] = [
+    (0, "Never"),
+    (7, "7 days"),
+    (30, "30 days"),
+    (90, "90 days"),
+];
+const LOCK_AFTER: [(Option<u32>, &str); 6] = [
+    (None, "Never"),
+    (Some(1), "1 min"),
+    (Some(5), "5 min"),
+    (Some(15), "15 min"),
+    (Some(30), "30 min"),
+    (Some(60), "1 hour"),
+];
+const OFFLINE: [(u32, &str); 4] = [
+    (1, "1 day"),
+    (7, "7 days"),
+    (14, "14 days"),
+    (30, "30 days"),
+];
+const MIN_LEN: [u32; 6] = [8, 10, 12, 14, 16, 20];
+const MAX_AGE: [(u32, &str); 4] = [
+    (182, "6 months"),
+    (365, "1 year"),
+    (730, "2 years"),
+    (0, "Never"),
+];
+const KEEP: [(u32, &str); 5] = [
+    (30, "30 days"),
+    (90, "90 days"),
+    (365, "1 year"),
+    (730, "2 years"),
+    (1825, "5 years"),
+];
+
+pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let Some(st) = o.state.as_ref() else {
+        return head(t, "Security policy");
+    };
+    let p = &st.policy;
+    let menu = o.ui.menu;
+    let sel = |id: &'static str,
+               w: f32,
+               options: Vec<(String, bool)>,
+               pick: Pick,
+               cx: &mut Context<CleisApp>| {
+        select(
+            id,
+            t,
+            w,
+            menu == Some(OrgMenu::Policy(id)),
+            OrgMenu::Policy(id),
+            options,
+            pick,
+            cx,
+        )
+    };
+    let method = |m: Method, cx: &mut Context<CleisApp>| {
+        let on = p.methods.contains(&m);
+        let ok = m.available();
+        let ico = match m {
+            Method::AuthenticatorApp | Method::Sms => "phone",
+            Method::Email => "mail",
+            Method::SecurityKey => "usb",
+            _ => "globe",
+        };
+        div()
+            .id(SharedString::from(format!("method-{m:?}")))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .h(px(32.))
+            .when(ok, |d| d.cursor_pointer())
+            .when(!ok, |d| {
+                d.opacity(0.45).tooltip(tip(match m {
+                    Method::Email => "Needs the organization's mail server",
+                    Method::Sms => "Needs a paid SMS service",
+                    Method::SecurityKey => "Planned: security keys and passkeys",
+                    _ => "Needs Cleis to be registered with this provider",
+                }))
+            })
+            .child(check_box(t, on && ok))
+            .child(icon(ico, 16., t.text_muted))
+            .child(m.label())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if ok && m != Method::AuthenticatorApp {
+                    this.org_set_policy(
+                        |p| {
+                            if !p.methods.remove(&m) {
+                                p.methods.insert(m);
+                            }
+                        },
+                        cx,
+                    );
+                }
+            }))
+            .test_support()
+    };
+    let opt = |label: &str,
+               on: bool,
+               id: &'static str,
+               flip: fn(&mut Policy),
+               planned: Option<&'static str>,
+               cx: &mut Context<CleisApp>| {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .h(px(32.))
+            .cursor_pointer()
+            .when_some(planned, |d, why| d.opacity(0.45).tooltip(tip(why)))
+            .child(check_box(t, on && planned.is_none()))
+            .child(label.to_owned())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if planned.is_none() {
+                    this.org_set_policy(flip, cx);
+                }
+            }))
+            .test_support()
+    };
+
+    let signing = section(t)
+        .child(titled(
+            t,
+            "Signing in to the server",
+            Some("Applies to every member."),
+        ))
+        .child(
+            row(t, true)
+                .child(div().flex_1().child("Verification code"))
+                .child(seg(
+                    "code-req",
+                    t,
+                    &["Optional", "Required"],
+                    usize::from(p.code_required),
+                    Rc::new(|app, i, cx| app.org_set_policy(|p| p.code_required = i == 1, cx)),
+                    cx,
+                )),
+        )
+        .child(
+            row(t, false)
+                .child(div().flex_1().child("Remember device"))
+                .child(sel(
+                    "remember",
+                    160.,
+                    REMEMBER
+                        .iter()
+                        .map(|(d, l)| ((*l).into(), *d == p.remember_days))
+                        .collect(),
+                    Rc::new(|app, i, cx| {
+                        app.org_set_policy(|p| p.remember_days = REMEMBER[i].0, cx)
+                    }),
+                    cx,
+                )),
+        );
+    let methods = section(t).child(titled(t, "Allowed methods", None)).child(
+        div()
+            .flex()
+            .gap(px(24.))
+            .child(
+                div()
+                    .flex_1()
+                    .child(method(Method::AuthenticatorApp, cx))
+                    .child(method(Method::Email, cx))
+                    .child(method(Method::Sms, cx)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .child(method(Method::SecurityKey, cx))
+                    .child(method(Method::Google, cx))
+                    .child(method(Method::Microsoft, cx)),
+            ),
+    );
+    let locking = section(t)
+        .child(titled(t, "Locking", None))
+        .child(
+            row(t, true).child(div().flex_1().child("After inactivity")).child(sel(
+                "pol-lock",
+                160.,
+                LOCK_AFTER.iter().map(|(m, l)| ((*l).into(), *m == p.lock_after_mins)).collect(),
+                Rc::new(|app, i, cx| app.org_set_policy(|p| p.lock_after_mins = LOCK_AFTER[i].0, cx)),
+                cx,
+            )),
+        )
+        .child(
+            row(t, false)
+                .id("pol-bio")
+                .opacity(0.45)
+                .tooltip(tip("Planned: Windows Hello, Touch ID"))
+                .child(div().flex_1().child("Biometrics"))
+                .child(switch("bio", t, false)),
+        )
+        .child(
+            row(t, false)
+                .child(
+                    div()
+                        .id("offline-l")
+                        .flex_1()
+                        .child("Offline access")
+                        .tooltip(tip("How long the organization's spaces stay readable without reaching the server")),
+                )
+                .child(sel(
+                    "offline",
+                    160.,
+                    OFFLINE.iter().map(|(d, l)| ((*l).into(), *d == p.offline_days)).collect(),
+                    Rc::new(|app, i, cx| app.org_set_policy(|p| p.offline_days = OFFLINE[i].0, cx)),
+                    cx,
+                )),
+        );
+    let passwords = section(t)
+        .child(titled(
+            t,
+            "Passwords",
+            Some("Flagged in the health report."),
+        ))
+        .child(
+            row(t, true)
+                .child(div().flex_1().child("Flag shorter than"))
+                .child(sel(
+                    "min-len",
+                    160.,
+                    MIN_LEN
+                        .iter()
+                        .map(|n| (format!("{n} characters"), *n == p.min_length))
+                        .collect(),
+                    Rc::new(|app, i, cx| app.org_set_policy(|p| p.min_length = MIN_LEN[i], cx)),
+                    cx,
+                )),
+        )
+        .child(
+            row(t, false)
+                .child(div().flex_1().child("Flag older than"))
+                .child(sel(
+                    "max-age",
+                    160.,
+                    MAX_AGE
+                        .iter()
+                        .map(|(d, l)| ((*l).into(), *d == p.max_age_days))
+                        .collect(),
+                    Rc::new(|app, i, cx| app.org_set_policy(|p| p.max_age_days = MAX_AGE[i].0, cx)),
+                    cx,
+                )),
+        );
+    let integrity = st.integrity.as_ref();
+    let log = section(t)
+        .child(titled(
+            t,
+            "Activity log",
+            Some("Written by the server, each event signed and linked to the previous one: an edit or a gap is detected."),
+        ))
+        .child(
+            row(t, true).child(div().flex_1().child("Record activity")).child(
+                switch("record", t, p.record_activity)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.org_set_policy(|p| p.record_activity = !p.record_activity, cx)
+                    }))
+                    .test_support(),
+            ),
+        )
+        .child(
+            row(t, false).child(div().flex_1().child("Detail")).child(seg(
+                "detail",
+                t,
+                &["Admin actions", "Changes", "Everything"],
+                match p.detail {
+                    LogDetail::AdminActions => 0,
+                    LogDetail::Changes => 1,
+                    LogDetail::Everything => 2,
+                },
+                Rc::new(|app, i, cx| {
+                    app.org_set_policy(
+                        |p| {
+                            p.detail = [LogDetail::AdminActions, LogDetail::Changes, LogDetail::Everything][i]
+                        },
+                        cx,
+                    )
+                }),
+                cx,
+            )),
+        )
+        .child(
+            row(t, false).child(div().flex_1().child("Keep")).child(sel(
+                "keep",
+                160.,
+                KEEP.iter().map(|(d, l)| ((*l).into(), *d == p.keep_days)).collect(),
+                Rc::new(|app, i, cx| app.org_set_policy(|p| p.keep_days = KEEP[i].0, cx)),
+                cx,
+            )),
+        )
+        .child(
+            row(t, false)
+                .child(div().flex_1().child("Integrity"))
+                .child(match integrity {
+                    Some(i) if i.intact => chip(
+                        t,
+                        Tone::Ok,
+                        format!("Verified {}", crate::format::when(i.at, cleis_core::now())),
+                        false,
+                    ),
+                    Some(_) => chip(t, Tone::Danger, "Altered", true),
+                    None => chip(t, Tone::Neutral, "Not verified yet", false),
+                })
+                .child(
+                    button("verify-log", t, BtnKind::Default, false)
+                        .child("Verify now")
+                        .on_click(cx.listener(|this, _, _, cx| this.org_verify_log(cx)))
+                        .test_support(),
+                ),
+        );
+    let autofill = section(t)
+        .child(titled(
+            t,
+            "Autofill",
+            Some("Ways members may fill passwords outside Cleis."),
+        ))
+        .child(
+            div()
+                .flex()
+                .gap(px(24.))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(opt(
+                            "Fill fields in apps",
+                            p.fill_fields,
+                            "pol-fill",
+                            |p| p.fill_fields = !p.fill_fields,
+                            None,
+                            cx,
+                        ))
+                        .child(opt(
+                            "Type keys",
+                            p.type_keys,
+                            "pol-type",
+                            |p| p.type_keys = !p.type_keys,
+                            None,
+                            cx,
+                        )),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .child(opt(
+                            "Browser extension",
+                            false,
+                            "pol-ext",
+                            |_| {},
+                            Some("Paused for now"),
+                            cx,
+                        ))
+                        .child(opt(
+                            "Read browser addresses",
+                            p.read_addresses,
+                            "pol-addr",
+                            |p| p.read_addresses = !p.read_addresses,
+                            None,
+                            cx,
+                        )),
+                ),
+        );
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, "Security policy"))
+        .child(signing)
+        .child(methods)
+        .child(locking)
+        .child(passwords)
+        .child(log)
+        .child(autofill)
+}
+
+// ---------- Encryption (09, 10) ----------
+
+pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let Some(st) = o.state.as_ref() else {
+        return head(t, "Encryption");
+    };
+    let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(4.));
+    let mut table = div().flex().flex_col().child(
+        cols(div())
+            .h(px(32.))
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .child(div().flex_1().child("Space"))
+            .child(div().w(px(80.)).flex().justify_end().child("Items"))
+            .child(div().w(px(80.)).flex().justify_end().child("Members"))
+            .child(div().w(px(320.)).child("Mode")),
+    );
+    table = table.child(
+        cols(div())
+            .h(px(40.))
+            .border_b_1()
+            .border_color(t.line)
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(icon("user", 16., t.text_muted))
+                    .child("Personal vaults"),
+            )
+            .child(
+                div()
+                    .w(px(80.))
+                    .flex()
+                    .justify_end()
+                    .text_color(t.text_muted)
+                    .child("—"),
+            )
+            .child(
+                div()
+                    .w(px(80.))
+                    .flex()
+                    .justify_end()
+                    .text_color(t.text_muted)
+                    .child(st.members.len().to_string()),
+            )
+            .child(
+                div()
+                    .id("personal-mode")
+                    .w(px(320.))
+                    .tooltip(tip(
+                        "Always end-to-end: personal vaults never reach the server",
+                    ))
+                    .child(chip(t, Tone::Ok, "End-to-end", false)),
+            ),
+    );
+    for sv in &st.spaces {
+        let id = sv.id;
+        let pending = o.ui.changes.iter().find(|c| c.0 == id).map(|c| c.1);
+        let mode = pending.unwrap_or(sv.mode);
+        let holds = s.vault.space_key(id).is_some();
+        table = table.child(
+            cols(div())
+                .h(px(40.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(icon("folder", 16., t.text_muted))
+                        .child(o.space_name(id))
+                        .when(sv.needs_rekey, |d| {
+                            d.child(
+                                div()
+                                    .id(SharedString::from(format!("advise-{id}")))
+                                    .tooltip(tip("Someone who held its key lost access"))
+                                    .child(chip(t, Tone::Warn, "Re-encrypt advised", false)),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .w(px(80.))
+                        .flex()
+                        .justify_end()
+                        .text_color(t.text_muted)
+                        .child(sv.items.to_string()),
+                )
+                .child(
+                    div()
+                        .w(px(80.))
+                        .flex()
+                        .justify_end()
+                        .text_color(t.text_muted)
+                        .child(sv.members.len().to_string()),
+                )
+                .child(
+                    div()
+                        .w(px(320.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(if holds {
+                            div().child(seg(
+                                &format!("mode-{id}"),
+                                t,
+                                &["Standard", "End-to-end"],
+                                usize::from(mode == SpaceMode::EndToEnd),
+                                Rc::new(move |app, i, cx| {
+                                    if let Some(o) = org_mut(app) {
+                                        let want = if i == 0 {
+                                            SpaceMode::Standard
+                                        } else {
+                                            SpaceMode::EndToEnd
+                                        };
+                                        let cur = o
+                                            .state
+                                            .as_ref()
+                                            .and_then(|s| s.spaces.iter().find(|x| x.id == id))
+                                            .map(|x| x.mode);
+                                        o.ui.changes.retain(|c| c.0 != id);
+                                        if cur != Some(want) {
+                                            o.ui.changes.push((id, want));
+                                        }
+                                    }
+                                    cx.notify();
+                                }),
+                                cx,
+                            ))
+                        } else {
+                            div().child(
+                                div()
+                                    .id(SharedString::from(format!("nokey-{id}")))
+                                    .tooltip(tip("You are not in this space"))
+                                    .child(chip(
+                                        t,
+                                        Tone::Neutral,
+                                        match sv.mode {
+                                            SpaceMode::Standard => "Standard",
+                                            SpaceMode::EndToEnd => "End-to-end",
+                                        },
+                                        false,
+                                    )),
+                            )
+                        })
+                        .when(pending.is_some(), |d| {
+                            d.child(chip(t, Tone::Set, "Changed", false))
+                        }),
+                ),
+        );
+    }
+    let to_rekey: Option<(SpaceId, SpaceMode)> = o.ui.changes.first().copied().or_else(|| {
+        st.spaces
+            .iter()
+            .find(|sv| sv.needs_rekey && s.vault.space_key(sv.id).is_some())
+            .map(|sv| (sv.id, sv.mode))
+    });
+    let modes = section(t)
+        .child(titled(
+            t,
+            "Mode per space",
+            Some("Both modes encrypt on the device. Standard: the organization key keeps a copy of the space key, so an admin can restore access. End-to-end: only the members hold the key; the recovery key is essential."),
+        ))
+        .child(table)
+        .child(
+            div()
+                .flex()
+                .justify_end()
+                .gap(px(8.))
+                .child(
+                    button("enc-cancel", t, BtnKind::Ghost, false)
+                        .child("Cancel")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(o) = org_mut(this) {
+                                o.ui.changes.clear();
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+                .child(
+                    button("reencrypt", t, BtnKind::Primary, false)
+                        .when(to_rekey.is_none(), |b| b.opacity(0.5))
+                        .child(icon("refresh", 16., t.primary_ink))
+                        .child("Re-encrypt")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let (Some((space, to)), Some(o)) = (to_rekey, org_mut(this)) {
+                                o.ui.rekey = Some(RekeyForm {
+                                    space,
+                                    to,
+                                    backup_first: true,
+                                });
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                ),
+        );
+    let recovery_on = st.org.recovery_public.is_some();
+    let recovery = section(t)
+        .child(titled(
+            t,
+            "Recovery key",
+            Some("Restores a space when every member holding it lost their master password. Kept outside Cleis."),
+        ))
+        .child(
+            row(t, true).child(div().flex_1().child("Admin recovery")).child(
+                switch("recovery", t, recovery_on)
+                    .on_click(cx.listener(move |this, _, _, cx| this.org_recovery(!recovery_on, cx)))
+                    .test_support(),
+            ),
+        )
+        .when(recovery_on, |d| {
+            d.child(
+                row(t, false)
+                    .child(div().flex_1().child("Recovery key"))
+                    .child(chip(
+                        t,
+                        Tone::Ok,
+                        st.org
+                            .recovery_saved
+                            .map_or("Saved".into(), |ts| format!("Saved {}", crate::format::date(ts))),
+                        true,
+                    ))
+                    .child(
+                        button("recovery-new", t, BtnKind::Default, false)
+                            .child(icon("download", 14., t.text))
+                            .child("New key")
+                            .tooltip(tip("Makes a new recovery key; the previous one stops working"))
+                            .on_click(cx.listener(|this, _, _, cx| this.org_recovery(true, cx)))
+                            .test_support(),
+                    )
+                    .child(
+                        button("recovery-use", t, BtnKind::Default, false)
+                            .child("Use")
+                            .tooltip(tip("Gives the waiting members their spaces back"))
+                            .on_click(cx.listener(|this, _, _, cx| this.org_use_recovery(cx)))
+                            .test_support(),
+                    ),
+            )
+        });
+    let fp = cleis_crypto::fingerprint_of_hash(&st.org.cert);
+    let fp_copy = fp.clone();
+    let keys = section(t)
+        .child(titled(t, "Server keys", None))
+        .child(
+            row(t, true)
+                .child(div().flex_1().child("Fingerprint"))
+                .child(div().font_family(FONT_MONO).text_color(t.text_muted).child(fp))
+                .child(
+                    icon_button("copy-fp", t, "copy", false)
+                        .tooltip(tip("Copy"))
+                        .on_click(cx.listener(move |this, _, _, cx| this.copy(fp_copy.clone(), "Fingerprint", cx))),
+                ),
+        )
+        .child(
+            row(t, false)
+                .child(div().flex_1().child("Rotate server key"))
+                .when(st.org.next_cert.is_some(), |d| {
+                    d.child(
+                        div()
+                            .id("rotation")
+                            .tooltip(tip("Used after the server's next restart, 7 days after the announcement"))
+                            .child(chip(t, Tone::Set, "Announced", false)),
+                    )
+                })
+                .child(
+                    button("rotate", t, BtnKind::Default, false)
+                        .child(icon("refresh", 14., t.text))
+                        .child("Rotate")
+                        .on_click(cx.listener(|this, _, _, cx| this.org_rotate(cx)))
+                        .test_support(),
+                ),
+        );
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, "Encryption"))
+        .child(modes)
+        .child(recovery)
+        .child(keys)
+}
+
+// ---------- Server / organization ----------
+
+/// Settings › Server: where the organization is reached, how this vault belongs to it.
+pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return join_page(s, t, cx);
+    };
+    let status: gpui_kit::AnyElement = if o.busy {
+        chip(t, Tone::Neutral, "Syncing…", false).into_any_element()
+    } else if let Some(e) = &o.error {
+        div()
+            .id("srv-err")
+            .tooltip(tip(e.clone()))
+            .child(chip(t, Tone::Warn, "Not reached", true))
+            .into_any_element()
+    } else if let Some(ts) = o.local.last_ok {
+        chip(
+            t,
+            Tone::Ok,
+            format!("Synced {}", crate::format::when(ts, cleis_core::now())),
+            true,
+        )
+        .into_any_element()
+    } else {
+        chip(t, Tone::Neutral, "Not reached yet", false).into_any_element()
+    };
+    let me = o.me();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, "Server"))
+        .child(
+            section(t)
+                .child(titled(t, &o.m.name, None))
+                .child(
+                    row(t, true)
+                        .child(div().flex_1().child("Address"))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_color(t.text_muted)
+                                .child(o.m.address.clone()),
+                        )
+                        .child(status),
+                )
+                .child(
+                    row(t, false)
+                        .child(div().flex_1().child("Certificate"))
+                        .child(div().font_family(FONT_MONO).text_color(t.text_muted).child(
+                            o.m.pins.first().map_or(String::new(), |p| {
+                                data_encoding::HEXLOWER
+                                    .decode(p.as_bytes())
+                                    .map(|b| cleis_crypto::fingerprint_of_hash(&b))
+                                    .unwrap_or_default()
+                            }),
+                        )),
+                )
+                .when_some(me, |d, m| {
+                    d.child(
+                        row(t, false)
+                            .child(div().flex_1().child("Signed in as"))
+                            .child(avatar(t, &initials(&m.name), 22.))
+                            .child(format!(
+                                "{} · {}",
+                                m.name,
+                                o.role().map(|r| r.name.clone()).unwrap_or_default()
+                            )),
+                    )
+                })
+                .child(
+                    row(t, false)
+                        .child(div().flex_1())
+                        .child(
+                            button("org-sync", t, BtnKind::Default, false)
+                                .child(icon("sync", 14., t.text))
+                                .child("Sync now")
+                                .on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
+                                .test_support(),
+                        )
+                        .child(
+                            button("org-leave", t, BtnKind::DangerGhost, false)
+                                .child("Leave")
+                                .tooltip(tip("Forgets the organization's spaces on this vault"))
+                                .on_click(cx.listener(|this, _, _, cx| this.org_leave(cx)))
+                                .test_support(),
+                        ),
+                ),
+        )
+}
+
+/// Settings › Organization without one: the server address and invitation code (as on the first
+/// launch, mockup 03).
+pub fn join_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, "Organization"))
+        .child(
+            section(t)
+                .child(titled(
+                    t,
+                    "Add an organization server",
+                    Some("Shared spaces, on top of your personal vault"),
+                ))
+                .child(join_fields(&s.join, t, cx))
+                .child(
+                    div().flex().justify_end().child(
+                        button("join", t, BtnKind::Primary, false)
+                            .when(s.join.busy, |b| b.opacity(0.6))
+                            .child(if s.join.busy { "Joining…" } else { "Join" })
+                            .on_click(cx.listener(|this, _, _, cx| this.join_from_settings(cx)))
+                            .test_support(),
+                    ),
+                ),
+        )
+}
+
+/// Address, invitation code, and name/e-mail when the invitation has none.
+pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let _ = cx;
+    let (Some(address), Some(code)) = (&j.address, &j.code) else {
+        return div();
+    };
+    let chip_el = if j.checking {
+        Some(chip(t, Tone::Neutral, "Checking…", false))
+    } else {
+        j.info
+            .as_ref()
+            .map(|i| chip(t, Tone::Ok, i.org.clone(), true))
+    };
+    let need_name = j.info.as_ref().is_some_and(|i| i.name.trim().is_empty());
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .id("addr-field")
+                .tooltip(tip(
+                    "Cleis server (vault.example.lan, 10.8.0.1:8443), reached through your VPN",
+                ))
+                .child(field(
+                    t,
+                    "Server address",
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(div().flex_1().child(Input::new(address).id("org-address")))
+                        .when_some(chip_el, |d, c| d.child(c)),
+                )),
+        )
+        .child(field(t, "Invitation code", Input::new(code).id("org-code")))
+        .when(need_name, |d| {
+            d.when_some(j.name.as_ref(), |d, n| {
+                d.child(field(t, "Your name", Input::new(n).id("org-name")))
+            })
+            .when_some(j.email.as_ref(), |d, e| {
+                d.child(field(t, "E-mail", Input::new(e).id("org-email")))
+            })
+        })
+        .when_some(j.error.clone(), |d, e| {
+            d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+        })
+}
+
+// ---------- Organization backups (13) ----------
+
+pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let list = crate::org::org_backups(path, &o.m);
+    let planned = |title: &str, sub: &'static str| {
+        section(t)
+            .id(SharedString::from(format!("bk-{title}")))
+            .opacity(0.45)
+            .tooltip(tip(sub))
+            .child(section_title(t, title))
+    };
+    let mut hist = div().flex().flex_col().child(
+        div()
+            .flex()
+            .h(px(32.))
+            .items_center()
+            .gap(px(12.))
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .border_b_1()
+            .border_color(t.line)
+            .child(div().flex_1().child("Date"))
+            .child(div().w(px(140.)).child("Destination"))
+            .child(div().w(px(80.)).flex().justify_end().child("Size"))
+            .child(div().w(px(200.))),
+    );
+    if list.is_empty() {
+        hist = hist.child(
+            div()
+                .py(px(10.))
+                .text_color(t.text_faint)
+                .child("No backup yet"),
+        );
+    }
+    for (i, (p, size, ts)) in list.into_iter().take(30).enumerate() {
+        let pv = p.clone();
+        let pr = p.clone();
+        hist = hist.child(
+            div()
+                .flex()
+                .min_h(px(36.))
+                .items_center()
+                .gap(px(12.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(
+                    div()
+                        .flex_1()
+                        .child(crate::format::when(ts, cleis_core::now())),
+                )
+                .child(
+                    div()
+                        .w(px(140.))
+                        .text_color(t.text_muted)
+                        .child("This computer"),
+                )
+                .child(
+                    div()
+                        .w(px(80.))
+                        .flex()
+                        .justify_end()
+                        .text_color(t.text_muted)
+                        .child(crate::format::size(size)),
+                )
+                .child(
+                    div()
+                        .w(px(200.))
+                        .flex()
+                        .justify_end()
+                        .gap(px(6.))
+                        .child(
+                            button(
+                                SharedString::from(format!("obk-verify-{i}")),
+                                t,
+                                BtnKind::Ghost,
+                                true,
+                            )
+                            .child("Verify")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.org_verify_backup(pv.clone(), cx)
+                            }))
+                            .test_support(),
+                        )
+                        .child(
+                            button(
+                                SharedString::from(format!("obk-restore-{i}")),
+                                t,
+                                BtnKind::Default,
+                                true,
+                            )
+                            .child("Restore")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(o) = org_mut(this) {
+                                    o.ui.restore = Some(pr.clone());
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                        ),
+                ),
+        );
+    }
+    let saved = s.prefs.org_backup_key_saved;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(
+            section(t)
+                .child(titled(t, "This computer", Some("The server's file, sealed with the backup key, in this computer's backups folder.")))
+                .child(
+                    row(t, true)
+                        .child(div().flex_1().font_family(FONT_MONO).text_size(TEXT_SM).text_color(t.text_muted).child(
+                            crate::org::org_backups_dir(path, &o.m).display().to_string(),
+                        )),
+                ),
+        )
+        .child(planned("GitHub", "Needs Cleis to be registered with GitHub (D-50)"))
+        .child(planned("SFTP", "Planned: encrypted file server (SSH)"))
+        .child(
+            section(t)
+                .child(titled(t, "Backup key", Some("Without it, no backup can be restored. Keep it outside Cleis.")))
+                .child(
+                    row(t, true)
+                        .child(match saved {
+                            Some(ts) => div()
+                                .flex_1()
+                                .child(chip(t, Tone::Ok, format!("Saved {}", crate::format::date(ts)), true)),
+                            None => div()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .text_color(t.warning_text)
+                                .child(icon("warn", 14., t.warning_text))
+                                .child("Not downloaded yet"),
+                        })
+                        .child(
+                            button("bk-key", t, BtnKind::Default, false)
+                                .child(icon("download", 14., t.text))
+                                .child("Download")
+                                .on_click(cx.listener(|this, _, _, cx| this.org_download_backup_key(cx)))
+                                .test_support(),
+                        ),
+                ),
+        )
+        .child(section(t).child(section_title(t, "History")).child(hist))
+}
+
+// ---------- Activity (11) ----------
+
+pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let Some(st) = o.state.as_ref() else {
+        return div();
+    };
+    let ui = &o.ui;
+    let menu = ui.menu;
+    let sel =
+        |id: &'static str, options: Vec<(String, bool)>, pick: Pick, cx: &mut Context<CleisApp>| {
+            select(
+                id,
+                t,
+                150.,
+                menu == Some(OrgMenu::Log(id)),
+                OrgMenu::Log(id),
+                options,
+                pick,
+                cx,
+            )
+        };
+    let members: Vec<MemberId> = st.members.iter().map(|m| m.id).collect();
+    let mut mopts = vec![("All members".to_owned(), ui.log_member.is_none())];
+    mopts.extend(
+        st.members
+            .iter()
+            .map(|m| (m.name.clone(), ui.log_member == Some(m.id))),
+    );
+    const ACTIONS: [Action; 9] = [
+        Action::SignedIn,
+        Action::Viewed,
+        Action::Copied,
+        Action::Filled,
+        Action::Created,
+        Action::Edited,
+        Action::Deleted,
+        Action::Exported,
+        Action::Revoked,
+    ];
+    let mut aopts = vec![("All actions".to_owned(), ui.log_action.is_none())];
+    aopts.extend(
+        ACTIONS
+            .iter()
+            .map(|a| (a.label().to_owned(), ui.log_action == Some(*a))),
+    );
+    let spaces: Vec<SpaceId> = st.spaces.iter().map(|x| x.id).collect();
+    let mut sopts = vec![("All spaces".to_owned(), ui.log_space.is_none())];
+    sopts.extend(
+        spaces
+            .iter()
+            .map(|x| (o.space_name(*x), ui.log_space == Some(*x))),
+    );
+    const DAYS: [(Option<u32>, &str); 4] = [
+        (Some(1), "Today"),
+        (Some(7), "Last 7 days"),
+        (Some(30), "Last 30 days"),
+        (None, "Everything kept"),
+    ];
+    let dopts = DAYS
+        .iter()
+        .map(|(d, l)| ((*l).to_owned(), ui.log_days == *d))
+        .collect();
+    let toolbar = div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .px(px(16.))
+        .h(px(48.))
+        .border_b_1()
+        .border_color(t.line)
+        .bg(t.bg)
+        .when_some(ui.log_search.as_ref(), |d, i| {
+            d.child(div().w(px(240.)).child(Input::new(i).id("log-search")))
+        })
+        .child(sel(
+            "log-member",
+            mopts,
+            Rc::new(move |app, i, cx| {
+                if let Some(o) = org_mut(app) {
+                    o.ui.log_member = i.checked_sub(1).and_then(|i| members.get(i).copied());
+                }
+                app.org_query_log(cx);
+            }),
+            cx,
+        ))
+        .child(sel(
+            "log-action",
+            aopts,
+            Rc::new(|app, i, cx| {
+                if let Some(o) = org_mut(app) {
+                    o.ui.log_action = i.checked_sub(1).map(|i| ACTIONS[i]);
+                }
+                app.org_query_log(cx);
+            }),
+            cx,
+        ))
+        .child(sel(
+            "log-space",
+            sopts,
+            Rc::new(move |app, i, cx| {
+                if let Some(o) = org_mut(app) {
+                    o.ui.log_space = i.checked_sub(1).and_then(|i| spaces.get(i).copied());
+                }
+                app.org_query_log(cx);
+            }),
+            cx,
+        ))
+        .child(sel(
+            "log-days",
+            dopts,
+            Rc::new(|app, i, cx| {
+                if let Some(o) = org_mut(app) {
+                    o.ui.log_days = DAYS[i].0;
+                }
+                app.org_query_log(cx);
+            }),
+            cx,
+        ))
+        .child(div().flex_1())
+        .child(
+            button("log-verify", t, BtnKind::Ghost, false)
+                .child(icon("chain", 16., t.text_muted))
+                .child("Verify")
+                .tooltip(tip("Check every signature and link"))
+                .on_click(cx.listener(|this, _, _, cx| this.org_verify_log(cx)))
+                .test_support(),
+        )
+        .child(
+            button("log-export", t, BtnKind::Default, false)
+                .child(icon("download", 16., t.text))
+                .child("Export")
+                .on_click(cx.listener(|this, _, _, cx| this.org_export_log(cx)))
+                .test_support(),
+        );
+    let q = ui
+        .log_search
+        .as_ref()
+        .map(|i| cleis_core::text::fold(i.read(cx).value().trim()))
+        .unwrap_or_default();
+    let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(16.));
+    let mut table = div().flex().flex_col().child(
+        cols(div())
+            .h(px(32.))
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .child(div().w(px(170.)).child("Date ↓"))
+            .child(div().w(px(170.)).child("Member"))
+            .child(div().w(px(130.)).child("Action"))
+            .child(div().flex_1().child("Item"))
+            .child(div().w(px(140.)).child("Space"))
+            .child(div().w(px(220.)).child("Device")),
+    );
+    let events = ui
+        .log
+        .as_ref()
+        .map(|p| p.events.as_slice())
+        .unwrap_or_default();
+    let mut shown = 0;
+    let key = o.org_key.as_ref();
+    for e in events {
+        let detail = key
+            .and_then(|k| {
+                e.detail
+                    .as_ref()
+                    .and_then(|d| cleis_crypto::open_from(k, DETAIL_CONTEXT, d).ok())
+            })
+            .and_then(|p| serde_json::from_slice::<EventDetail>(&p).ok());
+        let item = match &detail {
+            Some(d) if d.field.is_empty() => d.item.clone(),
+            Some(d) => format!("{} · {}", d.item, d.field),
+            None if !e.note.is_empty() => e.note.clone(),
+            None => "—".into(),
+        };
+        let who = e.member.map(|m| o.member_name(m)).unwrap_or_default();
+        let space = e.space.map_or("—".into(), |x| o.space_name(x));
+        if !q.is_empty() {
+            let hay = cleis_core::text::fold(&format!(
+                "{who} {item} {space} {} {}",
+                e.device,
+                e.action.label()
+            ));
+            if !hay.contains(&q) {
+                continue;
+            }
+        }
+        shown += 1;
+        let tone = match e.action {
+            Action::Filled => Tone::Auto,
+            Action::Edited
+            | Action::MemberChanged
+            | Action::RolesChanged
+            | Action::PolicyChanged => Tone::Set,
+            Action::Created | Action::Joined | Action::SpaceCreated => Tone::Ok,
+            Action::Deleted | Action::Erased | Action::Revoked => Tone::Danger,
+            Action::Exported | Action::SpaceReencrypted | Action::KeyRotated => Tone::Warn,
+            _ => Tone::Neutral,
+        };
+        table = table.child(
+            cols(div())
+                .h(px(34.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(
+                    div()
+                        .w(px(170.))
+                        .text_color(t.text_muted)
+                        .child(crate::format::when(e.at, cleis_core::now())),
+                )
+                .child(
+                    div()
+                        .w(px(170.))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(who),
+                )
+                .child(
+                    div()
+                        .w(px(130.))
+                        .child(chip(t, tone, e.action.label(), false)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(item),
+                )
+                .child(div().w(px(140.)).text_color(t.text_muted).child(space))
+                .child(
+                    div()
+                        .w(px(220.))
+                        .text_color(t.text_muted)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(e.device.clone()),
+                ),
+        );
+    }
+    if events.is_empty() {
+        table = table.child(
+            div()
+                .p(px(16.))
+                .text_color(t.text_faint)
+                .child(if ui.log_busy {
+                    "Loading…"
+                } else {
+                    "No event"
+                }),
+        );
+    }
+    let keep = KEEP
+        .iter()
+        .find(|k| k.0 == st.policy.keep_days)
+        .map_or(format!("{} days", st.policy.keep_days), |k| k.1.to_owned());
+    let integrity = match &st.integrity {
+        Some(i) if i.intact => (
+            Tone::Ok,
+            format!(
+                "Signed and chained · verified {}",
+                crate::format::when(i.at, cleis_core::now())
+            ),
+        ),
+        Some(_) => (Tone::Danger, "Log altered".to_owned()),
+        None => (
+            Tone::Neutral,
+            "Signed and chained · not verified yet".to_owned(),
+        ),
+    };
+    let status = div()
+        .h(STATUSBAR_H)
+        .flex()
+        .items_center()
+        .gap(px(16.))
+        .px(px(16.))
+        .border_t_1()
+        .border_color(t.line)
+        .bg(t.surface)
+        .text_size(TEXT_SM)
+        .text_color(t.text_muted)
+        .child(format!(
+            "{shown} of {} events",
+            ui.log.as_ref().map_or(st.events, |p| p.total)
+        ))
+        .child(div().flex_1())
+        .child(
+            div()
+                .id("chain")
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_color(match integrity.0 {
+                    Tone::Ok => t.success_text,
+                    Tone::Danger => t.danger_text,
+                    _ => t.text_muted,
+                })
+                .tooltip(tip(
+                    "Each event is signed by the server and linked to the previous one",
+                ))
+                .child(icon("chain", 14., t.text_muted))
+                .child(integrity.1),
+        )
+        .child(format!("Kept {keep}"));
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .bg(t.bg)
+        .child(toolbar)
+        .child(
+            div()
+                .id("log-table")
+                .flex_1()
+                .overflow_y_scroll()
+                .child(table),
+        )
+        .child(status)
+}
+
+// ---------- Dialogs ----------
+
+fn card(t: &Tokens, title: &str) -> Div {
+    div()
+        .w(px(440.))
+        .p(px(20.))
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .bg(t.surface_raised)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_LG)
+        .shadow_lg()
+        .child(
+            div()
+                .text_size(TEXT_LG)
+                .font_weight(W_MEDIUM)
+                .child(title.to_owned()),
+        )
+}
+
+fn actions(
+    t: &Tokens,
+    ok_id: &'static str,
+    ok: &str,
+    on_ok: Pick,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    div()
+        .pt(px(8.))
+        .flex()
+        .justify_end()
+        .gap(px(8.))
+        .child(
+            button("org-cancel", t, BtnKind::Default, false)
+                .child("Cancel")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(o) = org_mut(this) {
+                        o.ui.invite = None;
+                        o.ui.invite_code = None;
+                        o.ui.new_space = None;
+                        o.ui.new_role = None;
+                        o.ui.rekey = None;
+                        o.ui.restore = None;
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        )
+        .child(
+            button(ok_id, t, BtnKind::Primary, false)
+                .child(ok.to_owned())
+                .on_click(cx.listener(move |this, _, _, cx| on_ok(this, 0, cx)))
+                .test_support(),
+        )
+}
+
+fn overlay(body: Div) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(gpui_kit::black().opacity(0.45))
+        .child(div().id("org-dialog").occlude().child(body))
+}
+
+/// The dialog open over the main window, if any.
+pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div> {
+    let o = s.org.as_ref()?;
+    let st = o.state.as_ref();
+    if let Some(c) = &o.code {
+        let title = format!("{} · verification code", o.m.name);
+        let mut body = card(t, &title);
+        if let Some(secret) = &c.secret {
+            let uri = cleis_core::totp::Totp::from_base32(secret)
+                .map(|mut x| {
+                    x.issuer = Some(o.m.name.clone());
+                    x.account = o.me().map(|m| m.email.clone());
+                    x.to_uri()
+                })
+                .unwrap_or_default();
+            let grouped = secret
+                .as_bytes()
+                .chunks(4)
+                .map(|c| String::from_utf8_lossy(c).into_owned())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let copy = secret.clone();
+            body = body
+                .child(
+                    div()
+                        .text_color(t.text_muted)
+                        .child("Required by your organization. Scan, then type the code."),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .justify_center()
+                        .child(super::security::qr(t, &uri)),
+                )
+                .child(
+                    value_box(t)
+                        .child(
+                            div()
+                                .flex_1()
+                                .font_family(FONT_MONO)
+                                .text_size(TEXT_SM)
+                                .child(grouped),
+                        )
+                        .child(
+                            icon_button("copy-srv-key", t, "copy", true)
+                                .tooltip(tip("Copy the key"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.copy(copy.clone(), "Key", cx)
+                                })),
+                        ),
+                );
+        }
+        body = body
+            .when_some(c.input.as_ref(), |d, i| {
+                d.child(field(t, "Code", Input::new(i).id("srv-code")))
+            })
+            .when_some(c.error.clone(), |d, e| {
+                d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+            })
+            .child(
+                div()
+                    .pt(px(8.))
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        button("srv-code-later", t, BtnKind::Default, false)
+                            .child("Later")
+                            .on_click(cx.listener(|this, _, _, cx| this.org_cancel_code(cx)))
+                            .test_support(),
+                    )
+                    .child(
+                        button("srv-code-ok", t, BtnKind::Primary, false)
+                            .when(c.busy, |b| b.opacity(0.6))
+                            .child("Continue")
+                            .on_click(cx.listener(|this, _, _, cx| this.org_submit_code(cx)))
+                            .test_support(),
+                    ),
+            );
+        return Some(overlay(body));
+    }
+    if let Some(code) = &o.ui.invite_code {
+        let copy = code.clone();
+        let body = card(t, "Invitation")
+            .child(
+                div()
+                    .text_color(t.text_muted)
+                    .child("Send this code with the server address. Valid 7 days, once."),
+            )
+            .child(
+                value_box(t)
+                    .child(div().flex_1().font_family(FONT_MONO).child(code.clone()))
+                    .child(
+                        icon_button("copy-invite", t, "copy", true)
+                            .tooltip(tip("Copy"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.copy(copy.clone(), "Code", cx)
+                            }))
+                            .test_support(),
+                    ),
+            )
+            .child(
+                div().flex().justify_end().pt(px(8.)).child(
+                    button("invite-done", t, BtnKind::Primary, false)
+                        .child("Done")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(o) = org_mut(this) {
+                                o.ui.invite_code = None;
+                                o.ui.invite = None;
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                ),
+            );
+        return Some(overlay(body));
+    }
+    if let (Some(f), Some(st)) = (&o.ui.invite, st) {
+        let roles: Vec<(String, bool)> = st
+            .roles
+            .iter()
+            .map(|r| (r.name.clone(), r.id == f.role))
+            .collect();
+        let ids: Vec<String> = st.roles.iter().map(|r| r.id.clone()).collect();
+        let mut spaces = div().flex().flex_wrap().gap(px(6.));
+        for sv in &st.spaces {
+            let on = f.spaces.contains(&sv.id);
+            let id = sv.id;
+            spaces = spaces.child(
+                div()
+                    .id(SharedString::from(format!("inv-sp-{id}")))
+                    .cursor_pointer()
+                    .child(chip(
+                        t,
+                        if on { Tone::Set } else { Tone::Neutral },
+                        o.space_name(id),
+                        on,
+                    ))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(f) = org_mut(this).and_then(|o| o.ui.invite.as_mut())
+                            && !f.spaces.remove(&id)
+                        {
+                            f.spaces.insert(id);
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        let body = card(t, "Invite")
+            .child(field(t, "E-mail", Input::new(&f.email).id("inv-email")))
+            .child(field(t, "Name", Input::new(&f.name).id("inv-name")))
+            .child(field(
+                t,
+                "Role",
+                select(
+                    "inv-role",
+                    t,
+                    200.,
+                    o.ui.menu == Some(OrgMenu::InviteRole),
+                    OrgMenu::InviteRole,
+                    roles,
+                    Rc::new(move |app, i, cx| {
+                        if let Some(f) = org_mut(app).and_then(|o| o.ui.invite.as_mut()) {
+                            f.role = ids[i].clone();
+                        }
+                        cx.notify();
+                    }),
+                    cx,
+                ),
+            ))
+            .child(field(t, "Spaces", spaces))
+            .when_some(f.error.clone(), |d, e| {
+                d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+            })
+            .child(actions(
+                t,
+                "inv-send",
+                "Create code",
+                Rc::new(|app, _, cx| app.send_invite(cx)),
+                cx,
+            ));
+        return Some(overlay(body));
+    }
+    if let Some(f) = &o.ui.new_space {
+        let body = card(t, "New space")
+            .child(field(t, "Name", Input::new(&f.name).id("space-name")))
+            .child(field(
+                t,
+                "Encryption",
+                div().child(seg(
+                    "space-mode",
+                    t,
+                    &["Standard", "End-to-end"],
+                    usize::from(f.mode == SpaceMode::EndToEnd),
+                    Rc::new(|app, i, cx| {
+                        if let Some(f) = org_mut(app).and_then(|o| o.ui.new_space.as_mut()) {
+                            f.mode = if i == 0 {
+                                SpaceMode::Standard
+                            } else {
+                                SpaceMode::EndToEnd
+                            };
+                        }
+                        cx.notify();
+                    }),
+                    cx,
+                )),
+            ))
+            .child(actions(
+                t,
+                "space-create",
+                "Create",
+                Rc::new(|app, _, cx| app.create_space_from_dialog(cx)),
+                cx,
+            ));
+        return Some(overlay(body));
+    }
+    if let Some(f) = &o.ui.new_role {
+        let body = card(t, "New role")
+            .child(field(t, "Name", Input::new(&f.name).id("role-name")))
+            .child(
+                div()
+                    .text_size(TEXT_SM)
+                    .text_color(t.text_muted)
+                    .child("Starts with Copy, fill; tick the rest in the table."),
+            )
+            .child(actions(
+                t,
+                "role-create",
+                "Create",
+                Rc::new(|app, _, cx| app.create_role_from_dialog(cx)),
+                cx,
+            ));
+        return Some(overlay(body));
+    }
+    if let (Some(r), Some(st)) = (&o.ui.rekey, st) {
+        let sv = st.spaces.iter().find(|x| x.id == r.space)?;
+        let name = o.space_name(r.space);
+        let label = |m: SpaceMode| match m {
+            SpaceMode::Standard => "Standard",
+            SpaceMode::EndToEnd => "End-to-end",
+        };
+        let names: Vec<String> = sv
+            .members
+            .iter()
+            .map(|m| {
+                o.member_name(*m)
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_owned()
+            })
+            .collect();
+        let kv = |k: &str, v: Div| {
+            div()
+                .flex()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .w(px(110.))
+                        .text_color(t.text_muted)
+                        .child(k.to_owned()),
+                )
+                .child(v)
+        };
+        let backup_first = r.backup_first;
+        let body = card(t, &format!("Re-encrypt “{name}”"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(chip(t, Tone::Neutral, label(sv.mode), false))
+                    .child(icon("arrowR", 14., t.text_muted))
+                    .child(chip(t, Tone::Set, label(r.to), false)),
+            )
+            .child(kv("Items", div().child(sv.items.to_string())))
+            .child(kv("Members", div().child(names.join(", "))))
+            .child(kv(
+                "Recovery key",
+                if st.org.recovery_public.is_some() {
+                    div().text_color(t.success_text).child("Included")
+                } else {
+                    div().text_color(t.text_muted).child("Not set")
+                },
+            ))
+            .child(
+                div()
+                    .id("rk-backup")
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .cursor_pointer()
+                    .child(check_box(t, backup_first))
+                    .child("Back up first")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(r) = org_mut(this).and_then(|o| o.ui.rekey.as_mut()) {
+                            r.backup_first = !r.backup_first;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(actions(
+                t,
+                "rk-go",
+                "Re-encrypt",
+                Rc::new(|app, _, cx| app.confirm_rekey(cx)),
+                cx,
+            ));
+        return Some(overlay(body));
+    }
+    if let Some(p) = &o.ui.restore {
+        let p = p.clone();
+        let body = card(t, "Restore the organization")
+            .child(div().text_color(t.text_muted).child(
+                "The server goes back to this backup. Changes made since are lost for every member.",
+            ))
+            .child(actions(
+                t,
+                "obk-restore-go",
+                "Restore",
+                Rc::new(move |app, _, cx| {
+                    if let Some(o) = org_mut(app) {
+                        o.ui.restore = None;
+                    }
+                    app.org_restore_backup(p.clone(), cx);
+                }),
+                cx,
+            ));
+        return Some(overlay(body));
+    }
+    None
+}
+
+// ---------- Actions behind the dialogs ----------
+
+/// A join form with its boxes; changes of the address or code look the invitation up.
+pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, Vec<Subscription>) {
+    let make = |ph: &str, window: &mut Window, cx: &mut Context<CleisApp>| {
+        let ph = ph.to_owned();
+        cx.new(|cx| InputState::new(window, cx).placeholder(ph))
+    };
+    let address = make("vault.example-studio.lan", window, cx);
+    let code = make("XXXX-XXXX-…", window, cx);
+    let name = make("", window, cx);
+    let email = make("", window, cx);
+    let subs = [&address, &code]
+        .into_iter()
+        .map(|e| {
+            cx.subscribe_in(e, window, |this: &mut CleisApp, _, ev, _, cx| {
+                if let gpui_kit::component::input::InputEvent::Change = ev {
+                    this.check_join_code(cx);
+                }
+            })
+        })
+        .collect();
+    (
+        JoinForm {
+            address: Some(address),
+            code: Some(code),
+            name: Some(name),
+            email: Some(email),
+            ..Default::default()
+        },
+        subs,
+    )
+}
+
+impl CleisApp {
+    /// Inputs of the organization screens (they need the window).
+    pub fn ensure_org_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        if s.org.is_none() && s.join.address.is_none() {
+            let (join, subs) = join_form(window, cx);
+            if let Some(s) = self.session() {
+                s.join = join;
+                s.join_subs = subs;
+            }
+        }
+        let Some(s) = self.session() else { return };
+        if s.org
+            .as_ref()
+            .and_then(|o| o.code.as_ref())
+            .is_some_and(|c| c.input.is_none())
+        {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("123 456"));
+            input.update(cx, |i, cx| i.focus(window, cx));
+            let sub = cx.subscribe_in(&input, window, |this: &mut CleisApp, _, ev, _, cx| {
+                if let gpui_kit::component::input::InputEvent::PressEnter { .. } = ev {
+                    this.org_submit_code(cx);
+                }
+            });
+            if let Some(o) = self.session().and_then(|s| s.org.as_mut()) {
+                if let Some(c) = o.code.as_mut() {
+                    c.input = Some(input);
+                }
+                o.ui.subs.push(sub);
+            }
+        }
+        let Some(s) = self.session() else { return };
+        if let Some(o) = s.org.as_ref()
+            && (o.ui.search.is_none() || o.ui.log_search.is_none())
+        {
+            let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+            let log_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+            let subs = vec![
+                cx.observe(&search, |_, _, cx| cx.notify()),
+                cx.observe(&log_search, |_, _, cx| cx.notify()),
+            ];
+            if let Some(o) = self.session().and_then(|s| s.org.as_mut()) {
+                o.ui.search = Some(search);
+                o.ui.log_search = Some(log_search);
+                o.ui.subs.extend(subs);
+            }
+        }
+    }
+
+    /// The join form shown: first launch or Settings › Organization.
+    fn join_form_mut(&mut self) -> Option<&mut JoinForm> {
+        match &mut self.phase {
+            crate::app::Phase::Welcome(w) => Some(&mut w.join),
+            crate::app::Phase::Main(s) => Some(&mut s.join),
+            _ => None,
+        }
+    }
+
+    /// Looks the invitation code up as soon as it is complete.
+    pub fn check_join_code(&mut self, cx: &mut Context<Self>) {
+        let Some(j) = self.join_form_mut() else {
+            return;
+        };
+        let (Some(a), Some(c)) = (j.address.clone(), j.code.clone()) else {
+            return;
+        };
+        let address = a.read(cx).value().to_string();
+        let code = c.read(cx).value().to_string();
+        let Some(j) = self.join_form_mut() else {
+            return;
+        };
+        j.info = None;
+        j.error = None;
+        if Invitation::parse(&code).is_none() || server_address(&address).is_none() {
+            cx.notify();
+            return;
+        }
+        j.checking = true;
+        let task = cx.background_spawn(async move { crate::org::lookup(&address, &code) });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                if let Some(j) = app.join_form_mut() {
+                    j.checking = false;
+                    match r {
+                        Ok(i) => j.info = Some(i),
+                        Err(e) => j.error = Some(e.into()),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub fn join_from_settings(&mut self, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        if s.join.busy {
+            return;
+        }
+        let read = |e: &Option<Entity<InputState>>, cx: &Context<Self>| {
+            e.as_ref()
+                .map(|i| i.read(cx).value().to_string())
+                .unwrap_or_default()
+        };
+        let (address, code, name, email) = (
+            read(&s.join.address, cx),
+            read(&s.join.code, cx),
+            read(&s.join.name, cx),
+            read(&s.join.email, cx),
+        );
+        let need_name = s
+            .join
+            .info
+            .as_ref()
+            .is_some_and(|i| i.name.trim().is_empty());
+        if need_name && name.trim().is_empty() {
+            s.join.error = Some("Enter your name".into());
+            cx.notify();
+            return;
+        }
+        s.join.busy = true;
+        s.join.error = None;
+        self.org_join(address, code, name, email, cx);
+        cx.notify();
+    }
+
+    pub fn open_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let email = cx.new(|cx| InputState::new(window, cx).placeholder("name@example.com"));
+        let name = cx.new(|cx| InputState::new(window, cx));
+        email.update(cx, |i, cx| i.focus(window, cx));
+        if let Some(o) = org_mut(self) {
+            o.ui.invite = Some(InviteForm {
+                email,
+                name,
+                role: "member".into(),
+                spaces: BTreeSet::new(),
+                error: None,
+            });
+        }
+        cx.notify();
+    }
+
+    fn send_invite(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some(f) = o.ui.invite.as_mut() else {
+            return;
+        };
+        let email = f.email.read(cx).value().trim().to_string();
+        if !email.contains('@') {
+            f.error = Some("Enter an e-mail address".into());
+            cx.notify();
+            return;
+        }
+        let req = NewInvite {
+            name: f.name.read(cx).value().trim().to_string(),
+            email,
+            role: f.role.clone(),
+            spaces: f.spaces.iter().copied().collect(),
+        };
+        self.org_invite(req, cx);
+    }
+
+    pub fn open_new_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Design"));
+        name.update(cx, |i, cx| i.focus(window, cx));
+        if let Some(o) = org_mut(self) {
+            o.ui.new_space = Some(SpaceForm {
+                name,
+                mode: SpaceMode::Standard,
+            });
+        }
+        cx.notify();
+    }
+
+    fn create_space_from_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some(f) = o.ui.new_space.take() else {
+            return;
+        };
+        let name = f.name.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            o.ui.new_space = Some(f);
+            return;
+        }
+        self.org_new_space(name, f.mode, cx);
+    }
+
+    pub fn open_new_role(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Contractor"));
+        name.update(cx, |i, cx| i.focus(window, cx));
+        if let Some(o) = org_mut(self) {
+            o.ui.new_role = Some(RoleForm { name });
+        }
+        cx.notify();
+    }
+
+    fn create_role_from_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some(f) = o.ui.new_role.take() else {
+            return;
+        };
+        let name = f.name.read(cx).value().trim().to_string();
+        let Some(st) = o.state.as_ref() else { return };
+        if name.is_empty()
+            || st
+                .roles
+                .iter()
+                .any(|r| cleis_core::text::fold(&r.name) == cleis_core::text::fold(&name))
+        {
+            o.ui.new_role = Some(f);
+            return;
+        }
+        let mut roles = st.roles.clone();
+        roles.push(Role {
+            id: uuid::Uuid::now_v7().to_string(),
+            name,
+            perms: [Perm::Fill].into_iter().collect(),
+        });
+        self.org_set_roles(roles, cx);
+    }
+
+    fn confirm_rekey(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some(r) = o.ui.rekey.clone() else { return };
+        o.ui.changes.retain(|c| c.0 != r.space);
+        if r.backup_first {
+            self.org_backup_now(cx);
+        }
+        self.org_rekey(r.space, r.to, cx);
+    }
+}

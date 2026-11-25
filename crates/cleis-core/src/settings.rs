@@ -142,6 +142,8 @@ pub struct Preferences {
     pub password_changed: Option<i64>,
     /// Contact pairs marked "Not a duplicate" in *Merge & fix*.
     pub not_duplicates: std::collections::BTreeSet<(crate::ContactId, crate::ContactId)>,
+    /// When the organization's backup key was saved to a file (screen 13).
+    pub org_backup_key_saved: Option<i64>,
 }
 
 impl Default for Preferences {
@@ -161,6 +163,7 @@ impl Default for Preferences {
             open_code: None,
             lock_after_mins: None,
             password_changed: None,
+            org_backup_key_saved: None,
         }
     }
 }

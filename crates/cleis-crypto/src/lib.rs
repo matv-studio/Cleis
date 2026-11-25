@@ -40,7 +40,12 @@ pub fn hex(bytes: &[u8]) -> String {
 
 /// Short, human-comparable fingerprint of a public key (`SHA256:abcd·ef01·…`).
 pub fn fingerprint(public: &[u8]) -> String {
-    let h = hex(&sha256(public));
-    let groups: Vec<&str> = (0..4).map(|i| &h[i * 4..i * 4 + 4]).collect();
+    fingerprint_of_hash(&sha256(public))
+}
+
+/// The same display for a SHA-256 already computed (a pinned certificate's hash).
+pub fn fingerprint_of_hash(hash: &[u8]) -> String {
+    let h = hex(hash);
+    let groups: Vec<&str> = (0..4).filter_map(|i| h.get(i * 4..i * 4 + 4)).collect();
     format!("SHA256:{}", groups.join("·"))
 }

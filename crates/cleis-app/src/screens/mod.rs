@@ -4,6 +4,7 @@ pub mod health;
 pub mod import;
 pub mod inspector;
 pub mod main;
+pub mod org;
 pub mod quick_access;
 pub mod security;
 pub mod settings;

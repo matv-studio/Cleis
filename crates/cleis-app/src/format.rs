@@ -143,3 +143,88 @@ mod date_tests {
         assert_eq!(super::civil(19_782), (2024, 2, 29));
     }
 }
+
+/// Offset of this computer's time zone at `ts`, in seconds (summer time included).
+fn local_offset(ts: i64) -> i64 {
+    use chrono::{Local, Offset, TimeZone};
+    if cfg!(test) {
+        return 0;
+    }
+    Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map_or(0, |d| i64::from(d.offset().fix().local_minus_utc()))
+}
+
+/// `Nov 25, 2026, 9:12 AM` in this computer's time zone.
+pub fn date_time(ts: i64) -> String {
+    date_time_utc(ts + local_offset(ts))
+}
+
+fn date_time_utc(ts: i64) -> String {
+    let secs = ts.rem_euclid(86_400);
+    let (h, m) = (secs / 3600, secs % 3600 / 60);
+    let (h12, ap) = match h {
+        0 => (12, "AM"),
+        1..=11 => (h, "AM"),
+        12 => (12, "PM"),
+        _ => (h - 12, "PM"),
+    };
+    format!("{}, {h12}:{m:02} {ap}", date(ts))
+}
+
+/// `Today, 9:12 AM`, `Yesterday, 5:30 PM`, else the date and time.
+pub fn when(ts: i64, now: i64) -> String {
+    let day = |t: i64| (t + local_offset(t)).div_euclid(86_400);
+    let full = date_time(ts);
+    let time = full
+        .rsplit_once(", ")
+        .map(|x| x.1.to_owned())
+        .unwrap_or_default();
+    match day(now) - day(ts) {
+        0 => format!("Today, {time}"),
+        1 => format!("Yesterday, {time}"),
+        _ => full,
+    }
+}
+
+/// `184 KB`, `2.4 MB`.
+pub fn size(bytes: u64) -> String {
+    if bytes < 1024 * 1024 {
+        format!("{} KB", bytes.div_ceil(1024))
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024. * 1024.))
+    }
+}
+
+/// `20261125-091200` for file names.
+pub fn stamp(ts: i64) -> String {
+    let (y, m, d) = civil(ts.div_euclid(86_400));
+    let s = ts.rem_euclid(86_400);
+    format!(
+        "{y}{m:02}{d:02}-{:02}{:02}{:02}",
+        s / 3600,
+        s % 3600 / 60,
+        s % 60
+    )
+}
+
+#[cfg(test)]
+mod time_tests {
+    #[test]
+    fn times() {
+        assert_eq!(
+            super::date_time(1_795_564_800 + 9 * 3600 + 12 * 60),
+            "Nov 25, 2026, 9:12 AM"
+        );
+        assert_eq!(
+            super::date_time(1_795_564_800 + 17 * 3600 + 30 * 60),
+            "Nov 25, 2026, 5:30 PM"
+        );
+        let now = 1_795_564_800 + 12 * 3600;
+        assert_eq!(super::when(now - 3600, now), "Today, 11:00 AM");
+        assert_eq!(super::when(now - 86_400, now), "Yesterday, 12:00 PM");
+        assert_eq!(super::size(2048), "2 KB");
+        assert_eq!(super::stamp(1_795_564_800), "20261125-000000");
+    }
+}

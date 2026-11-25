@@ -325,7 +325,7 @@ fn actions(
 }
 
 /// QR code drawn with one square per module (quiet zone included).
-fn qr(t: &Tokens, text: &str) -> Div {
+pub fn qr(t: &Tokens, text: &str) -> Div {
     let Ok(code) = qrcode::QrCode::new(text.as_bytes()) else {
         return div();
     };

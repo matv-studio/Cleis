@@ -1,4 +1,4 @@
-//! Settings (screens 06, 15, 16): personal pages. Organisation pages come with the server.
+//! Settings (screens 06, 07–10, 13, 15, 16): pages of the account, then of the organization.
 
 use crate::app::{CleisApp, Session};
 use crate::autofill::AutofillState;
@@ -12,16 +12,45 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, div, px};
 
-const PAGES: [(&str, &str); 5] = [
+const ACCOUNT: [(&str, &str); 4] = [
     ("lock", "Security"),
     ("gear", "Preferences"),
     ("fill", "Autofill"),
     ("sync", "Sync & backups"),
-    // In the organisation group of the mockups; under My account until the server exists (D-54).
-    ("upload", "Import & export"),
 ];
 
-pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+/// Pages of the navigation: `(group, [(icon, name)])`. Without an organization, Import & export
+/// stays under My account with a page to join one (D-54).
+fn groups(s: &Session) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
+    let mut account: Vec<_> = ACCOUNT.to_vec();
+    match &s.org {
+        None => {
+            account.push(("upload", "Import & export"));
+            account.push(("server", "Organization"));
+            vec![("My account".into(), account)]
+        }
+        Some(o) => {
+            let mut org = vec![];
+            if o.can(cleis_core::org::Perm::Manage) {
+                org.extend([
+                    ("users", "Members"),
+                    ("shield", "Security policy"),
+                    ("key", "Encryption"),
+                ]);
+            }
+            org.extend([("server", "Server"), ("upload", "Import & export")]);
+            vec![("My account".into(), account), (o.m.name.clone(), org)]
+        }
+    }
+}
+
+pub fn page(
+    s: &Session,
+    af: &AutofillState,
+    path: &std::path::Path,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Div {
     let mut nav = div()
         .w(px(220.))
         .flex_none()
@@ -34,50 +63,114 @@ pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
         .flex()
         .flex_col()
         .gap(px(2.));
-    nav = nav.child(
-        div()
-            .px(px(8.))
-            .pb(px(4.))
-            .text_size(TEXT_XS)
-            .font_weight(W_MEDIUM)
-            .text_color(t.text_muted)
-            .child("My account"),
-    );
-    for (ico, name) in PAGES {
-        let active = s.settings_page == name;
+    for (gi, (group, pages)) in groups(s).into_iter().enumerate() {
         nav = nav.child(
             div()
-                .id(SharedString::from(format!("set-{name}")))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .h(CONTROL_MD)
                 .px(px(8.))
-                .rounded(RADIUS_MD)
-                .cursor_pointer()
-                .text_color(if active { t.accent_text } else { t.text_muted })
-                .when(active, |d| d.bg(t.accent_soft))
-                .hover(|d| d.bg(t.surface_hover))
-                .child(icon(
-                    ico,
-                    16.,
-                    if active { t.accent_text } else { t.text_muted },
-                ))
-                .child(name)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(s) = this.session() {
-                        s.settings_page = name;
-                    }
-                    cx.notify();
-                }))
-                .test_support(),
+                .pb(px(4.))
+                .when(gi > 0, |d| d.pt(px(16.)))
+                .text_size(TEXT_XS)
+                .font_weight(W_MEDIUM)
+                .text_color(t.text_muted)
+                .child(group),
         );
+        for (ico, name) in pages {
+            let active = s.settings_page == name;
+            nav = nav.child(
+                div()
+                    .id(SharedString::from(format!("set-{name}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(CONTROL_MD)
+                    .px(px(8.))
+                    .rounded(RADIUS_MD)
+                    .cursor_pointer()
+                    .text_color(if active { t.accent_text } else { t.text_muted })
+                    .when(active, |d| d.bg(t.accent_soft))
+                    .hover(|d| d.bg(t.surface_hover))
+                    .child(icon(
+                        ico,
+                        16.,
+                        if active { t.accent_text } else { t.text_muted },
+                    ))
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.settings_page = name;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
     }
+    let manage = s
+        .org
+        .as_ref()
+        .is_some_and(|o| o.can(cleis_core::org::Perm::Manage));
     let body = match s.settings_page {
         "Autofill" => autofill(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
         "Security" => super::security::page(s, t, cx),
+        "Sync & backups" if manage => {
+            let org_view = s.org.as_ref().is_some_and(|o| o.ui.org_backups);
+            let name = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
+            let pick: super::org::Pick = std::rc::Rc::new(|app, i, cx| {
+                if let Some(o) = super::org::org_mut(app) {
+                    o.ui.org_backups = i == 1;
+                }
+                cx.notify();
+            });
+            let whose = div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(super::org::segment(
+                    "whose",
+                    t,
+                    &["Mine", &name],
+                    usize::from(org_view),
+                    pick,
+                    cx,
+                ))
+                .child(div().flex_1())
+                .when(org_view, |d| {
+                    d.child(
+                        button("org-backup-now", t, BtnKind::Primary, false)
+                            .child(icon("upload", 16., t.primary_ink))
+                            .child("Back up now")
+                            .on_click(cx.listener(|this, _, _, cx| this.org_backup_now(cx)))
+                            .test_support(),
+                    )
+                });
+            let inner = if org_view {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(16.))
+                    .child(
+                        div()
+                            .text_size(TEXT_XL)
+                            .font_weight(W_STRONG)
+                            .child("Sync & backups"),
+                    )
+                    .child(super::org::backups(s, path, t, cx))
+            } else {
+                super::sync::page(s, t, s.sync_menu, cx)
+            };
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .child(whose)
+                .child(inner)
+        }
         "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
+        "Members" => super::org::members(s, t, cx),
+        "Security policy" => super::org::policy(s, t, cx),
+        "Encryption" => super::org::encryption(s, t, cx),
+        "Server" | "Organization" => super::org::server(s, t, cx),
         _ => preferences(&s.prefs, s.pref_menu, t, cx),
     };
     div().flex_1().min_h_0().flex().child(nav).child(

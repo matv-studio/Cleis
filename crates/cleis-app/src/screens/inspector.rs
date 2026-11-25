@@ -85,7 +85,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
     let copy = |key: &str, value: String, what: &'static str, cx: &mut Context<CleisApp>| {
         icon_button(SharedString::from(format!("{key}-{id}")), t, "copy", true)
             .tooltip(tip("Copy"))
-            .on_click(cx.listener(move |this, _, _, cx| this.copy(value.clone(), what, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.copy_of(id, value.clone(), what, cx)))
     };
     let input = |f: Field| ed.inputs.get(&f).cloned();
 
@@ -505,6 +505,7 @@ fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
     if e.password_history.is_empty() {
         d = d.child(div().text_color(t.text_muted).child("No earlier password"));
     }
+    let id = e.id;
     for (i, h) in e.password_history.iter().rev().enumerate() {
         let pw = h.password.clone();
         d = d.child(
@@ -537,9 +538,9 @@ fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
                         true,
                     )
                     .tooltip(tip("Copy"))
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.copy(pw.clone(), "Password", cx)),
-                    ),
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.copy_of(id, pw.clone(), "Password", cx)
+                    })),
                 ),
         );
     }

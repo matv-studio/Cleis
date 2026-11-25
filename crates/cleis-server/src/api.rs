@@ -19,6 +19,7 @@ type Res<T> = Result<Json<T>, ApiErr>;
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/v1/hello", get(hello))
+        .route("/v1/invite-info", post(invite_info))
         .route("/v1/join", post(join))
         .route("/v1/challenge", post(challenge))
         .route("/v1/session", post(session))
@@ -332,6 +333,36 @@ fn throttle(app: &App, peer: &Peer, failed: bool) -> Result<(), ApiErr> {
     } else {
         Ok(())
     }
+}
+
+async fn invite_info(
+    State(app): State<Arc<App>>,
+    Extension(peer): Extension<Peer>,
+    Json(req): Json<InviteLookup>,
+) -> Res<InviteInfo> {
+    throttle(&app, &peer, false)?;
+    let conn = app.db.lock().expect("database lock");
+    let found: Option<(String, String)> = conn
+        .query_row(
+            "SELECT name, email FROM invites WHERE token_hash = ?1 AND expires > ?2",
+            params![&sha256(&req.token)[..], now()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((name, email)) = found else {
+        drop(conn);
+        throttle(&app, &peer, true)?;
+        return Err(ApiErr::unauthorized(
+            "expired",
+            "This invitation code is not valid any more.",
+        ));
+    };
+    Ok(Json(InviteInfo {
+        org: String::from_utf8(db::meta_get(&conn, "org_name")?.unwrap_or_default())
+            .unwrap_or_default(),
+        name,
+        email,
+    }))
 }
 
 async fn join(

@@ -320,6 +320,18 @@ impl CleisApp {
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
+        let entry = s.selected_entry().cloned();
+        if reveal && entry.as_ref().is_some_and(|e| !s.may_see(e)) {
+            s.toast = Some("Your role copies and fills, without showing".into());
+            cx.notify();
+            return;
+        }
+        if reveal && let Some(e) = &entry {
+            self.org_report(cleis_core::org::Action::Viewed, e, "password", cx);
+        }
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
         s.reveal = reveal;
         if let Some(i) = s
             .editor

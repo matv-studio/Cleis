@@ -18,6 +18,8 @@ pub enum Tab {
     Vault,
     Contacts,
     Health,
+    /// Organization activity log (screen 11): members who may audit.
+    Activity,
     Settings,
 }
 
@@ -53,6 +55,9 @@ pub struct Welcome {
     pub busy: bool,
     /// "Restore my vault" (screen 22) instead of creating one.
     pub restore: Option<crate::screens::welcome::Restore>,
+    /// "Add an organization server" chosen (screen 03): joined once the vault exists.
+    pub org: bool,
+    pub join: crate::screens::org::JoinForm,
 }
 
 pub struct Unlock {
@@ -116,6 +121,11 @@ pub struct Session {
     pub vault_filter: VaultFilter,
     pub filter_menu: bool,
     pub vault_cards: bool,
+    /// The organization this vault belongs to, if any (D-59).
+    pub org: Option<crate::org::OrgSession>,
+    /// Settings › Organization: joining one from an open vault.
+    pub join: crate::screens::org::JoinForm,
+    pub join_subs: Vec<Subscription>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -167,6 +177,29 @@ impl Session {
         }
     }
 
+    /// Minutes of inactivity before locking: this vault's choice, never longer than the
+    /// organization's policy.
+    pub fn lock_after(&self) -> Option<u32> {
+        let own = self.prefs.lock_after_mins;
+        let org = self
+            .org
+            .as_ref()
+            .and_then(|o| o.policy())
+            .and_then(|p| p.lock_after_mins);
+        match (own, org) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// Whether this item's password may be shown (an organization role may only copy and fill).
+    pub fn may_see(&self, e: &Entry) -> bool {
+        match &self.org {
+            Some(o) if o.names.contains_key(&e.space) => o.can(cleis_core::org::Perm::See),
+            _ => true,
+        }
+    }
+
     pub fn selected_entry(&self) -> Option<&Entry> {
         self.selected
             .and_then(|id| self.entries.iter().find(|e| e.id == id))
@@ -174,7 +207,7 @@ impl Session {
 }
 
 pub enum Phase {
-    Welcome(Welcome),
+    Welcome(Box<Welcome>),
     Unlock(Unlock),
     Main(Box<Session>),
 }
@@ -227,6 +260,9 @@ impl CleisApp {
                     if app.auto_backup_due() {
                         app.backup(true, cx);
                     }
+                    if app.org_sync_due() {
+                        app.org_sync(None, cx);
+                    }
                     app.idle_lock_due().then_some(app.main_window).flatten()
                 }) else {
                     break;
@@ -271,6 +307,7 @@ impl CleisApp {
     pub fn show_welcome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let password = password_input(window, cx, "");
         let confirm = password_input(window, cx, "");
+        let (join, subs) = crate::screens::org::join_form(window, cx);
         self._subs =
             vec![
                 cx.subscribe_in(&confirm, window, |this, _, ev: &InputEvent, window, cx| {
@@ -279,14 +316,17 @@ impl CleisApp {
                     }
                 }),
             ];
-        self.phase = Phase::Welcome(Welcome {
+        self._subs.extend(subs);
+        self.phase = Phase::Welcome(Box::new(Welcome {
             step: 0,
             password,
             confirm,
             error: None,
             busy: false,
             restore: None,
-        });
+            org: false,
+            join,
+        }));
         cx.notify();
     }
 
@@ -328,6 +368,35 @@ impl CleisApp {
             cx.notify();
             return;
         }
+        // Joining: the code must be checked and, without a name in the invitation, one typed.
+        let join = if w.org {
+            let read = |e: &Option<Entity<InputState>>| {
+                e.as_ref()
+                    .map(|i| i.read(cx).value().to_string())
+                    .unwrap_or_default()
+            };
+            let j = &w.join;
+            let Some(info) = j.info.as_ref() else {
+                w.error = Some(if j.checking {
+                    "Checking the invitation…".into()
+                } else {
+                    j.error
+                        .clone()
+                        .unwrap_or("Enter the server address and invitation code".into())
+                });
+                cx.notify();
+                return;
+            };
+            let name = read(&j.name);
+            if info.name.trim().is_empty() && name.trim().is_empty() {
+                w.error = Some("Enter your name".into());
+                cx.notify();
+                return;
+            }
+            Some((read(&j.address), read(&j.code), name, read(&j.email)))
+        } else {
+            None
+        };
         w.busy = true;
         w.error = None;
         cx.notify();
@@ -342,8 +411,41 @@ impl CleisApp {
                     Vault::create(&path, &pw, KdfParams::default()).map_err(|e| e.to_string())
                 })
                 .await;
+            let res = match (res, join) {
+                (Ok(v), Some((address, code, name, email))) => {
+                    let public = v.account_public().0;
+                    let signing = cleis_crypto::SigningKeyPair::from_secret_bytes(
+                        *v.signing_key().secret_bytes(),
+                    );
+                    let joined = cx
+                        .background_executor()
+                        .spawn(async move {
+                            crate::org::join(&address, &code, &name, &email, public, &signing)
+                        })
+                        .await;
+                    Ok((v, Some(joined)))
+                }
+                (r, _) => r.map(|v| (v, None)),
+            };
             this.update_in(cx, |this, window, cx| match res {
-                Ok(v) => this.enter(v, window, cx),
+                Ok((v, joined)) => {
+                    let failed = match joined {
+                        Some(Ok(m)) => {
+                            let _ = v.set_org_setting(crate::org::SETTING, &Some(m));
+                            None
+                        }
+                        Some(Err(e)) => Some(e),
+                        None => None,
+                    };
+                    this.enter(v, window, cx);
+                    if let Some(e) = failed {
+                        this.toast_for(format!("Not joined: {e}"), 8, cx);
+                        if let Some(s) = this.session() {
+                            s.tab = Tab::Settings;
+                            s.settings_page = "Organization";
+                        }
+                    }
+                }
                 Err(e) => {
                     if let Phase::Welcome(w) = &mut this.phase {
                         w.busy = false;
@@ -478,6 +580,9 @@ impl CleisApp {
             vault_filter: Default::default(),
             filter_menu: false,
             vault_cards: false,
+            org: None,
+            join: Default::default(),
+            join_subs: vec![],
         };
         match s.prefs.start_in.as_str() {
             "favorites" => s.filter = Filter::Favorites,
@@ -487,6 +592,7 @@ impl CleisApp {
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);
         self.phase = Phase::Main(Box::new(s));
+        self.load_org(cx);
         self.open_gate(window, cx);
         if !cfg!(test) && !self.no_shortcuts {
             self.sync_autofill(cx);
@@ -588,6 +694,22 @@ impl CleisApp {
         .detach();
     }
 
+    /// [`Self::copy`] of an item's field; an organization's item is written to its log.
+    pub fn copy_of(&mut self, entry: EntryId, text: String, what: &str, cx: &mut Context<Self>) {
+        if let Some(e) = self
+            .session()
+            .and_then(|s| s.entries.iter().find(|e| e.id == entry).cloned())
+        {
+            self.org_report(
+                cleis_core::org::Action::Copied,
+                &e,
+                &what.to_lowercase(),
+                cx,
+            );
+        }
+        self.copy(text, what, cx);
+    }
+
     pub fn touch_activity(&mut self) {
         if let Phase::Main(s) = &mut self.phase {
             s.last_activity = std::time::Instant::now();
@@ -596,7 +718,7 @@ impl CleisApp {
 
     fn idle_lock_due(&self) -> bool {
         match &self.phase {
-            Phase::Main(s) => s.prefs.lock_after_mins.is_some_and(|m| {
+            Phase::Main(s) => s.lock_after().is_some_and(|m| {
                 s.last_activity.elapsed() >= Duration::from_secs(u64::from(m) * 60)
             }),
             _ => false,

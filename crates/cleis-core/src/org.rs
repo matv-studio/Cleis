@@ -704,6 +704,20 @@ pub struct Pull {
     pub full: Vec<SpaceId>,
 }
 
+/// What an invitation code is for, asked before joining (first launch shows it).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteLookup {
+    #[serde(with = "b64")]
+    pub token: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteInfo {
+    pub org: String,
+    pub name: String,
+    pub email: String,
+}
+
 /// Unauthenticated greeting: which organization answers at this address.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Hello {

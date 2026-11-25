@@ -58,7 +58,9 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+mod org;
 mod sync;
+pub use org::{open_space_info, seal_space_info};
 pub use sync::SyncReport;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +160,20 @@ fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS purged (kind TEXT NOT NULL, id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (kind, id)) STRICT;",
     )?;
+    // Organization spaces (D-59): which organization a space comes from (NULL: this vault's own),
+    // its key generation; for records, the `changed` last agreed with the server; for erasures
+    // in an organization space, whether the server was told.
+    for (t, col, def) in [
+        ("spaces", "org", "TEXT"),
+        ("spaces", "key_gen", "INTEGER NOT NULL DEFAULT 1"),
+        ("records", "pushed", "INTEGER NOT NULL DEFAULT 0"),
+        ("purged", "space", "TEXT"),
+        ("purged", "sent", "INTEGER NOT NULL DEFAULT 1"),
+    ] {
+        if !has(t, col)? {
+            conn.execute_batch(&format!("ALTER TABLE {t} ADD COLUMN {col} {def}"))?;
+        }
+    }
     Ok(())
 }
 
@@ -403,7 +419,8 @@ impl Vault {
         for row in rows {
             let (id, sealed) = row?;
             let sid = SpaceId(id.parse().map_err(|_| StoreError::Corrupt("space id"))?);
-            let plain = open(self.key(sid)?, &aad("space", &id, &sid), &sealed)?;
+            let Ok(key) = self.key(sid) else { continue }; // not shared with this account
+            let plain = open(key, &aad("space", &id, &sid), &sealed)?;
             out.push(serde_json::from_slice(&plain)?);
         }
         Ok(out)
@@ -480,14 +497,25 @@ impl Vault {
 
     /// Erases a record for good (emptying the trash).
     fn purge(&self, kind: &str, id: &str) -> Result<bool> {
+        let space: Option<(String, bool)> = self
+            .conn
+            .query_row(
+                "SELECT r.space, s.org IS NOT NULL FROM records r JOIN spaces s ON s.id = r.space WHERE r.kind = ?1 AND r.id = ?2",
+                params![kind, id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
         let n = self.conn.execute(
             "DELETE FROM records WHERE kind = ?1 AND id = ?2",
             params![kind, id],
         )?;
-        // Remembered so a sync does not bring it back from another copy.
+        // Remembered so a sync does not bring it back from another copy; an organization's
+        // erasure waits to be sent to its server.
+        let (space, org) = space.unzip();
         self.conn.execute(
-            "INSERT INTO purged(kind, id, at) VALUES (?1, ?2, ?3) ON CONFLICT(kind, id) DO UPDATE SET at = excluded.at",
-            params![kind, id, now_ms()],
+            "INSERT INTO purged(kind, id, at, space, sent) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(kind, id) DO UPDATE SET at = excluded.at, space = excluded.space, sent = excluded.sent",
+            params![kind, id, now_ms(), space, !org.unwrap_or(false)],
         )?;
         Ok(n == 1)
     }

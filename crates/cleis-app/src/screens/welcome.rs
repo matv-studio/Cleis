@@ -1,5 +1,5 @@
-//! Screen 03 — First launch: choose local vault (server option comes with cleis-server),
-//! then create the master password.
+//! Screen 03 — First launch: a vault on this computer only, or also an organization's server
+//! (address and invitation code), then the master password.
 
 use super::unlock::{logo, stage};
 use crate::app::{CleisApp, Phase};
@@ -211,6 +211,17 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 }
 
 fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
+    choice_with(t, active, title, sub, ico, None)
+}
+
+fn choice_with(
+    t: &Tokens,
+    active: bool,
+    title: &str,
+    sub: &str,
+    ico: &str,
+    extra: Option<Div>,
+) -> Div {
     div()
         .flex()
         .gap(px(12.))
@@ -240,7 +251,8 @@ fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
                         .child(sub.to_owned()),
-                ),
+                )
+                .when_some(extra, |d, e| d.child(div().pt(px(12.)).child(e))),
         )
         .child(
             div()
@@ -287,23 +299,47 @@ pub fn render(
                 ),
         )
         .child(
-            choice(&t, true, "This computer only", "Personal vault", "laptop").child(div()), // selected
+            div()
+                .id("local-only")
+                .cursor_pointer()
+                .child(choice(
+                    &t,
+                    !w.org,
+                    "This computer only",
+                    "Personal vault",
+                    "laptop",
+                ))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Phase::Welcome(w) = &mut this.phase {
+                        w.org = false;
+                        w.error = None;
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
         )
         .child(
             div()
                 .id("org-server")
-                .opacity(0.45)
-                .tooltip(|window, cx| {
-                    gpui_kit::component::tooltip::Tooltip::new("Coming with the Cleis server")
-                        .build(window, cx)
-                })
-                .child(choice(
+                .cursor_pointer()
+                .child(choice_with(
                     &t,
-                    false,
+                    w.org,
                     "Add an organization server",
                     "Shared spaces, on top of your personal vault",
                     "server",
-                )),
+                    w.org.then(|| super::org::join_fields(&w.join, &t, cx)),
+                ))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Phase::Welcome(w) = &mut this.phase
+                        && !w.org
+                    {
+                        w.org = true;
+                        w.error = None;
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
         )
         .child(
             section(&t)

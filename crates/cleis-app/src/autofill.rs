@@ -193,6 +193,12 @@ impl CleisApp {
         custom: impl FnOnce(Focus) -> Plan + Send + 'static,
         cx: &mut Context<Self>,
     ) {
+        if let Some(e) = self
+            .session()
+            .and_then(|s| s.entries.iter().find(|e| e.id == entry).cloned())
+        {
+            self.org_report(cleis_core::org::Action::Filled, &e, "", cx);
+        }
         if let Some(log) = self.autofill.dry_run.as_mut() {
             log.push((entry, method));
             if from_quick_access {

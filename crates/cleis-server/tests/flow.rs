@@ -154,6 +154,21 @@ fn organization_flow() {
         .unwrap();
     assert!(matches!(e, NetError::Untrusted), "{e:?}");
 
+    // What the code is for.
+    let inv = Invitation::parse(&code).unwrap();
+    let info: InviteInfo = Client::new(&srv.addr, Trust::Prefix(inv.pin))
+        .call(
+            "/v1/invite-info",
+            &InviteLookup {
+                token: inv.token.to_vec(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        (info.org.as_str(), info.name.as_str()),
+        ("Example Studio", "")
+    );
+
     // The first admin joins and sets the organization key.
     let mut lea = join(&srv.addr, &code, "Lea Martin", "lea@example-studio.com").unwrap();
     // The code is used up.

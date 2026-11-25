@@ -1200,10 +1200,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "chrono",
  "cleis-autofill",
  "cleis-core",
  "cleis-crypto",
+ "cleis-net",
+ "cleis-server",
  "cleis-store",
+ "data-encoding",
  "directories",
  "gpui-kit",
  "qrcode",
@@ -1211,7 +1215,9 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "tray-icon",
+ "uuid",
  "zeroize",
 ]
 

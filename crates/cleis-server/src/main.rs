@@ -96,7 +96,10 @@ fn run(a: Args) -> Result<(), ServerError> {
                 a.org.trim(),
                 a.data.display()
             );
-            println!("Certificate: {}", cleis_crypto::fingerprint(&app.cert));
+            println!(
+                "Certificate: {}",
+                cleis_crypto::fingerprint_of_hash(&app.cert)
+            );
             println!("First administrator's invitation code (valid 7 days):\n\n    {code}\n");
             Ok(())
         }
@@ -114,7 +117,7 @@ fn run(a: Args) -> Result<(), ServerError> {
                 println!(
                     "Cleis server listening on {} · certificate {}",
                     a.listen,
-                    cleis_crypto::fingerprint(&app.cert)
+                    cleis_crypto::fingerprint_of_hash(&app.cert)
                 );
                 cleis_server::serve(app, listener, async {
                     let _ = tokio::signal::ctrl_c().await;
@@ -139,7 +142,10 @@ fn run(a: Args) -> Result<(), ServerError> {
             ) {
                 (Some(c), Some(k)) => {
                     finish_rotation(&conn, &c, &k)?;
-                    println!("New certificate in use: {}", cleis_crypto::fingerprint(&c));
+                    println!(
+                        "New certificate in use: {}",
+                        cleis_crypto::fingerprint_of_hash(&cleis_crypto::sha256(&c))
+                    );
                     Ok(())
                 }
                 _ => Err(ServerError::Setup(
@@ -160,7 +166,7 @@ fn run(a: Args) -> Result<(), ServerError> {
                 "{} members · {} items · certificate {}",
                 n,
                 r,
-                cleis_crypto::fingerprint(&app.cert)
+                cleis_crypto::fingerprint_of_hash(&app.cert)
             );
             Ok(())
         }
