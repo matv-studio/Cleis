@@ -209,6 +209,7 @@ fn organization_flow() {
                 id: general,
                 sealed: seal(&k1, b"space", b"General").unwrap(),
                 mode: SpaceMode::Standard,
+                reserved: false,
                 wrapped: wrap_key(&lea.account.public(), &k1, general.0.as_bytes()).unwrap(),
                 org_wrapped: Some(wrap_key(&org.public(), &k1, general.0.as_bytes()).unwrap()),
                 recovery_wrapped: None,
@@ -508,6 +509,113 @@ fn organization_flow() {
         .call::<_, Vec<Role>>("/v1/roles", &Role::defaults())
         .unwrap_err();
     assert_eq!(e.code(), Some("forbidden"));
+
+    // Reserved space (D-61): Lea's "Accounting" is hidden from Hugo, an Admin, who can neither
+    // join it, rename it nor delete it. A Standard space cannot be reserved as it is.
+    let acc = SpaceId::new();
+    let k_acc = SymmetricKey::generate().unwrap();
+    let e = hugo
+        .client
+        .call::<_, PushReply>(
+            "/v1/spaces",
+            &NewSpace {
+                id: SpaceId::new(),
+                sealed: vec![1],
+                mode: SpaceMode::EndToEnd,
+                reserved: true,
+                wrapped: vec![1],
+                org_wrapped: None,
+                recovery_wrapped: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"), "only a Super Admin reserves");
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/spaces",
+            &NewSpace {
+                id: acc,
+                sealed: seal(&k_acc, b"space", b"Accounting").unwrap(),
+                mode: SpaceMode::EndToEnd,
+                reserved: true,
+                wrapped: wrap_key(&lea.account.public(), &k_acc, acc.0.as_bytes()).unwrap(),
+                org_wrapped: None,
+                recovery_wrapped: None,
+            },
+        )
+        .unwrap();
+    assert!(lea.state().spaces.iter().any(|s| s.id == acc && s.reserved));
+    assert!(
+        hugo.state().spaces.iter().all(|s| s.id != acc),
+        "hidden from an Admin"
+    );
+    let e = hugo
+        .client
+        .call::<_, MemberView>(
+            "/v1/members",
+            &MemberChange {
+                member: hugo.member,
+                spaces: Some(vec![general, acc]),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
+    for (path, body) in [
+        ("/v1/spaces/delete", serde_json::json!({ "id": acc.0 })),
+        (
+            "/v1/spaces/reserve",
+            serde_json::json!({ "id": acc.0, "reserved": false }),
+        ),
+    ] {
+        let e = hugo.client.call::<_, PushReply>(path, &body).unwrap_err();
+        assert_eq!(e.code(), Some("forbidden"), "{path}");
+    }
+    let e = lea
+        .client
+        .call::<_, PushReply>(
+            "/v1/spaces/reserve",
+            &Reserve {
+                id: general,
+                reserved: true,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("bad_request"));
+    // Lea gives Hugo the space herself: allowed, and marked as hers.
+    let _: MemberView = lea
+        .client
+        .call(
+            "/v1/members",
+            &MemberChange {
+                member: hugo.member,
+                spaces: Some(vec![general, acc]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let p = lea
+        .state()
+        .pending
+        .into_iter()
+        .find(|p| p.space == acc)
+        .unwrap();
+    assert_eq!(p.granted_by, Some(lea.member));
+    // Given by a Super Admin, the space shows for Hugo; leaving it still needs one.
+    assert!(hugo.state().spaces.iter().any(|s| s.id == acc));
+    let e = hugo
+        .client
+        .call::<_, MemberView>(
+            "/v1/members",
+            &MemberChange {
+                member: hugo.member,
+                spaces: Some(vec![general]),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
     let e = lea
         .client
         .call::<_, MemberView>("/v1/members", &change(lea.member, ADMIN))
@@ -570,6 +678,7 @@ fn organization_flow() {
                 id: tmp,
                 sealed: vec![1],
                 mode: SpaceMode::EndToEnd,
+                reserved: false,
                 wrapped: wrap_key(&lea.account.public(), &k1, tmp.0.as_bytes()).unwrap(),
                 org_wrapped: None,
                 recovery_wrapped: None,

@@ -36,6 +36,7 @@ pub struct InviteForm {
 pub struct SpaceForm {
     pub name: Entity<InputState>,
     pub mode: SpaceMode,
+    pub reserved: bool,
 }
 
 pub struct RoleForm {
@@ -95,6 +96,8 @@ pub struct OrgUi {
     pub profile: Option<(Entity<InputState>, Entity<InputState>)>,
     /// Settings › Spaces: renaming one (its name box), deleting one (confirmation).
     pub rename: Option<(SpaceId, Entity<InputState>)>,
+    /// Space to reserve once its re-encryption to end-to-end is done.
+    pub reserve_after: Option<SpaceId>,
     pub delete_space: Option<SpaceId>,
 }
 
@@ -401,27 +404,41 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             let on = m.spaces.contains(&sv.id);
             let sid = sv.id;
             let current = m.spaces.clone();
+            let locked = sv.reserved && !i_admins;
             sm = sm.child(
-                menu_item(format!("msp-{id}-{sid}"), t, None, o.space_name(sid), false)
-                    .child(div().flex_1())
-                    .child(check_box(t, on))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let mut next = current.clone();
-                        if on {
-                            next.retain(|x| *x != sid);
-                        } else {
-                            next.push(sid);
-                        }
-                        this.org_member(
-                            MemberChange {
-                                member: id,
-                                spaces: Some(next),
-                                ..Default::default()
-                            },
-                            cx,
-                        );
-                    }))
-                    .test_support(),
+                menu_item(
+                    format!("msp-{id}-{sid}"),
+                    t,
+                    sv.reserved.then_some("lock"),
+                    o.space_name(sid),
+                    false,
+                )
+                .child(div().flex_1())
+                .child(check_box(t, on))
+                .when(locked, |d| {
+                    d.opacity(0.45)
+                        .tooltip(tip("Reserved: a Super Admin changes its members"))
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if locked {
+                        return;
+                    }
+                    let mut next = current.clone();
+                    if on {
+                        next.retain(|x| *x != sid);
+                    } else {
+                        next.push(sid);
+                    }
+                    this.org_member(
+                        MemberChange {
+                            member: id,
+                            spaces: Some(next),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                }))
+                .test_support(),
             );
         }
         let spaces_cell = div()
@@ -1222,7 +1239,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         let id = sv.id;
         let pending = o.ui.changes.iter().find(|c| c.0 == id).map(|c| c.1);
         let mode = pending.unwrap_or(sv.mode);
-        let holds = s.vault.space_key(id).is_some();
+        let holds = s.vault.space_key(id).is_some() && !sv.reserved;
         table = table.child(
             cols(div())
                 .h(px(40.))
@@ -1934,15 +1951,8 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .map(|p| p.events.as_slice())
         .unwrap_or_default();
     let mut shown = 0;
-    let key = o.org_key.as_ref();
     for e in events {
-        let detail = key
-            .and_then(|k| {
-                e.detail
-                    .as_ref()
-                    .and_then(|d| cleis_crypto::open_from(k, DETAIL_CONTEXT, d).ok())
-            })
-            .and_then(|p| serde_json::from_slice::<EventDetail>(&p).ok());
+        let detail = o.open_detail(e);
         let item = match &detail {
             Some(d) if d.field.is_empty() => d.item.clone(),
             Some(d) => format!("{} · {}", d.item, d.field),
@@ -2361,16 +2371,18 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         return Some(overlay(body));
     }
     if let Some(f) = &o.ui.new_space {
+        let i_super = st.is_some_and(|s| s.me.role == SUPER_ADMIN);
+        let reserved = f.reserved;
         let body = card(t, "New space")
             .child(field(t, "Name", Input::new(&f.name).id("space-name")))
             .child(field(
                 t,
                 "Encryption",
-                div().child(seg(
+                div().when(reserved, |d| d.opacity(0.5)).child(seg(
                     "space-mode",
                     t,
                     &["Standard", "End-to-end"],
-                    usize::from(f.mode == SpaceMode::EndToEnd),
+                    usize::from(f.mode == SpaceMode::EndToEnd || reserved),
                     Rc::new(|app, i, cx| {
                         if let Some(f) = org_mut(app).and_then(|o| o.ui.new_space.as_mut()) {
                             f.mode = if i == 0 {
@@ -2384,6 +2396,28 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     cx,
                 )),
             ))
+            .when(i_super, |d| {
+                d.child(
+                    div()
+                        .id("space-reserved")
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .cursor_pointer()
+                        .tooltip(tip(
+                            "End-to-end; its members are changed by a Super Admin only, other admins do not see it",
+                        ))
+                        .child(check_box(t, reserved))
+                        .child("Reserved")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(f) = org_mut(this).and_then(|o| o.ui.new_space.as_mut()) {
+                                f.reserved = !f.reserved;
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+            })
             .child(actions(
                 t,
                 "space-create",
@@ -2795,6 +2829,7 @@ impl CleisApp {
             o.ui.new_space = Some(SpaceForm {
                 name,
                 mode: SpaceMode::Standard,
+                reserved: false,
             });
         }
         cx.notify();
@@ -2810,7 +2845,7 @@ impl CleisApp {
             o.ui.new_space = Some(f);
             return;
         }
-        self.org_new_space(name, f.mode, cx);
+        self.org_new_space(name, f.mode, f.reserved, cx);
     }
 
     pub fn open_new_role(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3196,11 +3231,22 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(div().w(px(80.)).flex().justify_end().child("Items"))
             .child(div().w(px(200.)).child("Members"))
             .child(div().w(px(140.)).child("Encryption"))
+            .child(
+                div()
+                    .id("h-reserved")
+                    .w(px(80.))
+                    .child("Reserved")
+                    .tooltip(tip(
+                        "Members changed by a Super Admin only; other admins do not see it",
+                    )),
+            )
             .child(div().w(px(64.))),
     );
+    let i_super = st.me.role == SUPER_ADMIN;
     for sv in &st.spaces {
         let id = sv.id;
-        let holds = s.vault.space_key(id).is_some();
+        let reserved = sv.reserved;
+        let holds = s.vault.space_key(id).is_some() && (!reserved || i_super);
         let mut faces = div().flex().items_center();
         for (k, m) in sv.members.iter().take(5).enumerate() {
             faces = faces.child(
@@ -3244,6 +3290,21 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(div().w(px(140.)).flex().child(match sv.mode {
                     SpaceMode::Standard => chip(t, Tone::Neutral, "Standard", false),
                     SpaceMode::EndToEnd => chip(t, Tone::Ok, "End-to-end", false),
+                }))
+                .child(div().w(px(80.)).flex().child(if i_super {
+                    div()
+                        .id(SharedString::from(format!("reserve-{id}")))
+                        .cursor_pointer()
+                        .child(check_box(t, sv.reserved))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.org_reserve(id, !reserved, cx)),
+                        )
+                        .test_support()
+                        .into_any_element()
+                } else if sv.reserved {
+                    icon("lock", 14., t.text_muted).into_any_element()
+                } else {
+                    div().into_any_element()
                 }))
                 .child(
                     div()

@@ -483,9 +483,10 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     }
     for sp in org {
         let n = s.entries.iter().filter(|e| e.space == sp.id).count();
+        let reserved = s.org.as_ref().is_some_and(|o| o.is_reserved(sp.id));
         d = d.child(item(
             &format!("sp-{}", sp.id),
-            "folder",
+            if reserved { "lock" } else { "folder" },
             sp.name.clone(),
             Some(n),
             Filter::Space(sp.id),

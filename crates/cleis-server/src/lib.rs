@@ -125,6 +125,7 @@ impl App {
             "",
             cleis_core::org::SUPER_ADMIN,
             &[],
+            None,
             cleis_core::now(),
         )?
         .1;
@@ -200,7 +201,17 @@ impl App {
     /// A new invitation code for the server's current certificate (command line).
     pub fn invite(&self, name: &str, email: &str, role: &str) -> Result<String, ServerError> {
         let conn = self.db.lock().expect("database lock");
-        Ok(api::create_invite(&conn, &self.cert, name, email, role, &[], cleis_core::now())?.1)
+        Ok(api::create_invite(
+            &conn,
+            &self.cert,
+            name,
+            email,
+            role,
+            &[],
+            None,
+            cleis_core::now(),
+        )?
+        .1)
     }
 }
 

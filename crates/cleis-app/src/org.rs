@@ -341,6 +341,8 @@ pub struct OrgSession {
     pub error: Option<String>,
     /// Admins: the organization key, opened.
     pub org_key: Option<KeyPair>,
+    /// Super Admins: the Super Admin key, opened (details of reserved spaces, D-61).
+    pub super_key: Option<KeyPair>,
     /// Spaces to pull whole at the next sync.
     pub full: Vec<SpaceId>,
     pub code: Option<CodePrompt>,
@@ -382,6 +384,24 @@ impl OrgSession {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| "Space".into())
+    }
+
+    /// Opens an activity detail: with the organization key, or the Super Admin key for reserved
+    /// spaces.
+    pub fn open_detail(&self, e: &Event) -> Option<EventDetail> {
+        let d = e.detail.as_ref()?;
+        let plain = [self.org_key.as_ref(), self.super_key.as_ref()]
+            .into_iter()
+            .flatten()
+            .find_map(|k| cleis_crypto::open_from(k, DETAIL_CONTEXT, d).ok())?;
+        serde_json::from_slice(&plain).ok()
+    }
+
+    pub fn is_reserved(&self, space: SpaceId) -> bool {
+        self.state
+            .as_ref()
+            .and_then(|s| s.spaces.iter().find(|x| x.id == space))
+            .is_some_and(|x| x.reserved)
     }
 
     /// Opens a space key through the organization key (admins, Standard spaces).
@@ -438,6 +458,7 @@ impl CleisApp {
                 last_attempt: None,
                 error: None,
                 org_key: None,
+                super_key: None,
                 full: vec![],
                 code: None,
                 names: BTreeMap::new(),
@@ -601,10 +622,21 @@ impl CleisApp {
         let Some(o) = s.org.as_ref() else { return };
         let Some(st) = o.state.as_ref() else { return };
         let mut wraps = vec![];
+        let is_super = |m: Option<MemberId>| {
+            m.is_some_and(|m| {
+                st.members
+                    .iter()
+                    .any(|x| x.id == m && x.role == SUPER_ADMIN)
+            })
+        };
         for p in &st.pending {
             let Some(sv) = st.spaces.iter().find(|x| x.id == p.space) else {
                 continue;
             };
+            // A reserved space's key goes only to someone a Super Admin gave it to (D-61).
+            if sv.reserved && !is_super(p.granted_by) {
+                continue;
+            }
             if let Some(k) = space_key(s, o, sv)
                 && let Ok(w) = wrap_key(&PublicKey(p.account_public), &k, p.space.0.as_bytes())
             {
@@ -658,6 +690,65 @@ impl CleisApp {
                 },
                 None,
             ));
+        }
+        // The Super Admin key, the same way (D-61).
+        let mut sup = None;
+        if st.me.role == SUPER_ADMIN && st.org.super_public.is_none() {
+            if let Ok(kp) = KeyPair::generate() {
+                let secret = SymmetricKey::from_bytes(*kp.secret_bytes());
+                if let Ok(w) = wrap_key(&s.vault.account_public(), &secret, SUPER_KEY_CONTEXT) {
+                    sup = Some((
+                        SuperKeys {
+                            super_public: Some(kp.public().0.to_vec()),
+                            wraps: vec![Wrap {
+                                space: SpaceId(uuid::Uuid::nil()),
+                                member: st.me.id,
+                                wrapped: w,
+                            }],
+                        },
+                        Some(kp),
+                    ));
+                }
+            }
+        } else if let Some(k) = &o.super_key
+            && !st.pending_supers.is_empty()
+        {
+            let secret = SymmetricKey::from_bytes(*k.secret_bytes());
+            let wraps = st
+                .pending_supers
+                .iter()
+                .filter_map(|p| {
+                    wrap_key(&PublicKey(p.account_public), &secret, SUPER_KEY_CONTEXT)
+                        .ok()
+                        .map(|w| Wrap {
+                            space: SpaceId(uuid::Uuid::nil()),
+                            member: p.member,
+                            wrapped: w,
+                        })
+                })
+                .collect();
+            sup = Some((
+                SuperKeys {
+                    super_public: None,
+                    wraps,
+                },
+                None,
+            ));
+        }
+        if let Some((req, kp)) = sup {
+            self.org_request::<_, PushReply>(
+                "/v1/super-keys",
+                req,
+                move |app, r, _| {
+                    if r.is_ok()
+                        && let Some(kp) = kp
+                        && let Some(o) = app.session().and_then(|s| s.org.as_mut())
+                    {
+                        o.super_key = Some(kp);
+                    }
+                },
+                cx,
+            );
         }
         if !wraps.is_empty() {
             self.org_request::<_, PushReply>("/v1/grants", Grants { wraps }, |_, _, _| {}, cx);
@@ -1002,7 +1093,15 @@ impl CleisApp {
 
     /// A new organization space, its key kept here and wrapped for the organization key
     /// (Standard) and the recovery key (if on).
-    pub fn org_new_space(&mut self, name: String, mode: SpaceMode, cx: &mut Context<Self>) {
+    pub fn org_new_space(
+        &mut self,
+        name: String,
+        mode: SpaceMode,
+        reserved: bool,
+        cx: &mut Context<Self>,
+    ) {
+        // A reserved space is end-to-end (D-61).
+        let mode = if reserved { SpaceMode::EndToEnd } else { mode };
         let Some(s) = self.session() else { return };
         let Some(o) = s.org.as_ref() else { return };
         let Some(st) = o.state.as_ref() else { return };
@@ -1031,6 +1130,7 @@ impl CleisApp {
             id: info.id,
             sealed,
             mode,
+            reserved,
             wrapped,
             org_wrapped: if mode == SpaceMode::Standard {
                 wrap_to(&org_public)
@@ -1131,10 +1231,14 @@ impl CleisApp {
                 {
                     let _ = s.vault.org_rekeyed(&key, &r);
                     let _ = crate::sync::reload(s);
-                    if let Some(o) = s.org.as_mut() {
+                    let reserve = s.org.as_mut().and_then(|o| {
                         o.ui.rekey = None;
-                    }
+                        o.ui.reserve_after.take()
+                    });
                     s.toast = Some("Re-encrypted".into());
+                    if let Some(id) = reserve {
+                        app.org_reserve(id, true, cx);
+                    }
                 }
                 cx.notify();
             },
@@ -1336,10 +1440,14 @@ impl CleisApp {
         if !s.vault.is_org_space(entry.space).unwrap_or(false) || !st.policy.records(action) {
             return;
         }
-        let detail = st
-            .org
-            .org_public
-            .as_ref()
+        // Reserved spaces: readable by the Super Admins only (D-61).
+        let reserved = o.is_reserved(entry.space);
+        let detail = if reserved {
+            st.org.super_public.as_ref()
+        } else {
+            st.org.org_public.as_ref()
+        };
+        let detail = detail
             .and_then(|p| p.clone().try_into().ok())
             .and_then(|p: [u8; 32]| {
                 let d = serde_json::to_vec(&EventDetail {
@@ -1420,9 +1528,7 @@ impl CleisApp {
         let Phase::Main(s) = &self.phase else {
             return None;
         };
-        let k = s.org.as_ref()?.org_key.as_ref()?;
-        let plain = cleis_crypto::open_from(k, DETAIL_CONTEXT, e.detail.as_ref()?).ok()?;
-        serde_json::from_slice(&plain).ok()
+        s.org.as_ref()?.open_detail(e)
     }
 
     /// Writes the events shown to a CSV file.
@@ -1790,6 +1896,13 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
     {
         o.org_key = s.vault.unwrap_own(w, ORG_KEY_CONTEXT).ok();
     }
+    if st.super_key.is_none() {
+        o.super_key = None;
+    } else if o.super_key.is_none()
+        && let Some(w) = &st.super_key
+    {
+        o.super_key = s.vault.unwrap_own(w, SUPER_KEY_CONTEXT).ok();
+    }
     // Names of the spaces this app can open (its own keys, or the organization key).
     let mut names = BTreeMap::new();
     for sv in &st.spaces {
@@ -1820,5 +1933,43 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
     o.state = Some(st);
     if changed || was_locked {
         let _ = crate::sync::reload(s);
+    }
+}
+
+impl CleisApp {
+    /// Reserves a space or frees it (Super Admin, D-61). A Standard space is re-encrypted
+    /// end-to-end first: the dialog opens for that.
+    pub fn org_reserve(&mut self, id: SpaceId, reserved: bool, cx: &mut Context<Self>) {
+        let Some(o) = self.session().and_then(|s| s.org.as_mut()) else {
+            return;
+        };
+        let standard = o
+            .state
+            .as_ref()
+            .and_then(|s| s.spaces.iter().find(|x| x.id == id))
+            .is_some_and(|x| x.mode == SpaceMode::Standard);
+        if reserved && standard {
+            o.ui.rekey = Some(crate::screens::org::RekeyForm {
+                space: id,
+                to: SpaceMode::EndToEnd,
+                backup_first: true,
+            });
+            o.ui.reserve_after = Some(id);
+            cx.notify();
+            return;
+        }
+        if let Some(sv) = o
+            .state
+            .as_mut()
+            .and_then(|s| s.spaces.iter_mut().find(|x| x.id == id))
+        {
+            sv.reserved = reserved;
+        }
+        self.org_request::<_, PushReply>(
+            "/v1/spaces/reserve",
+            Reserve { id, reserved },
+            |_, _, _| {},
+            cx,
+        );
     }
 }

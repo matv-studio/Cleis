@@ -295,6 +295,21 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     connectés ou mémorisés, déconnexion), Spaces (renommer, supprimer un espace et son contenu pour
     tous, avec confirmation).
   - Captures : thème sombre seulement désormais (`THEMES="dark light"` pour les deux).
+- **D-61 Espaces réservés** (25/11/2026, demande de l'utilisateur : comptabilité ou direction hors
+  de portée de l'administrateur technique) :
+  - Case « Reserved » d'un espace (Spaces, dialogue New space), réservée au Super Admin. Un espace
+    réservé est forcément End-to-end (sans copie pour la clé d'organisation) ; réserver un espace
+    Standard ouvre d'abord son rechiffrement en End-to-end.
+  - Le serveur refuse à tout autre qu'un Super Admin : changer ses membres (y compris s'y ajouter),
+    l'inviter, le renommer, le supprimer, le rechiffrer, le libérer. Les admins qui n'en sont pas
+    membres ne le voient pas (ni dans l'état, ni dans les listes de membres, ni dans le journal).
+  - Chaque accès garde qui l'a donné ; une app ne remet la clé d'un espace réservé qu'à un accès
+    donné par un Super Admin (défense en profondeur, si le serveur était trompé).
+  - Clé Super Admin (X25519) faite par le premier Super Admin, enveloppée pour chacun, retirée à
+    celui qui perd le rôle : le nom des éléments d'un espace réservé, au journal, est scellé pour elle
+    (lisible des Super Admins seuls).
+  - Corrige le trou relevé le 25/11 : un Admin pouvait s'ajouter à un espace End-to-end et recevoir
+    sa clé de l'app d'un membre.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
@@ -305,4 +320,3 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 7. Méthodes de connexion par e-mail, SMS, Google, Microsoft (service extérieur ou dépense).
-8. Partage des droits entre Super Admin et Admin (D-60) : à confirmer à l'audit.

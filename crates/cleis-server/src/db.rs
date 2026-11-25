@@ -69,9 +69,16 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     conn.execute_batch(SCHEMA)?;
     // Devices page (D-60): when a session was last used, which device a remembered code is for.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS super_keys (member TEXT PRIMARY KEY REFERENCES members(id), wrapped BLOB NOT NULL) STRICT;",
+    )?;
     for (t, col, def) in [
         ("sessions", "last", "INTEGER NOT NULL DEFAULT 0"),
         ("remembered", "device", "TEXT NOT NULL DEFAULT ''"),
+        // Reserved spaces (D-61): who gave each access, who made each invitation.
+        ("spaces", "reserved", "INTEGER NOT NULL DEFAULT 0"),
+        ("access", "granted_by", "TEXT"),
+        ("invites", "created_by", "TEXT"),
     ] {
         let has: bool = conn
             .prepare(&format!(

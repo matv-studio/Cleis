@@ -329,6 +329,7 @@ pub enum Action {
     SpaceRenamed,
     SpaceDeleted,
     SignedOut,
+    SpaceReserved,
 }
 
 impl Action {
@@ -357,6 +358,7 @@ impl Action {
             Action::SpaceRenamed => "Space renamed",
             Action::SpaceDeleted => "Space deleted",
             Action::SignedOut => "Signed out",
+            Action::SpaceReserved => "Space reserved",
         }
     }
 
@@ -410,6 +412,8 @@ pub struct EventDetail {
 }
 
 pub const DETAIL_CONTEXT: &[u8] = b"cleis/log-detail/v1";
+/// Context of the Super Admin key wrapped to each Super Admin.
+pub const SUPER_KEY_CONTEXT: &[u8] = b"cleis/super-key";
 
 // ---------- Invitation codes ----------
 
@@ -607,6 +611,10 @@ pub struct OrgInfo {
     pub recovery_public: Option<Vec<u8>>,
     #[serde(default)]
     pub recovery_saved: Option<i64>,
+    /// Super Admin key (X25519 public): activity details of reserved spaces are sealed to it
+    /// (D-61).
+    #[serde(with = "b64::opt", default)]
+    pub super_public: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -670,6 +678,10 @@ pub struct SpaceView {
     /// Someone who held the key lost access since the last re-encryption.
     #[serde(default)]
     pub needs_rekey: bool,
+    /// Reserved (D-61): end-to-end, its members changed by a Super Admin only, hidden from the
+    /// other admins.
+    #[serde(default)]
+    pub reserved: bool,
 }
 
 /// A member who was given a space but has no wrapped key for it yet: any app that holds the key
@@ -680,6 +692,9 @@ pub struct Pending {
     pub member: MemberId,
     #[serde(with = "b64_32")]
     pub account_public: [u8; 32],
+    /// Who gave the space: an app hands a reserved space's key on only when a Super Admin did.
+    #[serde(default)]
+    pub granted_by: Option<MemberId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -698,6 +713,12 @@ pub struct State {
     pub org_key: Option<Vec<u8>>,
     /// Admins promoted since: they wait for an admin app to wrap the organization key for them.
     pub pending_admins: Vec<Pending>,
+    /// Super Admins: the Super Admin private key wrapped to this one (D-61).
+    #[serde(with = "b64::opt", default)]
+    pub super_key: Option<Vec<u8>>,
+    /// Super Admins named since: they wait for the Super Admin key.
+    #[serde(default)]
+    pub pending_supers: Vec<Pending>,
     /// Highest change number on the server.
     pub seq: u64,
     /// Auditors: the last check of the activity log.
@@ -776,6 +797,8 @@ pub struct NewSpace {
     #[serde(with = "b64")]
     pub sealed: Vec<u8>,
     pub mode: SpaceMode,
+    #[serde(default)]
+    pub reserved: bool,
     #[serde(with = "b64")]
     pub wrapped: Vec<u8>,
     #[serde(with = "b64::opt", default)]
@@ -821,6 +844,21 @@ pub struct AdminKeys {
     /// Set once, by the first admin.
     #[serde(with = "b64::opt", default)]
     pub org_public: Option<Vec<u8>>,
+}
+
+/// The Super Admin key: set once by the first Super Admin, then wrapped for each new one.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SuperKeys {
+    pub wraps: Vec<Wrap>,
+    #[serde(with = "b64::opt", default)]
+    pub super_public: Option<Vec<u8>>,
+}
+
+/// Reserves a space or frees it (Super Admin).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Reserve {
+    pub id: SpaceId,
+    pub reserved: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

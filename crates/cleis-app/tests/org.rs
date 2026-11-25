@@ -233,6 +233,67 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
         assert_eq!(f.space, general);
     });
 
+    // Reserved space (D-61) from the sidebar dialog: hidden from Hugo until Lea, a Super Admin,
+    // gives it to him; then his app gets its key from Lea's.
+    act(cx, lh, |w, cx| w.click("tab-Vault", cx));
+    act(cx, lh, |w, cx| w.click("new-space", cx));
+    act(cx, lh, |w, cx| {
+        w.click("space-name", cx);
+        w.input("Accounting", cx);
+        w.click("space-reserved", cx);
+        w.click("space-create", cx);
+    });
+    sync(cx, &lea);
+    let acc = session(cx, &lea, |s| {
+        let sv = s
+            .org
+            .as_ref()
+            .unwrap()
+            .state
+            .as_ref()
+            .unwrap()
+            .spaces
+            .iter()
+            .find(|x| x.reserved)
+            .cloned()
+            .expect("reserved space");
+        assert_eq!(sv.mode, cleis_core::org::SpaceMode::EndToEnd);
+        sv.id
+    });
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        assert!(
+            s.org
+                .as_ref()
+                .unwrap()
+                .state
+                .as_ref()
+                .unwrap()
+                .spaces
+                .iter()
+                .all(|x| x.id != acc)
+        )
+    });
+    let hugo_member = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.member);
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| w.click("set-Members", cx));
+    act(cx, lh, |w, cx| w.click(format!("spaces-{hugo_member}"), cx));
+    act(cx, lh, |w, cx| {
+        w.click(format!("msp-{hugo_member}-{acc}"), cx)
+    });
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        assert!(
+            s.spaces
+                .iter()
+                .any(|x| x.id == acc && x.name == "Accounting"),
+            "key received"
+        )
+    });
+
     // Detail "Everything" (lower on the page: set directly), then Hugo copies the item: the log
     // keeps who, what, and the item's name sealed for the admins.
     lea.update(cx, |a, cx| {

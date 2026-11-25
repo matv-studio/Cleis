@@ -405,6 +405,7 @@ pub fn org(s: &mut crate::app::Session) {
     use cleis_core::{MemberId, SpaceId};
     let now = cleis_core::now();
     let org_kp = cleis_crypto::KeyPair::generate().expect("random");
+    let super_kp = cleis_crypto::KeyPair::generate().expect("random");
     let cert = cleis_crypto::sha256(b"Example Studio demo certificate");
     let spaces: Vec<(SpaceId, String, bool)> = s
         .spaces
@@ -509,6 +510,7 @@ pub fn org(s: &mut crate::app::Session) {
             wrapped: None,
             org_wrapped: None,
             recovery_wrapped: None,
+            reserved: *e2e,
             members: members
                 .iter()
                 .filter(|m| m.spaces.contains(id))
@@ -544,7 +546,15 @@ pub fn org(s: &mut crate::app::Session) {
                         .ok()
                     })
                     .flatten()
-                    .and_then(|d| cleis_crypto::seal_to(&org_kp.public(), DETAIL_CONTEXT, &d).ok()),
+                    .and_then(|d| {
+                        // Accounting is reserved: its details go to the Super Admin key.
+                        let k = if space == "Accounting" {
+                            &super_kp
+                        } else {
+                            &org_kp
+                        };
+                        cleis_crypto::seal_to(&k.public(), DETAIL_CONTEXT, &d).ok()
+                    }),
                 note: String::new(),
             }
         };
@@ -677,6 +687,7 @@ pub fn org(s: &mut crate::app::Session) {
             org_public: Some(org_kp.public().0.to_vec()),
             recovery_public: Some(key().to_vec()),
             recovery_saved: Some(now - 11 * 86_400),
+            super_public: Some(super_kp.public().0.to_vec()),
         },
         me,
         roles: Role::defaults(),
@@ -695,6 +706,8 @@ pub fn org(s: &mut crate::app::Session) {
         pending: vec![],
         org_key: None,
         pending_admins: vec![],
+        super_key: None,
+        pending_supers: vec![],
         seq: 0,
         integrity: Some(Integrity {
             checked: 214,
@@ -749,6 +762,7 @@ pub fn org(s: &mut crate::app::Session) {
         last_attempt: None,
         error: None,
         org_key: Some(org_kp),
+        super_key: Some(super_kp),
         full: vec![],
         code: None,
         names,

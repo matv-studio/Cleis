@@ -30,6 +30,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/spaces/rekey", post(rekey))
         .route("/v1/grants", post(grants))
         .route("/v1/admin-keys", post(admin_keys))
+        .route("/v1/super-keys", post(super_keys))
+        .route("/v1/spaces/reserve", post(reserve))
         .route("/v1/members", post(update_member))
         .route("/v1/members/revoke", post(revoke))
         .route("/v1/members/transfer", post(transfer))
@@ -270,6 +272,22 @@ fn key_gen(conn: &Connection, s: SpaceId) -> rusqlite::Result<Option<u32>> {
     .optional()
 }
 
+fn is_reserved(conn: &Connection, s: SpaceId) -> rusqlite::Result<bool> {
+    conn.prepare("SELECT 1 FROM spaces WHERE id = ?1 AND reserved = 1")?
+        .exists([s.to_string()])
+}
+
+/// A reserved space is changed by a Super Admin only (D-61).
+fn guard_reserved(conn: &Connection, caller: &Caller, s: SpaceId) -> Result<(), ApiErr> {
+    if is_reserved(conn, s)? && !caller.role.can(Perm::Admins) {
+        Err(ApiErr::forbidden(
+            "This space is reserved to its members and the Super Admins.",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn mode_str(m: SpaceMode) -> &'static str {
     match m {
         SpaceMode::Standard => "standard",
@@ -290,6 +308,7 @@ fn org_info(conn: &Connection, cert: &[u8; 32]) -> rusqlite::Result<OrgInfo> {
         org_public: db::meta_get(conn, "org_public")?,
         recovery_public: db::meta_get(conn, "recovery_public")?,
         recovery_saved: db::meta_json(conn, "recovery_saved"),
+        super_public: db::meta_get(conn, "super_public")?,
     })
 }
 
@@ -309,6 +328,7 @@ async fn hello(State(app): State<Arc<App>>) -> Json<Hello> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_invite(
     conn: &Connection,
     cert: &[u8; 32],
@@ -316,12 +336,13 @@ pub fn create_invite(
     email: &str,
     role: &str,
     spaces: &[SpaceId],
+    created_by: Option<MemberId>,
     at: i64,
 ) -> rusqlite::Result<(Uuid, String)> {
     let token: [u8; 10] = random_bytes().expect("random");
     let id = Uuid::new_v4();
     conn.execute(
-        "INSERT INTO invites(id, token_hash, name, email, role, spaces, created, expires) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO invites(id, token_hash, name, email, role, spaces, created, expires, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             id.to_string(),
             &sha256(&token)[..],
@@ -330,7 +351,8 @@ pub fn create_invite(
             role,
             serde_json::to_string(spaces).expect("ids"),
             at,
-            at + INVITE_DAYS * 86_400
+            at + INVITE_DAYS * 86_400,
+            created_by.map(|m| m.to_string())
         ],
     )?;
     Ok((id, crate::code_for(token, cert)))
@@ -386,14 +408,15 @@ async fn join(
     throttle(&app, &peer, false)?;
     let conn = app.db.lock().expect("database lock");
     let t = now();
-    let invite: Option<(String, String, String, String, String)> = conn
+    #[allow(clippy::type_complexity)]
+    let invite: Option<(String, String, String, String, String, Option<String>)> = conn
         .query_row(
-            "SELECT id, name, email, role, spaces FROM invites WHERE token_hash = ?1 AND expires > ?2",
+            "SELECT id, name, email, role, spaces, created_by FROM invites WHERE token_hash = ?1 AND expires > ?2",
             params![&sha256(&req.token)[..], t],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .optional()?;
-    let Some((invite_id, name, email, role, spaces)) = invite else {
+    let Some((invite_id, name, email, role, spaces, created_by)) = invite else {
         drop(conn);
         throttle(&app, &peer, true)?;
         return Err(ApiErr::unauthorized(
@@ -442,8 +465,8 @@ async fn join(
     for s in spaces {
         if space_exists(&conn, s)? {
             conn.execute(
-                "INSERT OR IGNORE INTO access(space, member) VALUES (?1, ?2)",
-                [s.to_string(), id.to_string()],
+                "INSERT OR IGNORE INTO access(space, member, granted_by) VALUES (?1, ?2, ?3)",
+                params![s.to_string(), id.to_string(), created_by],
             )?;
         }
     }
@@ -687,9 +710,9 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
     }
 
     let sql = if manage {
-        "SELECT id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, needs_rekey FROM spaces ORDER BY created".to_owned()
+        "SELECT id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, needs_rekey, reserved FROM spaces ORDER BY created".to_owned()
     } else {
-        "SELECT id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, needs_rekey FROM spaces WHERE id IN (SELECT space FROM access WHERE member = ?1) ORDER BY created".to_owned()
+        "SELECT id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, needs_rekey, reserved FROM spaces WHERE id IN (SELECT space FROM access WHERE member = ?1) ORDER BY created".to_owned()
     };
     let mut st = conn.prepare(&sql)?;
     let map = |r: &rusqlite::Row| {
@@ -701,6 +724,7 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
             r.get::<_, Option<Vec<u8>>>(4)?,
             r.get::<_, Option<Vec<u8>>>(5)?,
             r.get::<_, i64>(6)?,
+            r.get::<_, i64>(7)? != 0,
         ))
     };
     let rows: Vec<_> = if manage {
@@ -711,24 +735,31 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
     };
     let mut spaces = vec![];
     let mut pending = vec![];
-    for (id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, needs_rekey) in rows {
+    let see_reserved = caller.role.can(Perm::Admins);
+    for (id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, needs_rekey, reserved) in rows {
         let sid = SpaceId(id.parse().unwrap_or_default());
+        // Reserved spaces (D-61): only Super Admins and their members see them.
+        if reserved && !see_reserved && !in_space(&conn, sid, caller.id)? {
+            continue;
+        }
         let mut st = conn.prepare(
-            "SELECT a.member, a.wrapped, m.account_public FROM access a JOIN members m ON m.id = a.member WHERE a.space = ?1 AND m.revoked IS NULL",
+            "SELECT a.member, a.wrapped, m.account_public, a.granted_by FROM access a JOIN members m ON m.id = a.member WHERE a.space = ?1 AND m.revoked IS NULL",
         )?;
-        let access: Vec<(String, Option<Vec<u8>>, Vec<u8>)> = st
-            .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        #[allow(clippy::type_complexity)]
+        let access: Vec<(String, Option<Vec<u8>>, Vec<u8>, Option<String>)> = st
+            .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?;
         let wrapped = access
             .iter()
             .find(|a| a.0 == caller.id.to_string())
             .and_then(|a| a.1.clone());
-        for (m, w, public) in &access {
+        for (m, w, public, by) in &access {
             if w.is_none() {
                 pending.push(Pending {
                     space: sid,
                     member: MemberId(m.parse().unwrap_or_default()),
                     account_public: public.clone().try_into().unwrap_or([0; 32]),
+                    granted_by: by.as_ref().and_then(|b| b.parse().ok()).map(MemberId),
                 });
             }
         }
@@ -755,8 +786,18 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
                 .collect(),
             items,
             needs_rekey: manage && needs_rekey != 0,
+            reserved,
         });
     }
+    // Members' space lists name only the spaces this caller sees.
+    let shown: BTreeSet<SpaceId> = spaces.iter().map(|s| s.id).collect();
+    let views: Vec<MemberView> = views
+        .into_iter()
+        .map(|mut v| {
+            v.spaces.retain(|s| shown.contains(s));
+            v
+        })
+        .collect();
 
     let org_key: Option<Vec<u8>> = if is_admin_role(&me.role) {
         conn.query_row(
@@ -782,6 +823,36 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
                     space: SpaceId(Uuid::nil()),
                     member: m.id,
                     account_public: m.account_public,
+                    granted_by: None,
+                });
+            }
+        }
+    }
+    let super_key: Option<Vec<u8>> = if me.role == SUPER_ADMIN {
+        conn.query_row(
+            "SELECT wrapped FROM super_keys WHERE member = ?1",
+            [caller.id.to_string()],
+            |r| r.get(0),
+        )
+        .optional()?
+    } else {
+        None
+    };
+    let mut pending_supers = vec![];
+    if super_key.is_some() {
+        for m in all
+            .iter()
+            .filter(|m| m.role == SUPER_ADMIN && m.id != caller.id)
+        {
+            if !conn
+                .prepare("SELECT 1 FROM super_keys WHERE member = ?1")?
+                .exists([m.id.to_string()])?
+            {
+                pending_supers.push(Pending {
+                    space: SpaceId(Uuid::nil()),
+                    member: m.id,
+                    account_public: m.account_public,
+                    granted_by: None,
                 });
             }
         }
@@ -802,6 +873,8 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
         pending,
         org_key,
         pending_admins,
+        super_key,
+        pending_supers,
         seq: db::seq(&conn)?,
         integrity: if audit {
             db::meta_json(&conn, "integrity")
@@ -1039,13 +1112,19 @@ async fn create_space(
     if req.mode == SpaceMode::Standard && req.org_wrapped.is_none() {
         return Err(ApiErr::bad("A Standard space needs its recovery copy."));
     }
+    if req.reserved {
+        caller.can(Perm::Admins)?;
+        if req.mode != SpaceMode::EndToEnd || req.org_wrapped.is_some() {
+            return Err(ApiErr::bad("A reserved space is end-to-end."));
+        }
+    }
     let tx = conn.unchecked_transaction()?;
     conn.execute(
-        "INSERT INTO spaces(id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, created) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6)",
-        params![req.id.to_string(), req.sealed, mode_str(req.mode), req.org_wrapped, req.recovery_wrapped, now()],
+        "INSERT INTO spaces(id, sealed, mode, key_gen, org_wrapped, recovery_wrapped, created, reserved) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)",
+        params![req.id.to_string(), req.sealed, mode_str(req.mode), req.org_wrapped, req.recovery_wrapped, now(), req.reserved],
     )?;
     conn.execute(
-        "INSERT INTO access(space, member, wrapped) VALUES (?1, ?2, ?3)",
+        "INSERT INTO access(space, member, wrapped, granted_by) VALUES (?1, ?2, ?3, ?2)",
         params![req.id.to_string(), caller.id.to_string(), req.wrapped],
     )?;
     let mut e = caller.event(Action::SpaceCreated);
@@ -1070,6 +1149,12 @@ async fn rekey(
     };
     if !has_key(&conn, req.space, caller.id)? {
         return Err(ApiErr::forbidden("You do not hold this space's key."));
+    }
+    guard_reserved(&conn, &caller, req.space)?;
+    if is_reserved(&conn, req.space)?
+        && (req.mode != SpaceMode::EndToEnd || req.org_wrapped.is_some())
+    {
+        return Err(ApiErr::bad("A reserved space stays end-to-end."));
     }
     if req.key_gen != cur + 1 {
         return Err(ApiErr::bad("The space changed meanwhile; try again."));
@@ -1308,6 +1393,12 @@ async fn update_member(
                 [m.id.to_string()],
             )?;
         }
+        if m.role == SUPER_ADMIN && role != SUPER_ADMIN {
+            conn.execute(
+                "DELETE FROM super_keys WHERE member = ?1",
+                [m.id.to_string()],
+            )?;
+        }
         conn.execute(
             "UPDATE members SET role = ?2 WHERE id = ?1",
             params![m.id.to_string(), role],
@@ -1316,14 +1407,25 @@ async fn update_member(
     }
     if let Some(spaces) = &req.spaces {
         let now_in: BTreeSet<SpaceId> = spaces_of(&conn, m.id)?.into_iter().collect();
-        let want: BTreeSet<SpaceId> = spaces.iter().copied().collect();
+        let mut want: BTreeSet<SpaceId> = spaces.iter().copied().collect();
+        // Reserved spaces this caller cannot see stay as they are (D-61).
+        if !caller.role.can(Perm::Admins) {
+            for s in &now_in {
+                if is_reserved(&conn, *s)? && !in_space(&conn, *s, caller.id)? {
+                    want.insert(*s);
+                }
+            }
+        }
+        for s in now_in.symmetric_difference(&want) {
+            guard_reserved(&conn, &caller, *s)?;
+        }
         let gone: Vec<SpaceId> = now_in.difference(&want).copied().collect();
         drop_access(&conn, m.id, &gone)?;
         for s in want.difference(&now_in) {
             if space_exists(&conn, *s)? {
                 conn.execute(
-                    "INSERT OR IGNORE INTO access(space, member) VALUES (?1, ?2)",
-                    [s.to_string(), m.id.to_string()],
+                    "INSERT OR IGNORE INTO access(space, member, granted_by) VALUES (?1, ?2, ?3)",
+                    [s.to_string(), m.id.to_string(), caller.id.to_string()],
                 )?;
             }
         }
@@ -1375,7 +1477,7 @@ async fn revoke(
         "UPDATE members SET revoked = ?2 WHERE id = ?1",
         params![id.to_string(), now()],
     )?;
-    for t in ["sessions", "remembered", "admin_keys"] {
+    for t in ["sessions", "remembered", "admin_keys", "super_keys"] {
         conn.execute(
             &format!("DELETE FROM {t} WHERE member = ?1"),
             [id.to_string()],
@@ -1420,6 +1522,10 @@ async fn transfer(
         "UPDATE members SET role = ?2 WHERE id = ?1",
         params![caller.id.to_string(), ADMIN],
     )?;
+    conn.execute(
+        "DELETE FROM super_keys WHERE member = ?1",
+        [caller.id.to_string()],
+    )?;
     let mut e = caller.event(Action::MemberChanged);
     e.note = format!("{}: Super Admin transferred", m.name);
     app.record(&conn, e)?;
@@ -1445,6 +1551,9 @@ async fn invite(
     if !db::roles(&conn).iter().any(|r| r.id == req.role) {
         return Err(ApiErr::bad("No such role."));
     }
+    for s in &req.spaces {
+        guard_reserved(&conn, &caller, *s)?;
+    }
     if members(&conn)?
         .iter()
         .any(|m| m.email.eq_ignore_ascii_case(email))
@@ -1458,6 +1567,7 @@ async fn invite(
         email,
         &req.role,
         &req.spaces,
+        Some(caller.id),
         now(),
     )?;
     let mut e = caller.event(Action::Invited);
@@ -1608,8 +1718,20 @@ async fn query_log(
 ) -> Res<LogPage> {
     caller.can(Perm::Audit)?;
     let conn = app.db.lock().expect("database lock");
+    let hidden: BTreeSet<SpaceId> = if caller.role.can(Perm::Admins) {
+        BTreeSet::new()
+    } else {
+        let mut st = conn.prepare(
+            "SELECT id FROM spaces WHERE reserved = 1 AND id NOT IN (SELECT space FROM access WHERE member = ?1)",
+        )?;
+        st.query_map([caller.id.to_string()], |r| r.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .filter_map(|s| s.parse().ok().map(SpaceId))
+            .collect()
+    };
     let all: Vec<Event> = events(&conn)?
         .into_iter()
+        .filter(|e| e.space.is_none_or(|s| !hidden.contains(&s)))
         .filter(|e| q.member.is_none() || e.member == q.member)
         .filter(|e| q.action.is_none() || Some(e.action) == q.action)
         .filter(|e| q.space.is_none() || e.space == q.space)
@@ -1817,6 +1939,7 @@ async fn update_space(
     if !has_key(&conn, req.id, caller.id)? {
         return Err(ApiErr::forbidden("You do not hold this space's key."));
     }
+    guard_reserved(&conn, &caller, req.id)?;
     conn.execute(
         "UPDATE spaces SET sealed = ?2 WHERE id = ?1",
         params![req.id.to_string(), req.sealed],
@@ -1842,6 +1965,7 @@ async fn delete_space(
     if !space_exists(&conn, SpaceId(req.id))? {
         return Err(ApiErr::not_found("No such space."));
     }
+    guard_reserved(&conn, &caller, SpaceId(req.id))?;
     let tx = conn.unchecked_transaction()?;
     for t in ["versions", "records", "purged", "access"] {
         conn.execute(&format!("DELETE FROM {t} WHERE space = ?1"), [&id])?;
@@ -1854,5 +1978,88 @@ async fn delete_space(
     Ok(Json(PushReply {
         seq: db::seq(&conn)?,
         refused: vec![],
+    }))
+}
+
+// ---------- Reserved spaces and the Super Admin key (D-61) ----------
+
+async fn reserve(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<Reserve>,
+) -> Res<PushReply> {
+    caller.can(Perm::Admins)?;
+    let conn = app.db.lock().expect("database lock");
+    let row: Option<(String, Option<Vec<u8>>)> = conn
+        .query_row(
+            "SELECT mode, org_wrapped FROM spaces WHERE id = ?1",
+            [req.id.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((mode, org_wrapped)) = row else {
+        return Err(ApiErr::not_found("No such space."));
+    };
+    if req.reserved && (mode != "end_to_end" || org_wrapped.is_some()) {
+        return Err(ApiErr::bad("Re-encrypt it end-to-end first."));
+    }
+    conn.execute(
+        "UPDATE spaces SET reserved = ?2 WHERE id = ?1",
+        params![req.id.to_string(), req.reserved],
+    )?;
+    let mut e = caller.event(Action::SpaceReserved);
+    e.space = Some(req.id);
+    e.note = if req.reserved {
+        "Reserved"
+    } else {
+        "Not reserved"
+    }
+    .into();
+    app.record(&conn, e)?;
+    Ok(Json(PushReply {
+        seq: db::seq(&conn)?,
+        refused: vec![],
+    }))
+}
+
+async fn super_keys(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<SuperKeys>,
+) -> Res<PushReply> {
+    caller.can(Perm::Admins)?;
+    if !caller.role.is_super() {
+        return Err(ApiErr::forbidden("Super Admins only."));
+    }
+    let conn = app.db.lock().expect("database lock");
+    let tx = conn.unchecked_transaction()?;
+    let holds = conn
+        .prepare("SELECT 1 FROM super_keys WHERE member = ?1")?
+        .exists([caller.id.to_string()])?;
+    match (&req.super_public, db::meta_get(&conn, "super_public")?) {
+        (Some(p), None) if p.len() == 32 => db::meta_set(&conn, "super_public", p)?,
+        (Some(_), _) => return Err(ApiErr::bad("The Super Admin key is already set.")),
+        (None, None) => return Err(ApiErr::bad("No Super Admin key yet.")),
+        (None, Some(_)) if !holds => {
+            return Err(ApiErr::forbidden("You do not hold the Super Admin key."));
+        }
+        _ => {}
+    }
+    let mut refused = vec![];
+    for w in req.wraps {
+        let ok = member(&conn, w.member)?
+            .is_some_and(|m| m.role == SUPER_ADMIN && m.revoked.is_none())
+            && conn.execute(
+                "INSERT OR IGNORE INTO super_keys(member, wrapped) VALUES (?1, ?2)",
+                params![w.member.to_string(), w.wrapped],
+            )? == 1;
+        if !ok {
+            refused.push((String::new(), w.member.to_string()));
+        }
+    }
+    tx.commit()?;
+    Ok(Json(PushReply {
+        seq: db::seq(&conn)?,
+        refused,
     }))
 }
