@@ -102,6 +102,7 @@ pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>
     match &c.place {
         Some(p) => {
             let status = match (&c.last_error, c.last_sync) {
+                _ if c.busy => chip(t, Tone::Neutral, "Syncing…", false),
                 (Some(_), _) => chip(t, Tone::Danger, "Not synced", true),
                 (None, Some(ts)) => chip(t, Tone::Ok, format!("Synced {}", ago(ts)), true),
                 (None, None) => chip(t, Tone::Neutral, "Never synced", false),
@@ -111,9 +112,16 @@ pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>
                 .child(place_row(
                     "sync-place",
                     t,
-                    "folder",
+                    match c.provider {
+                        Provider::GitHub => "repo",
+                        Provider::Sftp => "server",
+                        Provider::Folder => "folder",
+                        _ => "cloud",
+                    },
                     c.provider.name(),
-                    &p.display().to_string(),
+                    &c.remote
+                        .as_ref()
+                        .map_or_else(|| p.display().to_string(), |r| r.label()),
                     div().flex().items_center().gap(px(8.)).child(status).child(
                         button("sync-disconnect", t, BtnKind::Ghost, true)
                             .child("Disconnect")
@@ -162,84 +170,79 @@ pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>
             .on_click(cx.listener(move |this, _, _, cx| this.choose_sync_folder(p, cx)))
             .test_support()
     };
-    let planned = |id: &'static str, label: &'static str, why: &'static str| {
-        div()
-            .id(id)
-            .opacity(0.45)
+    let places =
+        section(t)
             .child(
-                button(
-                    SharedString::from(format!("{id}-btn")),
-                    t,
-                    BtnKind::Default,
-                    true,
-                )
-                .child(label),
+                div()
+                    .id("places-title")
+                    .child(section_title(
+                        t,
+                        if c.place.is_some() {
+                            "Other places"
+                        } else {
+                            "Places"
+                        },
+                    ))
+                    .tooltip(tip("One place at a time; choosing another moves the copy.")),
             )
-            .tooltip(tip(why))
-    };
-    let places = section(t)
-        .child(
-            div()
-                .id("places-title")
-                .child(section_title(
-                    t,
-                    if c.place.is_some() {
-                        "Other places"
-                    } else {
-                        "Places"
-                    },
-                ))
-                .tooltip(tip("One place at a time; choosing another moves the copy.")),
-        )
-        .child(place_row(
-            "p-onedrive",
-            t,
-            "cloud",
-            "OneDrive",
-            "Folder kept by the OneDrive app",
-            choose("sync-onedrive", Provider::OneDrive, cx),
-            true,
-        ))
-        .child(place_row(
-            "p-gdrive",
-            t,
-            "cloud",
-            "Google Drive",
-            "Folder kept by Google Drive for desktop",
-            choose("sync-gdrive", Provider::GoogleDrive, cx),
-            false,
-        ))
-        .child(place_row(
-            "p-folder",
-            t,
-            "folder",
-            "Folder",
-            "Network share, Dropbox, USB drive",
-            choose("sync-folder", Provider::Folder, cx),
-            false,
-        ))
-        .child(place_row(
-            "p-github",
-            t,
-            "repo",
-            "GitHub",
-            "Private repository",
-            planned(
-                "sync-github",
-                "Connect",
-                "Needs Cleis to be registered with GitHub (D-50)",
-            ),
-            false,
-        ))
-        .child(place_row(
-            "p-sftp",
-            t,
-            "server",
-            "SFTP",
-            "Your own server",
-            planned("sync-sftp", "Set up", "Planned"),
-            false,
-        ));
+            .child(place_row(
+                "p-onedrive",
+                t,
+                "cloud",
+                "OneDrive",
+                "Folder kept by the OneDrive app",
+                choose("sync-onedrive", Provider::OneDrive, cx),
+                true,
+            ))
+            .child(place_row(
+                "p-gdrive",
+                t,
+                "cloud",
+                "Google Drive",
+                "Folder kept by Google Drive for desktop",
+                choose("sync-gdrive", Provider::GoogleDrive, cx),
+                false,
+            ))
+            .child(place_row(
+                "p-folder",
+                t,
+                "folder",
+                "Folder",
+                "Network share, Dropbox, USB drive",
+                choose("sync-folder", Provider::Folder, cx),
+                false,
+            ))
+            .child(place_row(
+                "p-github",
+                t,
+                "repo",
+                "GitHub",
+                "Private repository",
+                button("sync-github", t, BtnKind::Default, true)
+                    .child("Connect")
+                    .tooltip(tip(
+                        "A file in one of your private repositories, with an access token",
+                    ))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_place(Provider::GitHub, window, cx)
+                    }))
+                    .test_support(),
+                false,
+            ))
+            .child(place_row(
+                "p-sftp",
+                t,
+                "server",
+                "SFTP",
+                "Your own server",
+                button("sync-sftp", t, BtnKind::Default, true)
+                    .child("Set up")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_place(Provider::Sftp, window, cx)
+                    }))
+                    .test_support(),
+                false,
+            ));
     let device = section(t)
         .child(
             div()

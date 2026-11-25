@@ -125,6 +125,7 @@ pub fn render(
         })
         .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::folders::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(super::places::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))

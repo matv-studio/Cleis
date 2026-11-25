@@ -1825,13 +1825,6 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
         return div();
     };
     let list = crate::org::org_backups(path, &o.m);
-    let planned = |title: &str, sub: &'static str| {
-        section(t)
-            .id(SharedString::from(format!("bk-{title}")))
-            .opacity(0.45)
-            .tooltip(tip(sub))
-            .child(section_title(t, title))
-    };
     let mut hist = div().flex().flex_col().child(
         div()
             .flex()
@@ -1939,8 +1932,69 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                         )),
                 ),
         )
-        .child(planned("GitHub", "Needs Cleis to be registered with GitHub (D-50)"))
-        .child(planned("SFTP", "Planned: encrypted file server (SSH)"))
+        .child({
+            let copy: Option<(crate::remote::RemotePlace, crate::remote::Secret)> = s
+                .vault
+                .org_setting(crate::remote::ORG_BACKUP_SETTING)
+                .ok()
+                .flatten()
+                .flatten();
+            let sec = section(t).child(titled(
+                t,
+                "Copies elsewhere",
+                Some("Each backup, sealed, also sent to a repository or a server."),
+            ));
+            match copy {
+                Some((place, _)) => sec.child(
+                    row(t, true)
+                        .child(icon(
+                            match place {
+                                crate::remote::RemotePlace::GitHub { .. } => "repo",
+                                _ => "server",
+                            },
+                            16.,
+                            t.text_muted,
+                        ))
+                        .child(div().flex_1().font_family(FONT_MONO).text_size(TEXT_SM).child(place.label()))
+                        .child(
+                            button("obk-place-off", t, BtnKind::Ghost, true)
+                                .child("Disconnect")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if let Some(s) = this.session() {
+                                        let _ = s.vault.set_org_setting(
+                                            crate::remote::ORG_BACKUP_SETTING,
+                                            &None::<(crate::remote::RemotePlace, crate::remote::Secret)>,
+                                        );
+                                    }
+                                    cx.notify();
+                                }))
+                                .test_support(),
+                        ),
+                ),
+                None => sec.child(
+                    row(t, true)
+                        .child(div().flex_1().text_color(t.text_muted).child("Only on this computer"))
+                        .child(
+                            button("obk-github", t, BtnKind::Default, true)
+                                .child(icon("repo", 14., t.text))
+                                .child("GitHub")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_org_backup_place(crate::sync::Provider::GitHub, window, cx)
+                                }))
+                                .test_support(),
+                        )
+                        .child(
+                            button("obk-sftp", t, BtnKind::Default, true)
+                                .child(icon("server", 14., t.text))
+                                .child("SFTP")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_org_backup_place(crate::sync::Provider::Sftp, window, cx)
+                                }))
+                                .test_support(),
+                        ),
+                ),
+            }
+        })
         .child(
             section(t)
                 .child(titled(t, "Backup key", Some("Without it, no backup can be restored. Keep it outside Cleis.")))
@@ -3210,6 +3264,34 @@ impl CleisApp {
 /// Dialogs opened for screenshots (`--menu`).
 pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Context<CleisApp>) {
     match m {
+        "place-github" | "place-sftp" => {
+            let kind = if m == "place-github" {
+                crate::sync::Provider::GitHub
+            } else {
+                crate::sync::Provider::Sftp
+            };
+            app.open_place(kind, window, cx);
+            let values: &[(usize, &str)] = if m == "place-github" {
+                &[(0, "lea-example/cleis-vault"), (3, "github_pat_11AEXAMPLE")]
+            } else {
+                &[(0, "files.example-studio.com"), (2, "lea"), (4, "example")]
+            };
+            let inputs = app
+                .place_slot()
+                .and_then(|p| p.as_ref())
+                .map(|d| d.inputs.clone())
+                .unwrap_or_default();
+            for (n, v) in values {
+                if let Some(i) = inputs.get(*n) {
+                    i.update(cx, |i, cx| i.set_value(*v, window, cx));
+                }
+            }
+            if m == "place-sftp"
+                && let Some(Some(d)) = app.place_slot()
+            {
+                d.host_key = Some("SHA256:pT4bW1x0c9QeRk2v7mZ3yJ5nL8aF6hD4sG1oU9QcE".into());
+            }
+        }
         "create-elsewhere" => {
             if let Some(j) = app.join_form_mut() {
                 j.elsewhere = true;

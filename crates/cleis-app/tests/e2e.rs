@@ -1126,3 +1126,199 @@ fn personal_folders(cx: &mut TestAppContext) {
         _ => panic!(),
     });
 }
+
+/// The file of the fake repository: its sha and bytes.
+type RepoFile = std::sync::Arc<std::sync::Mutex<Option<(String, Vec<u8>)>>>;
+
+/// A stand-in for GitHub's contents API on 127.0.0.1: one file, its sha checked on writes.
+fn fake_github() -> (String, RepoFile) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let file: RepoFile = Default::default();
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = format!("http://{}", l.local_addr().unwrap());
+    let f = file.clone();
+    std::thread::spawn(move || {
+        let mut n = 0u32;
+        for stream in l.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut r = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if r.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                let (mut len, mut chunked, mut accept, mut auth) =
+                    (0usize, false, String::new(), String::new());
+                loop {
+                    let mut h = String::new();
+                    r.read_line(&mut h).unwrap();
+                    let h = h.trim_end().to_owned();
+                    if h.is_empty() {
+                        break;
+                    }
+                    let (k, v) = h.split_once(':').unwrap();
+                    match k.to_ascii_lowercase().as_str() {
+                        "content-length" => len = v.trim().parse().unwrap(),
+                        "transfer-encoding" => chunked = v.contains("chunked"),
+                        "accept" => accept = v.trim().into(),
+                        "authorization" => auth = v.trim().into(),
+                        _ => {}
+                    }
+                }
+                let mut body = vec![];
+                if chunked {
+                    loop {
+                        let mut sz = String::new();
+                        r.read_line(&mut sz).unwrap();
+                        let n = usize::from_str_radix(sz.trim(), 16).unwrap();
+                        let mut b = vec![0; n + 2];
+                        r.read_exact(&mut b).unwrap();
+                        if n == 0 {
+                            break;
+                        }
+                        body.extend_from_slice(&b[..n]);
+                    }
+                } else {
+                    body.resize(len, 0);
+                    r.read_exact(&mut body).unwrap();
+                }
+                let path_ok =
+                    line.contains("/api/v3/repos/lea-example/cleis-vault/contents/vault.cleis");
+                let (status, out): (u16, Vec<u8>) = if auth != "Bearer github_pat_example" {
+                    (401, br#"{"message":"Bad credentials"}"#.to_vec())
+                } else if !path_ok {
+                    (404, br#"{"message":"Not Found"}"#.to_vec())
+                } else if line.starts_with("GET") {
+                    match &*f.lock().unwrap() {
+                        None => (404, br#"{"message":"Not Found"}"#.to_vec()),
+                        Some((sha, bytes)) if accept.contains("raw") => (200, bytes.clone()),
+                        Some((sha, _)) => (
+                            200,
+                            format!(r#"{{"type":"file","sha":"{sha}"}}"#).into_bytes(),
+                        ),
+                    }
+                } else {
+                    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    let mut cur = f.lock().unwrap();
+                    let given = v["sha"].as_str().map(str::to_owned);
+                    if given != cur.as_ref().map(|c| c.0.clone()) {
+                        (409, br#"{"message":"does not match"}"#.to_vec())
+                    } else {
+                        use data_encoding::BASE64;
+                        n += 1;
+                        let bytes = BASE64
+                            .decode(v["content"].as_str().unwrap().as_bytes())
+                            .unwrap();
+                        *cur = Some((format!("sha{n}"), bytes));
+                        (200, b"{}".to_vec())
+                    }
+                };
+                let head = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
+                    out.len()
+                );
+                if stream
+                    .write_all(head.as_bytes())
+                    .and_then(|_| stream.write_all(&out))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }
+    });
+    (addr, file)
+}
+
+/// Scenario (mockup 23b, D-65): sync with a file in a GitHub repository; another device's copy
+/// sent meanwhile is merged, not overwritten.
+#[gpui_kit::test]
+fn sync_github_place(cx: &mut TestAppContext) {
+    let (addr, file) = fake_github();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+    act(cx, h, |w, cx| w.click("sync-github", cx));
+    act(cx, h, |w, cx| {
+        w.click("gh-repo", cx);
+        w.input(&format!("{addr}/lea-example/cleis-vault"), cx);
+        w.click("gh-path", cx);
+        w.press("ctrl-a", cx);
+        w.input("vault.cleis", cx);
+        w.click("gh-token", cx);
+        w.input("github_pat_wrong", cx);
+        w.click("place-connect", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let d = s.place.as_ref().expect("dialog stays");
+        assert!(d.error.as_ref().unwrap().contains("token"), "{:?}", d.error);
+    });
+    act(cx, h, |w, cx| {
+        w.click("gh-token", cx);
+        w.press("ctrl-a", cx);
+        w.input("github_pat_example", cx);
+        w.click("place-connect", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.place.is_none());
+        assert!(s.sync.last_error.is_none(), "{:?}", s.sync.last_error);
+        assert_eq!(s.sync.provider, cleis_app::sync::Provider::GitHub);
+    });
+    let (sha, bytes) = file.lock().unwrap().clone().expect("copy sent");
+    // The other device adds an item and sends its copy.
+    let other = dir.path().join("other.cleis");
+    std::fs::write(&other, &bytes).unwrap();
+    {
+        let v = cleis_store::LockedVault::open(&other)
+            .unwrap()
+            .unlock(cleis_app::demo::PASSWORD)
+            .unwrap();
+        v.put_entry(&cleis_core::Entry::new(v.home_space(), "Example Wiki"))
+            .unwrap();
+    }
+    *file.lock().unwrap() = Some((format!("{sha}-other"), std::fs::read(&other).unwrap()));
+    // This device: a change of its own, then a sync.
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        s.vault
+            .put_entry(&cleis_core::Entry::new(
+                s.vault.home_space(),
+                "Example Notes",
+            ))
+            .unwrap();
+    });
+    act(cx, h, |w, cx| w.click("sync-now", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.sync.last_error.is_none(), "{:?}", s.sync.last_error);
+        assert!(s.entries.iter().any(|e| e.name == "Example Wiki"));
+    });
+    // The repository's copy has both.
+    let (_, bytes) = file.lock().unwrap().clone().unwrap();
+    std::fs::write(&other, &bytes).unwrap();
+    let v = cleis_store::LockedVault::open(&other)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap();
+    let names: Vec<String> = v
+        .entries()
+        .unwrap()
+        .iter()
+        .map(|e| e.name.clone())
+        .collect();
+    assert!(names.contains(&"Example Wiki".to_owned()));
+    assert!(names.contains(&"Example Notes".to_owned()));
+}

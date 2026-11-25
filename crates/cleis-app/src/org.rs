@@ -1989,6 +1989,12 @@ impl CleisApp {
             }
         };
         let dir = org_backups_dir(&vault, &o.m);
+        let copy: Option<(crate::remote::RemotePlace, crate::remote::Secret)> = s
+            .vault
+            .org_setting(crate::remote::ORG_BACKUP_SETTING)
+            .ok()
+            .flatten()
+            .flatten();
         let Some(mut conn) = self.org_conn() else {
             return;
         };
@@ -2003,7 +2009,13 @@ impl CleisApp {
                 "server-{}.cleisorg",
                 crate::format::stamp(cleis_core::now())
             );
-            std::fs::write(dir.join(name), sealed).map_err(|e| e.to_string())?;
+            let file = dir.join(&name);
+            std::fs::write(&file, &sealed).map_err(|e| e.to_string())?;
+            // A copy at the place chosen (GitHub, SFTP): sealed, like the local one.
+            if let Some((place, secret)) = copy {
+                crate::remote::upload(&place.file(&name), &secret, &file, None)
+                    .map_err(|e| format!("kept here, not copied ({e})"))?;
+            }
             Ok::<usize, String>(bytes.len())
         });
         cx.spawn(async move |this, cx| {

@@ -15,7 +15,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
    profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
-   delete-folder|create-elsewhere|server-sms|server-email|server-identity]
+   delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp]
    [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
@@ -60,7 +60,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
-  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `oidc.rs` (connexion Google / Microsoft par le
+  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google / Microsoft par le
   navigateur), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
   `tests/org.rs` (deux fenêtres contre un vrai serveur).
@@ -97,3 +97,6 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Une boîte de saisie demande la fenêtre : créée au rendu suivant (`ensure_org_inputs`), pas dans une
   tâche de fond.
 - Empreinte d'un certificat : `fingerprint_of_hash` (le hash est déjà fait), pas `fingerprint`.
+- Essai SFTP : il faut `openssh-server` et le dossier `/run/sshd` (sinon l'essai est sauté).
+- `target/debug/build/<crate>/` garde les anciennes compilations : supprimer les dossiers de plus
+  d'une heure si le disque se remplit.

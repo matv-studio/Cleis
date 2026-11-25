@@ -22,6 +22,9 @@ pub struct Restore {
     pub password: Entity<InputState>,
     pub error: Option<SharedString>,
     pub busy: bool,
+    /// GitHub / SFTP (D-65): the place being set up, then the one read.
+    pub place: Option<super::places::PlaceDialog>,
+    pub remote: Option<(crate::remote::RemotePlace, crate::remote::Secret)>,
 }
 
 fn tip(
@@ -72,20 +75,16 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .on_click(cx.listener(move |this, _, _, cx| this.restore_choose(p, cx)))
             .test_support()
     };
-    let planned = |id: &'static str, ico: &str, label: &str, why: &'static str| {
-        tile(id, t, ico, label, false)
-            .opacity(0.45)
-            .tooltip(tip(why))
-    };
+    let remote =
+        |id: &'static str, ico: &str, label: &str, p: Provider, cx: &mut Context<CleisApp>| {
+            tile(id, t, ico, label, r.provider == Some(p))
+                .on_click(cx.listener(move |this, _, window, cx| this.open_place(p, window, cx)))
+                .test_support()
+        };
     let tiles = div()
         .flex()
         .gap(px(8.))
-        .child(planned(
-            "t-github",
-            "repo",
-            "GitHub",
-            "Needs Cleis to be registered with GitHub (D-50)",
-        ))
+        .child(remote("t-github", "repo", "GitHub", Provider::GitHub, cx))
         .child(pick(
             "t-onedrive",
             "cloud",
@@ -110,7 +109,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             "Network share, Dropbox, USB drive",
             cx,
         ))
-        .child(planned("t-sftp", "server", "SFTP", "Planned"));
+        .child(remote("t-sftp", "server", "SFTP", Provider::Sftp, cx));
     let vault_box = match r.found.get(r.chosen) {
         Some(p) => {
             let when = std::fs::metadata(p)
@@ -276,7 +275,13 @@ pub fn render(
         unreachable!()
     };
     if let Some(r) = &w.restore {
-        return stage(&t, restore_card(r, &t, cx));
+        let dlg = r
+            .place
+            .as_ref()
+            .map(|d| super::places::place_dialog(d, &t, cx));
+        return stage(&t, restore_card(r, &t, cx))
+            .relative()
+            .when_some(dlg, |d, x| d.child(x));
     }
     let busy = w.busy;
     let card = div()
@@ -392,6 +397,8 @@ impl CleisApp {
                 password,
                 error: None,
                 busy: false,
+                place: None,
+                remote: None,
             });
         }
         cx.notify();
@@ -448,6 +455,7 @@ impl CleisApp {
         }
         let pw = r.password.read(cx).value().to_string();
         let provider = r.provider.unwrap_or_default();
+        let remote = r.remote.clone();
         r.busy = true;
         r.error = None;
         cx.notify();
@@ -475,11 +483,18 @@ impl CleisApp {
                 .await;
             this.update_in(cx, |this, window, cx| match res {
                 Ok((v, src)) => {
-                    let cfg = crate::sync::SyncConfig {
-                        place: Some(src),
+                    let mut cfg = crate::sync::SyncConfig {
+                        place: Some(src.clone()),
                         provider,
                         ..Default::default()
                     };
+                    if let Some((place, secret)) = remote {
+                        let cache = crate::sync::remote_cache(&dest);
+                        let _ = std::fs::rename(&src, &cache);
+                        let _ = v.set_org_setting(crate::remote::SECRET_SETTING, &Some(secret));
+                        cfg.place = Some(cache);
+                        cfg.remote = Some(place);
+                    }
                     crate::sync::save_config(&dest, &cfg);
                     this.enter(v, window, cx);
                 }

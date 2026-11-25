@@ -5,7 +5,7 @@
 //! the folder of a sync place differs from one computer to the next.
 
 use crate::app::{CleisApp, Phase, Session};
-use gpui_kit::{Context, PathPromptOptions};
+use gpui_kit::{AppContext, Context, PathPromptOptions};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -19,6 +19,11 @@ pub enum Provider {
     OneDrive,
     /// Folder kept by Google Drive for desktop.
     GoogleDrive,
+    /// File in a GitHub repository (D-65).
+    #[serde(rename = "github")]
+    GitHub,
+    /// File on an SSH server (D-65).
+    Sftp,
 }
 
 impl Provider {
@@ -27,6 +32,8 @@ impl Provider {
             Provider::Folder => "Folder",
             Provider::OneDrive => "OneDrive",
             Provider::GoogleDrive => "Google Drive",
+            Provider::GitHub => "GitHub",
+            Provider::Sftp => "SFTP",
         }
     }
 }
@@ -43,9 +50,14 @@ pub struct SyncConfig {
     pub last_sync: Option<i64>,
     pub last_error: Option<String>,
     pub last_backup: Option<i64>,
+    /// GitHub or SFTP: where the file is; `place` is then its local copy (D-65).
+    pub remote: Option<crate::remote::RemotePlace>,
     /// Last try, successful or not: paces automatic syncs (not saved).
     #[serde(skip)]
     pub last_attempt: Option<i64>,
+    /// A network sync is under way (not saved).
+    #[serde(skip)]
+    pub busy: bool,
 }
 
 impl Default for SyncConfig {
@@ -58,7 +70,9 @@ impl Default for SyncConfig {
             last_sync: None,
             last_error: None,
             last_backup: None,
+            remote: None,
             last_attempt: None,
+            busy: false,
         }
     }
 }
@@ -83,6 +97,13 @@ pub fn save_config(vault: &Path, c: &SyncConfig) {
     if let Ok(b) = serde_json::to_vec_pretty(c) {
         let _ = std::fs::write(config_path(vault), b);
     }
+}
+
+/// Local copy of a GitHub / SFTP place's file.
+pub fn remote_cache(vault: &Path) -> PathBuf {
+    let mut p = vault.as_os_str().to_owned();
+    p.push(".remote");
+    PathBuf::from(p)
 }
 
 pub fn backups_dir(vault: &Path) -> PathBuf {
@@ -190,7 +211,15 @@ impl CleisApp {
     }
 
     pub fn disconnect_sync(&mut self, cx: &mut Context<Self>) {
+        let cache = remote_cache(&self.path);
         if let Some(s) = self.session() {
+            if s.sync.remote.take().is_some() {
+                let _ = std::fs::remove_file(&cache);
+                let _ = s.vault.set_org_setting(
+                    crate::remote::SECRET_SETTING,
+                    &None::<crate::remote::Secret>,
+                );
+            }
             s.sync.place = None;
             s.sync.last_sync = None;
             s.sync.last_error = None;
@@ -210,8 +239,106 @@ impl CleisApp {
         let Some(place) = s.sync.place.clone() else {
             return;
         };
+        if s.sync.remote.is_some() {
+            self.sync_remote(quiet, cx);
+            return;
+        }
         s.sync.last_attempt = Some(cleis_core::now());
-        match s.vault.sync_with(&place) {
+        let r = s.vault.sync_with(&place).map_err(|e| e.to_string());
+        self.sync_done(quiet, r, cx);
+    }
+
+    /// GitHub / SFTP (D-65): the file is read into a local copy, merged there, and sent back when
+    /// this vault had something new. Another device's copy sent meanwhile: read and merge again.
+    fn sync_remote(&mut self, quiet: bool, cx: &mut Context<Self>) {
+        let cache = remote_cache(&self.path);
+        let Some(s) = self.session() else { return };
+        if s.sync.busy {
+            return;
+        }
+        let Some(remote) = s.sync.remote.clone() else {
+            return;
+        };
+        let secret: crate::remote::Secret = s
+            .vault
+            .org_setting(crate::remote::SECRET_SETTING)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        s.sync.busy = true;
+        s.sync.last_attempt = Some(cleis_core::now());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let mut outcome: Result<cleis_store::SyncReport, String> = Err(String::new());
+            for _ in 0..3 {
+                let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
+                let version = match cx
+                    .background_spawn(async move { crate::remote::download(&r, &sec, &c) })
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        outcome = Err(e.to_string());
+                        break;
+                    }
+                };
+                let merged = this
+                    .update(cx, |app, _| {
+                        app.session()
+                            .map(|s| s.vault.sync_with(&cache).map_err(|e| e.to_string()))
+                    })
+                    .ok()
+                    .flatten();
+                let Some(merged) = merged else { return };
+                let rep = match merged {
+                    Ok(r) => r,
+                    Err(e) => {
+                        outcome = Err(e);
+                        break;
+                    }
+                };
+                if rep.sent == 0 && !rep.created {
+                    outcome = Ok(rep);
+                    break;
+                }
+                let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
+                match cx
+                    .background_spawn(async move { crate::remote::upload(&r, &sec, &c, version) })
+                    .await
+                {
+                    Ok(()) => {
+                        outcome = Ok(rep);
+                        break;
+                    }
+                    Err(crate::remote::RemoteError::Conflict) => {
+                        outcome = Err("the file kept changing; try again".into());
+                        continue;
+                    }
+                    Err(e) => {
+                        outcome = Err(e.to_string());
+                        break;
+                    }
+                }
+            }
+            this.update(cx, |app, cx| {
+                if let Some(s) = app.session() {
+                    s.sync.busy = false;
+                }
+                app.sync_done(quiet, outcome, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn sync_done(
+        &mut self,
+        quiet: bool,
+        r: Result<cleis_store::SyncReport, String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self.session() else { return };
+        match r {
             Ok(r) => {
                 s.sync.last_sync = Some(cleis_core::now());
                 s.sync.last_error = None;

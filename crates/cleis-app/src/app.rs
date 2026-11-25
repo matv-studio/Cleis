@@ -132,6 +132,8 @@ pub struct Session {
     pub org: Option<crate::org::OrgSession>,
     /// Personal folders (D-62): the dialog open, the folder whose menu is open.
     pub folder: Option<FolderDialog>,
+    /// Sync & backups: GitHub / SFTP place being set up (D-65).
+    pub place: Option<crate::screens::places::PlaceDialog>,
     pub folder_menu: Option<cleis_core::SpaceId>,
     /// Settings › Organization: joining one from an open vault.
     pub join: crate::screens::org::JoinForm,
@@ -598,6 +600,7 @@ impl CleisApp {
             vault_cards: false,
             org: None,
             folder: None,
+            place: None,
             folder_menu: None,
             join: Default::default(),
             join_subs: vec![],

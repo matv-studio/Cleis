@@ -352,12 +352,28 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Aucun compte ni enregistrement n'est fait par Cleis : l'organisation crée son client OAuth
     (Google « Desktop app », Microsoft Entra) et sa passerelle SMS ; guide dans `deploy/README.md`.
 
+- **D-65 Places GitHub et SFTP** (25/11/2026, même demande) : remplace l'attente d'un
+  enregistrement OAuth (D-50, D-58) pour ces deux places.
+  - GitHub : un fichier d'un dépôt privé, par l'API « contents » et un jeton d'accès personnel
+    (fine-grained, ce dépôt seulement, Contents en lecture-écriture) ; aucune appli à enregistrer.
+    Adresse complète acceptée (GitHub Enterprise : API sous `/api/v3`). L'envoi donne le sha lu :
+    si un autre appareil a envoyé entre-temps, relecture, fusion, nouvel envoi (3 essais).
+  - SFTP : `russh` + `russh-sftp` (Rust pur, `ring`), mot de passe ou clé privée OpenSSH. Clé du
+    serveur montrée à la première connexion (« Connect to trust »), vérifiée ensuite : une autre
+    clé arrête la synchronisation. Écriture à côté puis renommage.
+  - Le fichier est lu dans une copie locale (`<coffre>.remote`), fusionné comme une place dossier
+    (lignes scellées), renvoyé s'il a changé. Le secret de la place est scellé dans le coffre.
+  - Premier lancement : restauration depuis GitHub ou SFTP (mêmes dialogues). Sauvegardes de
+    l'organisation : copie scellée de chaque sauvegarde dans un dossier GitHub ou SFTP.
+  - Maquettes 23b, 23c. Essais : `sync_github_place` (faux GitHub local), `openssh_round_trip`
+    (vrai serveur OpenSSH quand il est installé).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
-4. Enregistrement des applications OAuth (GitHub, Microsoft, Google) pour les places sans appli de
-   bureau (D-50, D-58).
+4. Enregistrement des applications OAuth (Microsoft, Google) pour les places OneDrive / Google
+   Drive sans appli de bureau (D-50, D-58) ; GitHub n'en a plus besoin (D-65).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec

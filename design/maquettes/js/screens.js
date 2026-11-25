@@ -997,6 +997,23 @@ function serveurHeberge() {
     </div>`);
 }
 
+function placeGithub() {
+  return settings('Sync & backups', '', dlg('GitHub', `
+    ${fld('Repository', 'lea-example/cleis-vault', true)}
+    <div style="display:flex;gap:12px"><div style="flex:1">${fld('File', 'vault.cleis')}</div><div style="width:140px">${fld('Branch', 'main')}</div></div>
+    <div class="field" title="Fine-grained token: this repository only, Contents read and write"><span class="label">Access token</span><div class="input"><span class="grow code">github_pat_••••••••••••••</span><button class="btn btn--ghost btn--sm">Create one</button></div></div>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Connect</button></div>`));
+}
+function placeSftp() {
+  return settings('Sync & backups', '', dlg('SFTP', `
+    <div style="display:flex;gap:12px"><div style="flex:1">${fld('Server', 'files.example-studio.com', true)}</div><div style="width:90px">${fld('Port', '22')}</div></div>
+    <div style="display:flex;gap:12px"><div style="flex:1">${fld('User', 'lea')}</div><div style="flex:1">${fld('File', 'cleis/vault.cleis')}</div></div>
+    <div class="field"><span class="label">Sign-in</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">Password</button><button role="radio" aria-checked="false" title="OpenSSH private key (ed25519, RSA)">Private key</button></div></div>
+    <div class="input"><span class="grow">••••••••••••</span></div>
+    <div class="row" title="Checked at each connection; a change stops the sync"><span class="row-label">Server key</span><span class="code muted">SHA256:pT4b…9QcE</span><span class="chip chip--ok"><span class="dot"></span>Trusted</span></div>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Connect</button></div>`));
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -1032,6 +1049,8 @@ export const SCREENS = {
   '21-fusion': ['Contacts — merge & fix', fusion],
   '22-restaurer': ['Restore my vault', restaurer],
   '23-synchro': ['Sync & backups', synchro],
+  '23b-place-github': ['Place: GitHub', placeGithub],
+  '23c-place-sftp': ['Place: SFTP', placeSftp],
   '24-serveur': ['Server', serveur],
   '25-rejoindre': ['Join an organization', rejoindre],
   '25b-creer-organisation': ['Create an organization', creerOrganisation],

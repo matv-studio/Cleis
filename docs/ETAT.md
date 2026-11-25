@@ -25,9 +25,11 @@
 - D-64 : deuxième étape de connexion par e-mail, SMS, Google, Microsoft (serveur et appli, essais
   `second_steps` et `sms_second_step`).
 
+- D-65 : places GitHub (jeton) et SFTP, restauration depuis elles, copies des sauvegardes de
+  l'organisation.
+
 ## Prochaines étapes
-1. Fonctions dépendant d'un service extérieur, prêtes dès leur configuration : places GitHub
-   (jeton) et SFTP, Windows Hello / Touch ID.
+1. Windows Hello / Touch ID (déverrouillage).
 2. Audit complet demandé par l'utilisateur.
 
 ## 25/11/2026 (suite, branche `feat/full-app`)
