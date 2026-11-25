@@ -100,6 +100,12 @@ pub fn save_local(vault: &Path, key: &str, l: &Local) {
     );
 }
 
+/// Vault setting holding this device's "remembered device" token for an organization, sealed
+/// like every setting (audit S-14: no longer in clear in the local file).
+pub fn remembered_setting(device: &str, key: &str) -> String {
+    format!("org_remembered:{device}:{key}")
+}
+
 pub fn remove_local(vault: &Path, key: &str) {
     let _ = std::fs::remove_file(local_path(vault, key));
     let _ = std::fs::remove_file(legacy_local_path(vault));
@@ -576,7 +582,26 @@ impl CleisApp {
                 sessions.push(open.remove(i));
                 continue;
             }
-            let local = load_local(&path, &key);
+            let mut local = load_local(&path, &key);
+            let rk = remembered_setting(&s.sync.device, &key);
+            match local.remembered.take() {
+                // Older versions kept it in the file: moved into the vault.
+                Some(t) => {
+                    let _ = s.vault.set_org_setting(&rk, &Some(t.clone()));
+                    local.remembered = Some(t);
+                    let mut bare = local.clone();
+                    bare.remembered = None;
+                    save_local(&path, &key, &bare);
+                }
+                None => {
+                    local.remembered = s
+                        .vault
+                        .org_setting::<Option<String>>(&rk)
+                        .ok()
+                        .flatten()
+                        .flatten();
+                }
+            }
             let offline_days = i64::from(local.offline_days.unwrap_or(14));
             let offline_locked = !demo
                 && local
@@ -886,7 +911,14 @@ impl CleisApp {
                 o.error = None;
                 o.local.last_ok = Some(cleis_core::now());
                 o.local.offline_days = Some(state.policy.offline_days);
-                save_local(&path, &o.m.key(), &o.local);
+                let key = o.m.key();
+                let _ = s.vault.set_org_setting(
+                    &remembered_setting(&s.sync.device, &key),
+                    &o.local.remembered,
+                );
+                let mut bare = o.local.clone();
+                bare.remembered = None;
+                save_local(&path, &key, &bare);
                 let _ = s.vault.org_pushed(&sent.rows, &sent.purged);
                 // Audit L-1: what the server refused is put back as the server has it.
                 if !refused.is_empty() {

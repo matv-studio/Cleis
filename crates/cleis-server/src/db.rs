@@ -95,6 +95,7 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS codes (member TEXT PRIMARY KEY REFERENCES members(id), purpose TEXT NOT NULL, method TEXT NOT NULL, target TEXT NOT NULL, hash BLOB NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL) STRICT;
          CREATE TABLE IF NOT EXISTS used_tokens (hash BLOB PRIMARY KEY, expires INTEGER NOT NULL) STRICT;
+         CREATE TABLE IF NOT EXISTS code_sends (member TEXT NOT NULL, at INTEGER NOT NULL) STRICT;
          UPDATE members SET factor = 'authenticator_app' WHERE totp IS NOT NULL AND factor IS NULL;",
     )?;
     Ok(())

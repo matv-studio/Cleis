@@ -106,6 +106,13 @@ pub struct Oidc {
     /// E-mail domains accepted (`example-studio.com`); empty: any verified address of a member.
     #[serde(default)]
     pub domains: Vec<String>,
+    /// Oldest ID token accepted, in seconds after it was issued (default 600, audit S-15).
+    #[serde(default = "default_token_age")]
+    pub max_token_age: i64,
+}
+
+fn default_token_age() -> i64 {
+    600
 }
 
 impl Config {

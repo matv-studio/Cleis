@@ -31,6 +31,17 @@ impl Default for KdfParams {
 }
 
 impl KdfParams {
+    /// Lowest settings accepted for a real vault (audit S-12): OWASP's minimum for Argon2id,
+    /// 19 MiB and 2 passes. A vault below it is brought up to the defaults after unlocking.
+    pub const FLOOR_MEMORY_KIB: u32 = 19 * 1024;
+    pub const FLOOR_ITERATIONS: u32 = 2;
+
+    pub fn meets_floor(&self) -> bool {
+        self.memory_kib >= Self::FLOOR_MEMORY_KIB
+            && self.iterations >= Self::FLOOR_ITERATIONS
+            && self.parallelism >= 1
+    }
+
     /// Cheap parameters for tests only.
     pub fn insecure_for_tests() -> Self {
         Self {
@@ -132,5 +143,16 @@ mod tests {
             crate::hex(&out),
             "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659"
         );
+    }
+}
+
+#[cfg(test)]
+mod floor_tests {
+    use super::KdfParams;
+
+    #[test]
+    fn floor() {
+        assert!(KdfParams::default().meets_floor());
+        assert!(!KdfParams::insecure_for_tests().meets_floor());
     }
 }

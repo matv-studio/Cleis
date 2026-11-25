@@ -362,6 +362,18 @@ impl Vault {
         Ok(())
     }
 
+    /// Brings the key derivation up to `kdf` with the same password (audit S-12); the date of
+    /// the last password change stays.
+    pub fn upgrade_kdf(&mut self, password: &str, kdf: KdfParams) -> Result<()> {
+        let salt: [u8; 16] = random_bytes()?;
+        let tx = self.conn.unchecked_transaction()?;
+        meta_set(&self.conn, "kdf", &serde_json::to_vec(&kdf)?)?;
+        meta_set(&self.conn, "salt", &salt)?;
+        self.seal_account(password, &salt, kdf)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Re-seals the account secrets under a new master password. Records are untouched.
     pub fn change_password(&mut self, new_password: &str, kdf: KdfParams) -> Result<()> {
         let salt: [u8; 16] = random_bytes()?;
@@ -890,6 +902,24 @@ mod tests {
         assert_eq!(v.entries().unwrap().len(), 1);
         assert!(v.purge_entry(e.id).unwrap());
         assert!(v.entries().unwrap().is_empty() && v.trashed_entries().unwrap().is_empty());
+    }
+
+    #[test]
+    fn weak_kdf_is_raised() {
+        let (_d, path, mut v) = fresh();
+        assert!(!v.kdf().unwrap().meets_floor());
+        let floor = KdfParams {
+            memory_kib: KdfParams::FLOOR_MEMORY_KIB,
+            iterations: KdfParams::FLOOR_ITERATIONS,
+            parallelism: 1,
+        };
+        v.upgrade_kdf("correct horse battery", floor).unwrap();
+        drop(v.lock());
+        let v = LockedVault::open(&path)
+            .unwrap()
+            .unlock("correct horse battery")
+            .unwrap();
+        assert!(v.kdf().unwrap().meets_floor());
     }
 
     #[test]

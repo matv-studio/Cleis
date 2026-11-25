@@ -181,13 +181,22 @@ mod tests {
     use super::*;
     use std::process::{Command, Stdio};
 
+    /// Audit X-3: a skipped test fails where everything must run (`CLEIS_REQUIRE_ALL`, Linux CI).
+    fn skip(why: &str) {
+        assert!(
+            std::env::var_os("CLEIS_REQUIRE_ALL").is_none(),
+            "not run: {why}"
+        );
+        eprintln!("skipped: {why}");
+    }
+
     /// Against a real OpenSSH server on 127.0.0.1, when one is installed (skipped otherwise):
     /// first connection gives the key, files go and come back, another key is refused.
     #[test]
     fn openssh_round_trip() {
         let sshd = Path::new("/usr/sbin/sshd");
         if !sshd.exists() || Command::new("ssh-keygen").arg("-?").output().is_err() {
-            eprintln!("skipped: no OpenSSH server");
+            skip("no OpenSSH server");
             return;
         }
         let dir = tempfile::tempdir().unwrap();
@@ -241,7 +250,7 @@ mod tests {
         if !up {
             // No privilege separation folder (/run/sshd), or no right to run sshd here.
             let _ = server.kill();
-            eprintln!("skipped: the OpenSSH server did not start");
+            skip("the OpenSSH server did not start");
             return;
         }
         let target = d.join("remote/vault.cleis");

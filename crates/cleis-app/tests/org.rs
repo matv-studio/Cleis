@@ -518,6 +518,11 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn organization_hosted_here(cx: &mut TestAppContext) {
     if cleis_app::host::server_exe().is_none() {
+        // Audit X-3: where everything must run (Linux CI), a missing server is a failure.
+        assert!(
+            std::env::var_os("CLEIS_REQUIRE_ALL").is_none(),
+            "not run: cleis-server is not built"
+        );
         eprintln!("skipped: cleis-server is not built");
         return;
     }

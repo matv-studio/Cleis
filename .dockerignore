@@ -1,0 +1,6 @@
+# Audit X-4: the build context stays small (target/ alone passes 20 GB).
+target/
+.git/
+design/
+docs/
+**/*.cleis

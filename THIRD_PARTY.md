@@ -1,7 +1,8 @@
 # Third-party software
 
-Cleis builds on these projects. Their licences require keeping their notices; the full texts ship
-with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bundled with releases.
+Cleis builds on these projects. Their licences require keeping their notices: every release
+archive carries `THIRD_PARTY_LICENSES.txt` (the licence files of each crate built in, made by
+`tools/licenses.py`) and `OFL.txt` (Geist typeface).
 
 | Component | Use in Cleis | Licence |
 |---|---|---|

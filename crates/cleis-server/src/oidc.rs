@@ -23,6 +23,12 @@ pub struct Claims {
     #[serde(default)]
     pub preferred_username: String,
     pub exp: i64,
+    /// Issued at (audit S-15): a token minted long ago is refused even if it has not expired.
+    #[serde(default)]
+    pub iat: Option<i64>,
+    /// Authorized party: when present, the application the token was issued to.
+    #[serde(default)]
+    pub azp: Option<String>,
     #[serde(default)]
     pub nonce: String,
 }
@@ -189,6 +195,18 @@ pub fn verify(provider: &Oidc, token: &str, now: i64, cache: &KeyCache) -> Resul
     if claims.exp + 60 < now {
         return Err("token expired".into());
     }
+    // Audit S-15: issued recently (1 minute of clock drift), and to Cleis.
+    match claims.iat {
+        Some(iat) if iat <= now + 60 && now - iat <= provider.max_token_age => {}
+        _ => return Err("token too old".into()),
+    }
+    if claims
+        .azp
+        .as_deref()
+        .is_some_and(|a| a != provider.client_id)
+    {
+        return Err("token for another application".into());
+    }
     let verified = match &claims.email_verified {
         // Microsoft does not send it: its accounts' addresses belong to the tenant.
         None => true,
@@ -249,6 +267,7 @@ pub(crate) mod tests {
             client_id: "cleis-test".into(),
             client_secret: String::new(),
             domains: domains.iter().map(|d| d.to_string()).collect(),
+            max_token_age: 600,
         }
     }
 
@@ -283,6 +302,8 @@ pub(crate) mod tests {
         p.issuer = "https://other.example-idp.com".into();
         assert!(verify(&p, &token(1), now, &cache()).is_err());
         assert!(verify(&provider(&[]), &token(1), 4_102_444_800 + 120, &cache()).is_err());
+        // Audit S-15: a token issued more than 10 minutes ago is refused.
+        assert!(verify(&provider(&[]), &token(1), now + 700, &cache()).is_err());
         let t = token(1);
         let (head, rest) = t.split_once('.').unwrap();
         let (body, sig) = rest.split_once('.').unwrap();

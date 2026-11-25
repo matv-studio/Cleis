@@ -817,6 +817,24 @@ fn organization_flow() {
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     lea.sign_in(None).unwrap();
     assert_eq!(lea.state().spaces[0].key_gen, 2);
+    // Audit S-18: a copy whose activity log was changed is refused.
+    let tampered = {
+        let f = tempdir().join("copy.db");
+        std::fs::write(&f, &backup.body).unwrap();
+        let c = cleis_server::db::open(&f).unwrap();
+        c.execute_batch(
+            "DELETE FROM log WHERE seq = (SELECT min(seq) + 1 FROM log);
+             PRAGMA wal_checkpoint(TRUNCATE);",
+        )
+        .unwrap();
+        drop(c);
+        std::fs::read(&f).unwrap()
+    };
+    let r = admin_rest
+        .send("POST", "/v1/restore", Some(&tampered))
+        .unwrap();
+    assert_eq!(r.status, 400, "{}", String::from_utf8_lossy(&r.body));
+    lea.sign_in(None).unwrap();
 
     // Key rotation: announced, then in use after the switch; apps that stored both still connect.
     let info: OrgInfo = lea.client.call("/v1/rotate", &()).unwrap();
@@ -873,6 +891,8 @@ name = "google"
 issuer = "https://idp.example-idp.com"
 client_id = "cleis-test"
 domains = ["example-studio.com"]
+# The fixed test tokens were issued on 25/11/2026.
+max_token_age = 3_000_000_000
 "#,
     )
     .unwrap();

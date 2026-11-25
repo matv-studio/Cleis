@@ -26,10 +26,12 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # Audit X-7: CI already tests every push; a tag (a version) is tested again here.
       - name: Tests
+        if: startsWith(github.ref, 'refs/tags/')
         run: cargo test --workspace
       - name: Release build
         run: cargo build --release -p cleis-app -p cleis-server --locked
@@ -46,11 +48,14 @@ jobs:
           Copy-Item target/release/cleis.exe "dist/$name/Cleis.exe"
           Copy-Item target/release/cleis-server.exe "dist/$name/cleis-server.exe"
           Copy-Item README.md, THIRD_PARTY.md "dist/$name/"
+          # Audit X-1: the licence texts of every crate built in, and the typeface's.
+          python tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
+          Copy-Item crates/cleis-app/assets/fonts/OFL.txt "dist/$name/OFL.txt"
           Copy-Item deploy/README.md "dist/$name/SERVER.md"
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
           Get-FileHash "dist/$name.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $name.zip" } | Out-File -Encoding ascii "dist/$name.zip.sha256"
           "NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.NAME }}
           path: |
@@ -61,9 +66,9 @@ jobs:
   server-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --release -p cleis-server --locked
       - run: |
           sha=$(echo "${{ github.sha }}" | cut -c1-7)
@@ -71,11 +76,12 @@ jobs:
           name="cleis-server-$ver-$sha-linux-x64"
           mkdir -p "dist/$name"
           cp target/release/cleis-server THIRD_PARTY.md "dist/$name/"
+          python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-server
           cp -r deploy "dist/$name/deploy"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "NAME=$name" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.NAME }}
           path: |
@@ -87,14 +93,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.macos
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --release -p cleis-app -p cleis-server --locked
       - run: |
           mkdir -p dist && cp target/release/cleis dist/Cleis && cp target/release/cleis-server dist/
           cd dist && zip Cleis-macos-arm64-unsigned.zip Cleis cleis-server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Cleis-macos-arm64-unsigned
           path: dist/Cleis-macos-arm64-unsigned.zip
@@ -107,7 +113,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           merge-multiple: true

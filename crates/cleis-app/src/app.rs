@@ -604,10 +604,18 @@ impl CleisApp {
         u.error = None;
         cx.notify();
         let path = self.path.clone();
+        let demo = self.demo;
         cx.spawn_in(window, async move |this, cx| {
             let res = cx
                 .background_executor()
-                .spawn(async move { LockedVault::open(&path).and_then(|l| l.unlock(&pw)) })
+                .spawn(async move {
+                    let mut v = LockedVault::open(&path).and_then(|l| l.unlock(&pw))?;
+                    // Audit S-12: weak key derivation settings are raised to the defaults.
+                    if !demo && v.kdf().is_ok_and(|k| !k.meets_floor()) {
+                        let _ = v.upgrade_kdf(&pw, cleis_crypto::KdfParams::default());
+                    }
+                    Ok::<_, cleis_store::StoreError>(v)
+                })
                 .await;
             this.update_in(cx, |this, window, cx| match res {
                 Ok(v) => this.enter(v, window, cx),

@@ -294,8 +294,31 @@ fn restrict(dir: &Path) {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     }
-    #[cfg(not(unix))]
-    let _ = dir;
+    // Audit S-7: on Windows, the folder stops inheriting (ProgramData is readable by every
+    // account) and keeps SYSTEM, the Administrators and the account that made it.
+    #[cfg(windows)]
+    {
+        let me = match (std::env::var("USERDOMAIN"), std::env::var("USERNAME")) {
+            (Ok(d), Ok(u)) if !u.ends_with('$') => Some(format!("{d}\\{u}:(OI)(CI)F")),
+            _ => None,
+        };
+        let mut args = vec![
+            dir.as_os_str().to_owned(),
+            "/inheritance:r".into(),
+            "/grant:r".into(),
+            "*S-1-5-18:(OI)(CI)F".into(),
+            "/grant:r".into(),
+            "*S-1-5-32-544:(OI)(CI)F".into(),
+        ];
+        if let Some(me) = me {
+            args.push("/grant:r".into());
+            args.push(me.into());
+        }
+        let _ = std::process::Command::new("icacls")
+            .args(&args)
+            .stdout(std::process::Stdio::null())
+            .status();
+    }
 }
 
 /// Invitation code for a token and certificate.

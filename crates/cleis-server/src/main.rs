@@ -209,7 +209,25 @@ fn run(a: Args) -> Result<(), ServerError> {
                 cleis_crypto::fingerprint_of_hash(&app.cert),
                 cfg.listen.join(", ")
             );
-            Ok(())
+            // Audit X-4: answers only if the server is reached (Docker's health check).
+            let up = cfg.listen.iter().any(|l| {
+                let port = l.rsplit(':').next().and_then(|p| p.parse::<u16>().ok());
+                port.is_some_and(|p| {
+                    std::net::TcpStream::connect_timeout(
+                        &std::net::SocketAddr::from(([127, 0, 0, 1], p)),
+                        std::time::Duration::from_secs(3),
+                    )
+                    .is_ok()
+                })
+            });
+            if up {
+                println!("running");
+                Ok(())
+            } else {
+                Err(ServerError::Setup(
+                    "not running: nothing answers on this computer".into(),
+                ))
+            }
         }
         _ => {
             println!("{HELP}");
@@ -310,7 +328,7 @@ fn data_abs(data: &Path) -> Result<PathBuf, ServerError> {
 /// systemd unit (Linux).
 /// `user`: the owner of a data folder kept in a home (server hosted by the Cleis app), so the
 /// files stay theirs.
-pub fn systemd_unit(exe: &Path, data: &Path, user: Option<u32>) -> String {
+pub fn systemd_unit(exe: &Path, data: &Path, user: Option<String>) -> String {
     let user = user.map_or(String::new(), |u| format!("User={u}\n"));
     format!(
         "[Unit]\n\
@@ -333,6 +351,36 @@ pub fn systemd_unit(exe: &Path, data: &Path, user: Option<u32>) -> String {
         data.display(),
         data.display()
     )
+}
+
+const SERVICE_USER: &str = "cleis-server";
+
+/// Creates the `cleis-server` system account if needed and gives it the data folder.
+fn service_account(data: &Path) -> Result<String, ServerError> {
+    let exists = std::process::Command::new("id")
+        .arg(SERVICE_USER)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !exists {
+        sh(
+            "useradd",
+            &[
+                "--system",
+                "--no-create-home",
+                "--shell",
+                "/usr/sbin/nologin",
+                SERVICE_USER,
+            ],
+        )?;
+    }
+    let d = data.display().to_string();
+    sh(
+        "chown",
+        &["-R", &format!("{SERVICE_USER}:{SERVICE_USER}"), &d],
+    )?;
+    Ok(SERVICE_USER.to_owned())
 }
 
 /// Owner of the data folder when it is not the administrator's.
@@ -405,8 +453,9 @@ fn install(data: &Path, print: bool) -> Result<(), ServerError> {
     }
     if cfg!(windows) {
         if print {
+            // Audit S-6: from a copy administrators alone can change.
             println!(
-                "sc.exe create CleisServer binPath= \"\\\"{}\\\" service --data \\\"{}\\\"\" start= auto",
+                "mkdir \"%ProgramFiles%\\Cleis Server\"\ncopy \"{}\" \"%ProgramFiles%\\Cleis Server\\cleis-server.exe\"\nsc.exe create CleisServer binPath= \"\\\"%ProgramFiles%\\Cleis Server\\cleis-server.exe\\\" service --data \\\"{}\\\"\" start= auto",
                 exe.display(),
                 data.display()
             );
@@ -417,7 +466,13 @@ fn install(data: &Path, print: bool) -> Result<(), ServerError> {
     let (path, text) = if cfg!(target_os = "macos") {
         (LAUNCHD_PATH, launchd_plist(&exe, &data))
     } else {
-        (SYSTEMD_PATH, systemd_unit(&exe, &data, data_owner(&data)))
+        // Audit X-9: never root. A folder owned by root goes to a system account of its own.
+        let user = match data_owner(&data) {
+            Some(uid) => uid.to_string(),
+            None if print => SERVICE_USER.to_owned(),
+            None => service_account(&data)?,
+        };
+        (SYSTEMD_PATH, systemd_unit(&exe, &data, Some(user)))
     };
     if print {
         println!("# {path}\n{text}");
@@ -530,7 +585,23 @@ mod windows {
         ServerError::Setup(format!("{e} (run as administrator)"))
     }
 
+    /// Audit S-6: the service runs a copy in Program Files (writable by administrators only),
+    /// not the file beside the app, which the user can replace.
+    fn installed_copy(exe: &Path) -> Result<std::path::PathBuf, ServerError> {
+        let base = std::env::var_os("ProgramFiles")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Program Files"));
+        let dir = base.join("Cleis Server");
+        let target = dir.join("cleis-server.exe");
+        if exe != target {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::copy(exe, &target)?;
+        }
+        Ok(target)
+    }
+
     pub fn install(exe: &Path, data: &Path) -> Result<(), ServerError> {
+        let exe = &installed_copy(exe)?;
         let manager = ServiceManager::local_computer(
             None::<&str>,
             ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
@@ -573,6 +644,9 @@ mod windows {
             .map_err(err)?;
         let _ = service.stop();
         service.delete().map_err(err)?;
+        if let Some(base) = std::env::var_os("ProgramFiles") {
+            let _ = std::fs::remove_dir_all(std::path::PathBuf::from(base).join("Cleis Server"));
+        }
         println!("Uninstalled. The data folder is kept.");
         Ok(())
     }
@@ -610,7 +684,7 @@ mod tests {
             systemd_unit(
                 Path::new("/x"),
                 Path::new("/home/lea/.local/share/cleis/server"),
-                Some(1000)
+                Some("1000".into())
             )
             .contains("User=1000\nExecStart")
         );

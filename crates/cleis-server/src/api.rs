@@ -804,6 +804,8 @@ fn session_check(app: &App, peer: &Peer, req: &SessionRequest, t: i64) -> Result
     }
 }
 
+const CODES_PER_DAY: i64 = 10;
+
 /// A 6-digit code for `member`, kept hashed 10 minutes; `None` when one went out less than a
 /// minute ago (no new message, the same code stays good).
 fn new_code(
@@ -823,6 +825,24 @@ fn new_code(
     if recent {
         return Ok(None);
     }
+    // Audit S-16: at most 10 messages a day for one member (an e-mail or SMS costs).
+    conn.execute("DELETE FROM code_sends WHERE at < ?1", [t - 86_400])?;
+    let sent: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM code_sends WHERE member = ?1",
+        [member.to_string()],
+        |r| r.get(0),
+    )?;
+    if sent >= CODES_PER_DAY {
+        return Err(ApiErr(
+            StatusCode::TOO_MANY_REQUESTS,
+            "throttled",
+            "Too many codes sent today. Try again tomorrow or ask an administrator.".into(),
+        ));
+    }
+    conn.execute(
+        "INSERT INTO code_sends(member, at) VALUES (?1, ?2)",
+        params![member.to_string(), t],
+    )?;
     let n: [u8; 4] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
     let code = format!("{:06}", u32::from_le_bytes(n) % 1_000_000);
     conn.execute(
@@ -2263,6 +2283,17 @@ async fn restore(
                 "This backup was made with another server key: restore it with `cleis-server restore`.",
             ));
         }
+        // Audit S-18: its activity log must verify (signatures and chain), as this one does.
+        let integrity = app
+            .log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .verify(&other, now())?;
+        if !integrity.intact {
+            return Err(ApiErr::bad(
+                "This backup's activity log does not verify: it was changed after it was made.",
+            ));
+        }
         Ok(())
     })();
     if let Err(e) = check {
@@ -2270,6 +2301,11 @@ async fn restore(
         return Err(e);
     }
     let mut conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    // Audit S-18: members removed since the backup stay removed.
+    let removed: Vec<(String, i64)> = conn
+        .prepare("SELECT id, revoked FROM members WHERE revoked IS NOT NULL")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
     let path = app.dir.join(crate::DB_FILE);
     let keep = app.dir.join(format!("{}.before-restore", crate::DB_FILE));
     // Close the current connection before the files move.
@@ -2292,8 +2328,30 @@ async fn restore(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .reload(&conn)?;
+    let mut kept_out = 0;
+    for (id, at) in &removed {
+        let back = conn.execute(
+            "UPDATE members SET revoked = ?2 WHERE id = ?1 AND revoked IS NULL",
+            params![id, at],
+        )?;
+        if back == 1 {
+            kept_out += 1;
+            for t in ["sessions", "remembered", "admin_keys", "super_keys"] {
+                conn.execute(&format!("DELETE FROM {t} WHERE member = ?1"), [id])?;
+            }
+            if let Ok(uuid) = uuid::Uuid::parse_str(id) {
+                let m = MemberId(uuid);
+                let spaces = spaces_of(&conn, m)?;
+                drop_access(&conn, m, &spaces)?;
+            }
+        }
+    }
     let mut e = caller.event(Action::BackedUp);
-    e.note = "Restored".into();
+    e.note = if kept_out == 0 {
+        "Restored".into()
+    } else {
+        format!("Restored · {kept_out} member(s) removed since the backup kept out")
+    };
     app.record(&conn, e)?;
     Ok(Json(PushReply {
         seq: db::seq(&conn)?,

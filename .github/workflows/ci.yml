@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Audit X-2: the working branches too, not only main.
+    branches: [main, "feat/**", "fix/**"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -23,14 +24,14 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: rustfmt, clippy
       - name: GUI build dependencies (GPUI)
         if: runner.os == 'Linux'
         run: sudo apt-get update -q && sudo apt-get install -y -q libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev pkg-config clang
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
 
@@ -41,19 +42,41 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - name: GUI build dependencies (GPUI)
         if: runner.os == 'Linux'
         run: sudo apt-get update -q && sudo apt-get install -y -q libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev pkg-config clang
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - name: OpenSSH server for the SFTP test
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y -q openssh-server && sudo mkdir -p /run/sshd
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # The hosted-server test starts the real cleis-server: built first.
+      - run: cargo build -p cleis-server
+      - name: Tests (Linux: none may be skipped, audit X-3)
+        if: runner.os == 'Linux'
+        run: cargo test --workspace
+        env:
+          CLEIS_REQUIRE_ALL: "1"
+      - name: Tests
+        if: runner.os != 'Linux'
+        run: cargo test --workspace
+
+  # Audit X-8: known vulnerabilities and unmaintained crates, reported (GPUI brings most).
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - run: cargo install cargo-audit --locked
+      # Fails on a vulnerability; unmaintained and unsound crates are listed as warnings.
+      - run: cargo audit
 
   test-macos:
     if: github.event_name == 'workflow_dispatch' && inputs.macos
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo test --workspace

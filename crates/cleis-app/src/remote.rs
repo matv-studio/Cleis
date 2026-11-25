@@ -230,7 +230,9 @@ struct Object {
 
 impl GitHub {
     fn new(api: &str, repo: &str, path: &str, branch: &str, token: &str) -> Result<Self, String> {
-        let local = api.starts_with("http://127.0.0.1");
+        // Audit S-13: plain HTTP to this computer only in debug builds (the tests' stand-in);
+        // a released app sends the token by HTTPS only.
+        let local = cfg!(debug_assertions) && api.starts_with("http://127.0.0.1:");
         if !api.starts_with("https://") && !local {
             return Err("GitHub is reached by HTTPS".into());
         }
