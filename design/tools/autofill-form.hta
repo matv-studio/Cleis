@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- Test form for Cleis autofill on Windows (mshta.exe). Fictitious data only.
+     Run: mshta.exe autofill-form.hta, then Cleis with --try-autofill --unlocked.
+     "Two pages" shows the email first, then the password, like Microsoft or Google sign-in;
+     a 2FA page follows. The last page lists what was received. -->
+<html>
+<head>
+<meta http-equiv="x-ua-compatible" content="ie=edge">
+<title>Example Login — Sign in</title>
+<hta:application id="form" applicationname="ExampleLogin" border="dialog" innerborder="no"
+  maximizebutton="no" scroll="no" singleinstance="yes" sysmenu="yes" windowstate="normal">
+<style>
+  body { font: 14px "Segoe UI", sans-serif; background: #f4f4f4; color: #1a1a1a; margin: 0; }
+  .card { width: 360px; margin: 32px auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 16px; }
+  label { display: block; font-size: 12px; color: #666; margin: 12px 0 4px; }
+  input[type=text], input[type=password] { width: 100%; height: 30px; box-sizing: border-box; border: 1px solid #bbb; border-radius: 4px; padding: 0 8px; font: inherit; }
+  button { margin-top: 16px; height: 32px; padding: 0 16px; font: inherit; }
+  .hide { display: none; }
+  pre { background: #f0f0f0; padding: 8px; font: 12px Consolas, monospace; }
+</style>
+<script>
+  function $(id) { return document.getElementById(id); }
+  function show(id) { var p = ["p1", "p2", "p3", "done"]; for (var i = 0; i < p.length; i++) $(p[i]).className = p[i] == id ? "" : "hide"; }
+  function start() { window.resizeTo(460, 520); show("p1"); $("email").focus(); }
+  function next1() {
+    if ($("twostep").checked && $("pw1").value == "") { show("p2"); $("pw2").focus(); return false; }
+    show("p3"); $("code").focus(); return false;
+  }
+  function next2() { show("p3"); $("code").focus(); return false; }
+  function finish() {
+    var pw = $("pw1").value || $("pw2").value;
+    $("out").innerText = "email: " + $("email").value + "\npassword: " + pw + "\n2FA code: " + $("code").value;
+    show("done"); return false;
+  }
+</script>
+</head>
+<body onload="start()">
+<div class="card">
+  <form id="p1" onsubmit="return next1()">
+    <h1>Sign in</h1>
+    <label for="email">Email</label><input type="text" id="email" name="email">
+    <span id="pwrow"><label for="pw1">Password</label><input type="password" id="pw1" name="password"></span>
+    <label><input type="checkbox" id="twostep" onclick="$('pwrow').className = this.checked ? 'hide' : ''"> Two pages</label>
+    <button type="submit">Next</button>
+  </form>
+  <form id="p2" class="hide" onsubmit="return next2()">
+    <h1>Enter your password</h1>
+    <label for="pw2">Password</label><input type="password" id="pw2" name="password">
+    <button type="submit">Sign in</button>
+  </form>
+  <form id="p3" class="hide" onsubmit="return finish()">
+    <h1>Two-step verification</h1>
+    <label for="code">Code</label><input type="text" id="code" name="code" autocomplete="one-time-code">
+    <button type="submit">Verify</button>
+  </form>
+  <div id="done" class="hide"><h1>Received</h1><pre id="out"></pre>
+    <button onclick="location.reload()">Again</button></div>
+</div>
+</body>
+</html>

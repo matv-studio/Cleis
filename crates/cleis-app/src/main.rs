@@ -1,5 +1,5 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
-//! [--quick-access]`
+//! [--quick-access] [--try-autofill]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -33,17 +33,27 @@ fn main() {
     let mut path = value("--vault")
         .map(PathBuf::from)
         .unwrap_or_else(default_vault);
-    if flag("--demo") {
+    // `--try-autofill`: demo vault with real shortcuts and fills, plus a sample item for the test
+    // form `design/tools/autofill-form.hta` (Windows).
+    let try_autofill = flag("--try-autofill");
+    let demo = flag("--demo") || try_autofill;
+    if demo {
         path = std::env::temp_dir().join(format!("cleis-demo-{}.cleis", std::process::id()));
-        if let Err(e) = cleis_app::demo::create(&path) {
+        let made = cleis_app::demo::create(&path).and_then(|()| {
+            if try_autofill {
+                cleis_app::demo::add_autofill_sample(&path)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(e) = made {
             eprintln!("cleis: demo vault: {e}");
             std::process::exit(1);
         }
     }
-    let unlocked = flag("--unlocked") && flag("--demo");
+    let unlocked = flag("--unlocked") && demo;
     let tab = value("--tab");
     let page = value("--page");
-    let demo = flag("--demo");
     let quick_access = flag("--quick-access") && unlocked;
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
@@ -70,7 +80,7 @@ fn main() {
             gpui_kit::open_window(opts, cx, move |window, cx| {
                 cx.new(|cx| {
                     let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
-                    if demo {
+                    if demo && !try_autofill {
                         // Demo and screenshots: never take the system's shortcuts or type.
                         app.no_shortcuts = true;
                         app.autofill.dry_run = Some(vec![]);

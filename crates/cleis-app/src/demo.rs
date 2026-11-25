@@ -323,3 +323,16 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
     v.put_contacts(&cs)?;
     Ok(())
 }
+
+/// Item for trying autofill against `design/tools/autofill-form.hta` (`--try-autofill`): its name
+/// matches the form's window title. Fictitious values.
+pub fn add_autofill_sample(path: &Path) -> anyhow::Result<()> {
+    let v = cleis_store::LockedVault::open(path)?.unlock(PASSWORD)?;
+    let mut e = Entry::new(v.home_space(), "Example Login");
+    e.username = "ines@example-studio.com".into();
+    e.password = "Sample-Pass-2026!".into();
+    e.totp = Totp::from_base32("JBSWY3DPEHPK3PXP").ok();
+    e.urls = vec!["https://login.example-studio.com".into()];
+    v.put_entry(&e)?;
+    Ok(())
+}
