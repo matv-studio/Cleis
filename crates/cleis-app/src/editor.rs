@@ -212,6 +212,10 @@ impl CleisApp {
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
+        if refuse_edit(s) {
+            cx.notify();
+            return;
+        }
         let Some(ed) = s.editor.as_mut() else { return };
         let Some((col, st)) = ed.custom.iter().find(|(c, _)| &c.id == id) else {
             return;
@@ -261,6 +265,10 @@ impl CleisApp {
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
+        if refuse_edit(s) {
+            cx.notify();
+            return;
+        }
         let Some(ed) = s.editor.as_mut() else { return };
         let value = match f {
             Field::Notes => ed.notes.read(cx).value().to_string(),
@@ -407,4 +415,19 @@ pub fn refused(kind: &ColumnKind) -> String {
         ),
         _ => "Not accepted".into(),
     }
+}
+
+/// The member's role does not allow editing the selected item (audit L-1): nothing is written,
+/// the inspector closes and says why.
+fn refuse_edit(s: &mut crate::app::Session) -> bool {
+    let Some(id) = s.editor.as_ref().map(|e| e.entry) else {
+        return false;
+    };
+    let space = s.entries.iter().find(|e| e.id == id).map(|e| e.space);
+    if space.is_some_and(|sp| !s.may(sp, cleis_core::org::Perm::Edit)) {
+        s.toast = Some("Your role does not allow editing here".into());
+        s.editor = None;
+        return true;
+    }
+    false
 }

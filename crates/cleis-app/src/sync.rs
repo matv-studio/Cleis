@@ -52,6 +52,8 @@ pub struct SyncConfig {
     pub last_backup: Option<i64>,
     /// GitHub or SFTP: where the file is; `place` is then its local copy (D-65).
     pub remote: Option<crate::remote::RemotePlace>,
+    /// This device: its place secret is its own (audit L-8).
+    pub device: String,
     /// Last try, successful or not: paces automatic syncs (not saved).
     #[serde(skip)]
     pub last_attempt: Option<i64>,
@@ -71,6 +73,7 @@ impl Default for SyncConfig {
             last_error: None,
             last_backup: None,
             remote: None,
+            device: uuid::Uuid::new_v4().to_string(),
             last_attempt: None,
             busy: false,
         }
@@ -87,10 +90,38 @@ pub fn config_path(vault: &Path) -> PathBuf {
 }
 
 pub fn load_config(vault: &Path) -> SyncConfig {
-    std::fs::read(config_path(vault))
+    let mut c: SyncConfig = std::fs::read(config_path(vault))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if c.device.is_empty() {
+        c.device = uuid::Uuid::new_v4().to_string();
+        save_config(vault, &c);
+    }
+    c
+}
+
+impl SyncConfig {
+    /// Name of this device's place secret in the vault (audit L-8).
+    pub fn secret_key(&self) -> String {
+        format!("{}:{}", crate::remote::SECRET_SETTING, self.device)
+    }
+
+    /// This device's place secret (or the one shared by an earlier version).
+    pub fn secret(&self, vault: &cleis_store::Vault) -> crate::remote::Secret {
+        vault
+            .org_setting::<Option<crate::remote::Secret>>(&self.secret_key())
+            .ok()
+            .flatten()
+            .flatten()
+            .or_else(|| {
+                vault
+                    .org_setting::<crate::remote::Secret>(crate::remote::SECRET_SETTING)
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_default()
+    }
 }
 
 pub fn save_config(vault: &Path, c: &SyncConfig) {
@@ -215,10 +246,10 @@ impl CleisApp {
         if let Some(s) = self.session() {
             if s.sync.remote.take().is_some() {
                 let _ = std::fs::remove_file(&cache);
-                let _ = s.vault.set_org_setting(
-                    crate::remote::SECRET_SETTING,
-                    &None::<crate::remote::Secret>,
-                );
+                let key = s.sync.secret_key();
+                let _ = s
+                    .vault
+                    .set_org_setting(&key, &None::<crate::remote::Secret>);
             }
             s.sync.place = None;
             s.sync.last_sync = None;
@@ -259,12 +290,7 @@ impl CleisApp {
         let Some(remote) = s.sync.remote.clone() else {
             return;
         };
-        let secret: crate::remote::Secret = s
-            .vault
-            .org_setting(crate::remote::SECRET_SETTING)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let secret = s.sync.secret(&s.vault);
         s.sync.busy = true;
         s.sync.last_attempt = Some(cleis_core::now());
         cx.notify();
@@ -479,11 +505,15 @@ impl CleisApp {
     pub fn save_emergency_kit(&mut self, cx: &mut Context<Self>) {
         let vault = self.path.clone();
         let Some(s) = self.session() else { return };
-        let place = s
-            .sync
-            .place
-            .as_ref()
-            .map(|p| format!("{} · {}", s.sync.provider.name(), p.display()));
+        let place = s.sync.place.as_ref().map(|p| {
+            // Audit L-7: GitHub / SFTP: the repository or server, not the local copy.
+            let at = s
+                .sync
+                .remote
+                .as_ref()
+                .map_or_else(|| p.display().to_string(), |r| r.label());
+            format!("{} · {at}", s.sync.provider.name())
+        });
         let pdf = crate::kit::emergency_kit(&vault, place.as_deref(), cleis_core::now());
         let dir = directories::UserDirs::new()
             .and_then(|d| d.download_dir().map(|p| p.to_owned()))
@@ -504,4 +534,42 @@ impl CleisApp {
         })
         .detach();
     }
+}
+
+/// GitHub / SFTP sync run off the interface with the vault moved in (on lock, audit L-5): read,
+/// merge, send back when this vault had something new; the vault is dropped at the end.
+pub fn remote_sync_detached(
+    mut vault: cleis_store::Vault,
+    mut cfg: SyncConfig,
+    vault_path: &Path,
+) -> Result<(), String> {
+    let Some(remote) = cfg.remote.clone() else {
+        return Ok(());
+    };
+    let secret = cfg.secret(&vault);
+    let cache = remote_cache(vault_path);
+    let mut result = Err("the file kept changing".to_owned());
+    for _ in 0..3 {
+        let version =
+            crate::remote::download(&remote, &secret, &cache).map_err(|e| e.to_string())?;
+        let rep = vault.sync_with(&cache).map_err(|e| e.to_string())?;
+        if rep.sent == 0 && !rep.created {
+            result = Ok(());
+            break;
+        }
+        match crate::remote::upload(&remote, &secret, &cache, version) {
+            Ok(()) => {
+                result = Ok(());
+                break;
+            }
+            Err(crate::remote::RemoteError::Conflict) => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    if result.is_ok() {
+        cfg.last_sync = Some(cleis_core::now());
+        cfg.last_error = None;
+        save_config(vault_path, &cfg);
+    }
+    result
 }

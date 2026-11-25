@@ -121,7 +121,13 @@ impl CleisApp {
             self.show_main(cx);
             return;
         };
-        let read_url = fg.context.is_browser() && s.prefs.autofill.match_browser_urls;
+        // Audit L-3: the organization's policy may forbid reading browser addresses.
+        let org_ok = s
+            .org
+            .as_ref()
+            .and_then(|o| o.policy())
+            .is_none_or(|p| p.read_addresses);
+        let read_url = fg.context.is_browser() && s.prefs.autofill.match_browser_urls && org_ok;
         cx.spawn(async move |this, cx| {
             let mut fg = fg;
             if read_url {
@@ -193,6 +199,22 @@ impl CleisApp {
         custom: impl FnOnce(Focus) -> Plan + Send + 'static,
         cx: &mut Context<Self>,
     ) {
+        // Audit L-4: the role's "Copy, fill" right; L-3: the policy's filling ways.
+        let mut method = method;
+        if let Some(s) = self.session()
+            && let Some(e) = s.entries.iter().find(|e| e.id == entry)
+            && s.is_org_space(e.space)
+        {
+            if !s.may(e.space, cleis_core::org::Perm::Fill) {
+                s.toast = Some("Your role does not allow filling this item".into());
+                cx.notify();
+                return;
+            }
+            if let Some(p) = s.org.as_ref().and_then(|o| o.policy()) {
+                let wanted = method.unwrap_or(s.prefs.autofill.method);
+                method = Some(allowed_method(wanted, p.fill_fields, p.type_keys));
+            }
+        }
         if let Some(e) = self
             .session()
             .and_then(|s| s.entries.iter().find(|e| e.id == entry).cloned())
@@ -366,5 +388,31 @@ impl CleisApp {
     /// Called by Quick Access when it closes (fill chosen, Escape, or lost focus).
     pub fn quick_access_closed(&mut self) {
         self.autofill.quick_access = None;
+    }
+}
+
+/// The filling way the organization allows, closest to the one wanted: filling fields through
+/// accessibility (`Automatic`), typing keys (`Type`), or pasting (always allowed).
+pub fn allowed_method(wanted: FillMethod, fill_fields: bool, type_keys: bool) -> FillMethod {
+    match wanted {
+        FillMethod::Automatic if fill_fields => FillMethod::Automatic,
+        FillMethod::Automatic | FillMethod::Type if type_keys => FillMethod::Type,
+        FillMethod::Type if fill_fields => FillMethod::Automatic,
+        _ => FillMethod::Paste,
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    #[test]
+    fn methods_follow_the_policy() {
+        use FillMethod::*;
+        assert_eq!(allowed_method(Automatic, true, true), Automatic);
+        assert_eq!(allowed_method(Automatic, false, true), Type);
+        assert_eq!(allowed_method(Type, true, false), Automatic);
+        assert_eq!(allowed_method(Type, false, false), Paste);
+        assert_eq!(allowed_method(Paste, true, true), Paste);
     }
 }

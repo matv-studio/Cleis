@@ -766,6 +766,7 @@ pub fn org(s: &mut crate::app::Session) {
             remembered: None,
             last_ok: Some(now - 120),
             host_dir: None,
+            offline_days: None,
         },
         state: Some(st),
         busy: false,

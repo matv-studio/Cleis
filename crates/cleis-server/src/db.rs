@@ -144,7 +144,9 @@ pub fn policy(conn: &Connection) -> Policy {
 }
 
 pub fn roles(conn: &Connection) -> Vec<Role> {
-    meta_json(conn, "roles").unwrap_or_else(Role::defaults)
+    meta_json(conn, "roles")
+        .map(cleis_core::org::upgrade_roles)
+        .unwrap_or_else(Role::defaults)
 }
 
 /// Next change number (records, purges, re-encryptions).

@@ -208,10 +208,22 @@ impl Session {
 
     /// Whether this item's password may be shown (an organization role may only copy and fill).
     pub fn may_see(&self, e: &Entry) -> bool {
+        self.may(e.space, cleis_core::org::Perm::See)
+    }
+
+    /// What the member's role allows in `space`; everything in a personal space (audit L-1, L-4).
+    pub fn may(&self, space: cleis_core::SpaceId, p: cleis_core::org::Perm) -> bool {
         match &self.org {
-            Some(o) if o.names.contains_key(&e.space) => o.can(cleis_core::org::Perm::See),
+            Some(o) if o.names.contains_key(&space) => o.can(p),
             _ => true,
         }
+    }
+
+    /// Whether `space` belongs to an organization.
+    pub fn is_org_space(&self, space: cleis_core::SpaceId) -> bool {
+        self.org
+            .as_ref()
+            .is_some_and(|o| o.names.contains_key(&space))
     }
 
     pub fn selected_entry(&self) -> Option<&Entry> {
@@ -352,6 +364,15 @@ impl CleisApp {
     }
 
     pub fn show_unlock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_unlock_taking(window, cx);
+    }
+
+    /// [`Self::show_unlock`], returning the phase it replaced.
+    pub fn show_unlock_taking(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Phase> {
         let password = password_input(window, cx, "");
         self._subs =
             vec![
@@ -362,13 +383,17 @@ impl CleisApp {
                 }),
             ];
         password.update(cx, |s, cx| s.focus(window, cx));
-        self.phase = Phase::Unlock(Unlock {
-            password,
-            error: None,
-            busy: false,
-            bio: crate::bio::enabled(&self.path),
-        });
+        let old = std::mem::replace(
+            &mut self.phase,
+            Phase::Unlock(Unlock {
+                password,
+                error: None,
+                busy: false,
+                bio: crate::bio::enabled(&self.path),
+            }),
+        );
         cx.notify();
+        Some(old)
     }
 
     pub fn create_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -666,16 +691,30 @@ impl CleisApp {
 
     pub fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Last changes sent before the keys are wiped.
+        let remote = matches!(&self.phase, Phase::Main(s)
+            if s.sync.auto && s.sync.place.is_some() && s.gate.is_none() && s.sync.remote.is_some());
         if let Phase::Main(s) = &self.phase
             && s.sync.auto
             && s.sync.place.is_some()
             && s.gate.is_none()
+            && !remote
         {
             self.sync(true, cx);
         }
         if let Phase::Main(_) = self.phase {
-            // Dropping the session drops the vault and wipes its keys.
-            self.show_unlock(window, cx);
+            let old = self.show_unlock_taking(window, cx);
+            // GitHub / SFTP (audit L-5): the vault lives on in the background until its last
+            // changes are sent, then it is dropped and its keys wiped.
+            if remote && let Some(Phase::Main(s)) = old {
+                let s = *s;
+                let path = self.path.clone();
+                cx.background_spawn(async move {
+                    if let Err(e) = crate::sync::remote_sync_detached(s.vault, s.sync, &path) {
+                        cleis_autofill::log(&format!("sync on lock: {e}"));
+                    }
+                })
+                .detach();
+            }
         }
     }
 
@@ -759,6 +798,17 @@ impl CleisApp {
 
     /// [`Self::copy`] of an item's field; an organization's item is written to its log.
     pub fn copy_of(&mut self, entry: EntryId, text: String, what: &str, cx: &mut Context<Self>) {
+        // Audit L-4: the role's "Copy, fill" right.
+        if let Some(s) = self.session()
+            && s.entries
+                .iter()
+                .find(|e| e.id == entry)
+                .is_some_and(|e| !s.may(e.space, cleis_core::org::Perm::Fill))
+        {
+            s.toast = Some("Your role does not allow copying this item".into());
+            cx.notify();
+            return;
+        }
         if let Some(e) = self
             .session()
             .and_then(|s| s.entries.iter().find(|e| e.id == entry).cloned())

@@ -1353,6 +1353,11 @@ impl CleisApp {
         let Some(src) = s.entries.iter().find(|e| e.id == id) else {
             return;
         };
+        if !s.may(src.space, cleis_core::org::Perm::Edit) {
+            s.toast = Some("Your role does not allow adding here".into());
+            cx.notify();
+            return;
+        }
         let mut e = src.clone();
         e.id = EntryId::new();
         e.name = format!("{} copy", src.name);
@@ -1373,11 +1378,54 @@ impl CleisApp {
 
     /// Moves an item to another space (re-sealed with that space's key by the store).
     pub fn move_entry(&mut self, id: EntryId, to: cleis_core::SpaceId, cx: &mut Context<Self>) {
+        use cleis_core::org::Perm;
         let Some(s) = self.session() else { return };
+        let Some(from) = s.entries.iter().find(|e| e.id == id).map(|e| e.space) else {
+            return;
+        };
+        // Audit L-2: an organization's item stays in the organization; between two of its spaces
+        // it is a new item there and an erasure here, so the members of the space left lose it.
+        let refusal = if s.is_org_space(from) && !s.is_org_space(to) {
+            Some("An organization's items stay in the organization")
+        } else if !s.may(to, Perm::Edit) || !s.may(from, Perm::Delete) {
+            Some("Your role does not allow moving it")
+        } else {
+            None
+        };
+        if let Some(why) = refusal {
+            s.toast = Some(why.into());
+            cx.notify();
+            return;
+        }
+        if s.is_org_space(from) {
+            let Some(src) = s.entries.iter().find(|e| e.id == id).cloned() else {
+                return;
+            };
+            let mut copy = src.clone();
+            copy.id = EntryId::new();
+            copy.space = to;
+            copy.touch(None);
+            let r = s
+                .vault
+                .put_entry(&copy)
+                .and_then(|()| s.vault.purge_entry(id).map(|_| ()));
+            match r {
+                Ok(()) => {
+                    s.entries.retain(|e| e.id != id);
+                    s.selected = Some(copy.id);
+                    s.entries.push(copy);
+                    s.editor = None;
+                    s.toast = Some("Moved".into());
+                }
+                Err(err) => s.toast = Some(format!("Not moved: {err}").into()),
+            }
+            s.refilter();
+            cx.notify();
+            return;
+        }
         let Some(e) = s.entries.iter_mut().find(|e| e.id == id) else {
             return;
         };
-        let from = e.space;
         e.space = to;
         e.touch(None);
         // Same record, sealed again with the destination space's key.
@@ -1398,6 +1446,15 @@ impl CleisApp {
     /// Moves an item to the trash (restorable from Trash in the sidebar).
     pub fn trash_entry(&mut self, id: EntryId, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
+        if s.entries
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| !s.may(e.space, cleis_core::org::Perm::Delete))
+        {
+            s.toast = Some("Your role does not allow deleting here".into());
+            cx.notify();
+            return;
+        }
         match s.vault.delete_entry(id) {
             Ok(_) => {
                 if let Some(i) = s.entries.iter().position(|e| e.id == id) {

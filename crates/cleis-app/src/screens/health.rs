@@ -4,7 +4,7 @@
 use crate::app::{CleisApp, Filter, Session, Tab};
 use crate::theme::*;
 use crate::ui::*;
-use cleis_core::health::{Issue, Policy, scan};
+use cleis_core::health::{Issue, Policy, scan_by};
 use cleis_core::{EntryId, SpaceId};
 use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
@@ -52,7 +52,21 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         .filter(|e| ui.space.is_none_or(|sp| e.space == sp))
         .cloned()
         .collect();
-    let (findings, sum) = scan(&entries, &Policy::default(), cleis_core::now());
+    // Audit L-3: an organization's items are judged by its policy.
+    let own = Policy::default();
+    let org = s.org.as_ref().and_then(|o| o.policy()).map(|p| Policy {
+        min_length: p.min_length as usize,
+        max_age_days: p.max_age_days,
+        ..Policy::default()
+    });
+    let (findings, sum) = scan_by(
+        &entries,
+        |e| match &org {
+            Some(p) if s.is_org_space(e.space) => p,
+            _ => &own,
+        },
+        cleis_core::now(),
+    );
     let space_name = |id: SpaceId| {
         s.spaces
             .iter()

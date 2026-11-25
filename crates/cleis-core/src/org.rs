@@ -87,21 +87,35 @@ pub enum Perm {
     Delete,
     /// Members, invitations, roles, spaces, policy, encryption.
     Manage,
-    /// Activity log and health report of the organization.
+    /// Activity log and health report of the organization (delegable to Admins, D-67).
     Audit,
-    /// Who is Admin or Super Admin, what each role may do, the server's keys and backups put back
-    /// (Super Admin only, D-60).
+    /// Download server backups: the file also holds the server key and the members'
+    /// authenticator keys (Super Admin; delegable to Admins, D-67).
+    Backups,
+    /// Recovery key and server key rotation (Super Admin; delegable to Admins, D-67).
+    Keys,
+    /// Sign-in rules (verification, methods, remembered devices) and what the activity log
+    /// records and keeps (Super Admin; delegable to Admins, D-67).
+    Rules,
+    /// Who is Admin or Super Admin, what each role may do, backups put back (Super Admin only,
+    /// D-60).
     Admins,
 }
 
+/// What a Super Admin may grant the Admin role, or take from it (D-67).
+pub const DELEGABLE: [Perm; 4] = [Perm::Audit, Perm::Backups, Perm::Keys, Perm::Rules];
+
 impl Perm {
-    pub const ALL: [Perm; 7] = [
+    pub const ALL: [Perm; 10] = [
         Perm::See,
         Perm::Fill,
         Perm::Edit,
         Perm::Delete,
         Perm::Manage,
         Perm::Audit,
+        Perm::Backups,
+        Perm::Keys,
+        Perm::Rules,
         Perm::Admins,
     ];
 
@@ -113,7 +127,10 @@ impl Perm {
             Perm::Delete => "Delete",
             Perm::Manage => "Manage members and spaces",
             Perm::Audit => "Activity log, health report",
-            Perm::Admins => "Admins, roles, server keys",
+            Perm::Backups => "Server backups",
+            Perm::Keys => "Recovery and server keys",
+            Perm::Rules => "Sign-in and log rules",
+            Perm::Admins => "Admins, roles",
         }
     }
 }
@@ -156,10 +173,16 @@ impl Role {
             name: name.into(),
             perms: perms.iter().copied().collect(),
         };
-        let admin: Vec<Perm> = Perm::ALL
-            .into_iter()
-            .filter(|p| *p != Perm::Admins)
-            .collect();
+        // D-67: the Admin reads the log; backups, keys and rules stay with the Super Admin until
+        // one delegates them.
+        let admin = [
+            Perm::See,
+            Perm::Fill,
+            Perm::Edit,
+            Perm::Delete,
+            Perm::Manage,
+            Perm::Audit,
+        ];
         vec![
             r(SUPER_ADMIN, "Super Admin", &Perm::ALL),
             r(ADMIN, "Admin", &admin),
@@ -174,23 +197,41 @@ impl Role {
     }
 }
 
-/// Checks a role list sent by a Super Admin: Super Admin and Admin come first as they are, names
-/// are set and unique, no other role manages admins.
+/// Checks a role list sent by a Super Admin: Super Admin first as it is, then Admin with every
+/// right but `Admins` save the delegable ones (D-67); names set and unique; other roles hold
+/// neither `Admins` nor the delegable rights.
 pub fn valid_roles(roles: &[Role]) -> bool {
     let d = Role::defaults();
     let mut names = BTreeSet::new();
     let mut ids = BTreeSet::new();
+    let admin_ok = |r: &Role| {
+        r.id == d[1].id
+            && r.name == d[1].name
+            && !r.can(Perm::Admins)
+            && Perm::ALL
+                .into_iter()
+                .filter(|p| *p != Perm::Admins && !DELEGABLE.contains(p))
+                .all(|p| r.can(p))
+    };
     roles.len() >= 2
-        && roles[..2] == d[..2]
+        && roles[0] == d[0]
+        && admin_ok(&roles[1])
         && roles.iter().all(|r| {
             !r.name.trim().is_empty()
                 && names.insert(crate::text::fold(r.name.trim()))
                 && ids.insert(r.id.clone())
         })
-        && roles
-            .iter()
-            .skip(2)
-            .all(|r| !is_admin_role(&r.id) && !r.can(Perm::Admins))
+        && roles.iter().skip(2).all(|r| {
+            !is_admin_role(&r.id) && !r.can(Perm::Admins) && !DELEGABLE.iter().any(|p| r.can(*p))
+        })
+}
+
+/// Roles as kept by an older server, brought to this version: the Super Admin holds every right.
+pub fn upgrade_roles(mut roles: Vec<Role>) -> Vec<Role> {
+    if let Some(s) = roles.iter_mut().find(|r| r.id == SUPER_ADMIN) {
+        s.perms = Perm::ALL.into_iter().collect();
+    }
+    roles
 }
 
 // ---------- Security policy ----------
@@ -290,6 +331,18 @@ pub struct Policy {
     pub read_addresses: bool,
 }
 
+impl Policy {
+    /// Same sign-in and log rules (what `Perm::Rules` guards, D-67).
+    pub fn same_rules(&self, o: &Policy) -> bool {
+        self.code_required == o.code_required
+            && self.remember_days == o.remember_days
+            && self.methods == o.methods
+            && self.record_activity == o.record_activity
+            && self.detail == o.detail
+            && self.keep_days == o.keep_days
+    }
+}
+
 impl Default for Policy {
     fn default() -> Self {
         Self {
@@ -297,7 +350,8 @@ impl Default for Policy {
             remember_days: 30,
             methods: [Method::AuthenticatorApp].into_iter().collect(),
             lock_after_mins: None,
-            biometrics: false,
+            // Audit L-12: on by default, so joining does not take Windows Hello away.
+            biometrics: true,
             offline_days: 14,
             min_length: 12,
             max_age_days: 365,
@@ -1118,8 +1172,22 @@ mod tests {
         assert!(roles[0].is_super() && roles[0].can(Perm::Admins));
         assert!(roles[1].can(Perm::Manage) && !roles[1].can(Perm::Admins));
         assert!(!roles[4].can(Perm::See) && roles[4].can(Perm::Fill));
+        // D-67: a Super Admin delegates or takes back the log, backups, keys and rules.
+        let mut delegated = roles.clone();
+        delegated[1].perms.remove(&Perm::Audit);
+        delegated[1].perms.insert(Perm::Backups);
+        assert!(valid_roles(&delegated));
         let mut bad = roles.clone();
-        bad[1].perms.remove(&Perm::Audit);
+        bad[1].perms.remove(&Perm::Manage);
+        assert!(!valid_roles(&bad));
+        let mut bad = roles.clone();
+        bad[1].perms.insert(Perm::Admins);
+        assert!(!valid_roles(&bad));
+        let mut bad = roles.clone();
+        bad[2].perms.insert(Perm::Backups);
+        assert!(!valid_roles(&bad));
+        let mut bad = roles.clone();
+        bad[0].perms.remove(&Perm::Keys);
         assert!(!valid_roles(&bad));
         let mut dup = roles.clone();
         dup[3].name = "member".into();

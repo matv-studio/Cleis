@@ -651,3 +651,99 @@ fn sms_second_step(cx: &mut TestAppContext) {
         assert!(o.error.is_none(), "{:?}", o.error);
     });
 }
+
+/// Audit L-1, L-2: a read-only member's change refused by the server is put back; an
+/// organization's item does not move to a personal folder.
+#[gpui_kit::test]
+fn refused_changes_and_moves(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, code) = server(dir.path().join("server"));
+    let (lh, lea) = open(cx, &dir.path().join("lea.cleis"));
+    cx.run_until_parked();
+    first_launch(cx, lh, &addr, &code, Some("Lea Martin"));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("new-space", cx));
+    act(cx, lh, |w, cx| {
+        w.click("space-name", cx);
+        w.input("General", cx);
+        w.click("space-create", cx);
+    });
+    sync(cx, &lea);
+    let general = session(cx, &lea, |s| {
+        s.org.as_ref().unwrap().state.as_ref().unwrap().spaces[0].id
+    });
+    let figma = lea.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        let mut e = cleis_core::Entry::new(general, "Figma");
+        e.password = "figma-pass-2026".into();
+        s.vault.put_entry(&e).unwrap();
+        e.id
+    });
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| w.click("set-Members", cx));
+    act(cx, lh, |w, cx| w.click("invite", cx));
+    act(cx, lh, |w, cx| {
+        w.click("inv-email", cx);
+        w.input("hugo@example-studio.com", cx);
+        w.click("inv-name", cx);
+        w.input("Hugo Bernard", cx);
+        w.click(format!("inv-sp-{general}"), cx);
+        w.click("inv-send", cx);
+    });
+    let hugo_code = session(cx, &lea, |s| {
+        s.org.as_ref().unwrap().ui.invite_code.clone().unwrap()
+    });
+    act(cx, lh, |w, cx| w.click("invite-done", cx));
+    let (hh, hugo) = open(cx, &dir.path().join("hugo.cleis"));
+    cx.run_until_parked();
+    first_launch(cx, hh, &addr, &hugo_code, None);
+    sync(cx, &hugo);
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    let hugo_id = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.member);
+    lea.update(cx, |a, cx| {
+        a.org_member(
+            cleis_core::org::MemberChange {
+                member: hugo_id,
+                role: Some("read_only".into()),
+                spaces: None,
+                export: None,
+            },
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    sync(cx, &hugo);
+    // A change written behind the interface's back is refused, then put back.
+    hugo.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        let e = s.entries.iter_mut().find(|e| e.id == figma).unwrap();
+        e.password = "changed-by-hugo".into();
+        e.touch(None);
+        s.vault.put_entry(e).unwrap();
+    });
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let e = s.vault.entries().unwrap();
+        let f = e.iter().find(|e| e.id == figma).unwrap();
+        assert_eq!(f.password, "figma-pass-2026", "server's version put back");
+    });
+    // Through the interface, the role stops it before anything is written.
+    hugo.update(cx, |a, cx| a.trash_entry(figma, cx));
+    session(cx, &hugo, |s| {
+        assert!(s.entries.iter().any(|e| e.id == figma))
+    });
+
+    // Lea cannot move it to her personal vault.
+    let home = session(cx, &lea, |s| s.vault.home_space());
+    lea.update(cx, |a, cx| a.move_entry(figma, home, cx));
+    session(cx, &lea, |s| {
+        let f = s.vault.entries().unwrap();
+        assert_eq!(f.iter().find(|e| e.id == figma).unwrap().space, general);
+    });
+}

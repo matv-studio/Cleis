@@ -76,6 +76,15 @@ pub fn is_weak(pw: &str, policy: &Policy) -> bool {
 }
 
 pub fn scan(entries: &[Entry], policy: &Policy, now: Timestamp) -> (Vec<Finding>, Summary) {
+    scan_by(entries, |_| policy, now)
+}
+
+/// [`scan`] with a policy per item (an organization's rules for its items, audit L-3).
+pub fn scan_by<'a>(
+    entries: &[Entry],
+    policy_of: impl Fn(&Entry) -> &'a Policy,
+    now: Timestamp,
+) -> (Vec<Finding>, Summary) {
     // Group by a hash so passwords are compared without being copied around.
     let mut by_hash: HashMap<[u8; 32], usize> = HashMap::new();
     for e in entries.iter().filter(|e| !e.password.is_empty()) {
@@ -83,10 +92,11 @@ pub fn scan(entries: &[Entry], policy: &Policy, now: Timestamp) -> (Vec<Finding>
             .entry(cleis_crypto::sha256(e.password.as_bytes()))
             .or_default() += 1;
     }
-    let max_age = i64::from(policy.max_age_days) * 86_400;
     let mut findings = vec![];
     let mut s = Summary::default();
     for e in entries {
+        let policy = policy_of(e);
+        let max_age = i64::from(policy.max_age_days) * 86_400;
         let mut issues = vec![];
         if !e.password.is_empty() {
             if is_weak(&e.password, policy) {

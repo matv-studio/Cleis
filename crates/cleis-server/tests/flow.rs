@@ -1004,3 +1004,88 @@ domains = ["example-studio.com"]
     );
     srv.stop();
 }
+
+/// D-67 and audit S-1: what an Admin may do alone, what a Super Admin delegates.
+#[test]
+fn admin_delegations() {
+    let dir = tempdir();
+    let code = App::init(&dir, "Example Studio", &[]).unwrap();
+    let srv = Server::start(dir);
+    let mut lea = join(&srv.addr, &code, "Lea", "lea@example-studio.com").unwrap();
+    lea.sign_in(None).unwrap();
+    let inv = |p: &Person, email: &str, role: &str| -> Result<InviteReply, NetError> {
+        p.client.call(
+            "/v1/invites",
+            &NewInvite {
+                name: "X".into(),
+                email: email.into(),
+                role: role.into(),
+                spaces: vec![],
+            },
+        )
+    };
+    let tom_code = inv(&lea, "tom@example-studio.com", ADMIN).unwrap();
+    let mut tom = join(&srv.addr, &tom_code.code, "", "").unwrap();
+    tom.sign_in(None).unwrap();
+
+    // S-1: a Super Admin's invitation for an admin is neither seen, renewed nor revoked by an
+    // Admin.
+    let noa = inv(&lea, "noa@example-studio.com", SUPER_ADMIN).unwrap();
+    assert!(!tom.state().invites.iter().any(|i| i.id == noa.id));
+    let r: Result<InviteReply, NetError> =
+        tom.client.call("/v1/invites/renew", &IdOnly { id: noa.id });
+    assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    let r: Result<PushReply, NetError> = tom
+        .client
+        .call("/v1/invites/revoke", &IdOnly { id: noa.id });
+    assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    let plain = inv(&tom, "sam@example-studio.com", "member").unwrap();
+    let _: InviteReply = tom
+        .client
+        .call("/v1/invites/renew", &IdOnly { id: plain.id })
+        .unwrap();
+
+    // Not delegated: backups, keys, sign-in and log rules.
+    let b = tom.client.send("GET", "/v1/backup", None).unwrap();
+    assert_eq!(b.status, 403);
+    let r: Result<OrgInfo, NetError> = tom.client.call("/v1/rotate", &());
+    assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    let mut p = tom.state().policy;
+    p.record_activity = false;
+    let r: Result<Policy, NetError> = tom.client.call("/v1/policy", &p);
+    assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    // The rest of the policy stays his.
+    let mut p = tom.state().policy;
+    p.min_length = 16;
+    let _: Policy = tom.client.call("/v1/policy", &p).unwrap();
+    // The Admin cannot delegate to himself.
+    let mut roles = tom.state().roles;
+    roles[1].perms.insert(Perm::Backups);
+    let r: Result<Vec<Role>, NetError> = tom.client.call("/v1/roles", &roles);
+    assert!(r.is_err());
+
+    // Lea delegates backups and rules, takes the log back.
+    let mut roles = lea.state().roles;
+    roles[1].perms.insert(Perm::Backups);
+    roles[1].perms.insert(Perm::Rules);
+    roles[1].perms.remove(&Perm::Audit);
+    let _: Vec<Role> = lea.client.call("/v1/roles", &roles).unwrap();
+    let b = tom.client.send("GET", "/v1/backup", None).unwrap();
+    assert_eq!(b.status, 200);
+    let mut p = tom.state().policy;
+    p.record_activity = false;
+    let _: Policy = tom.client.call("/v1/policy", &p).unwrap();
+    let r: Result<LogPage, NetError> = tom.client.call(
+        "/v1/log/query",
+        &LogQuery {
+            member: None,
+            action: None,
+            space: None,
+            after: None,
+            before: None,
+            limit: 10,
+        },
+    );
+    assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    srv.stop();
+}

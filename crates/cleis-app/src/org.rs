@@ -63,6 +63,9 @@ pub struct Local {
     pub last_ok: Option<i64>,
     /// The organization's server runs on this computer, from this folder (D-63).
     pub host_dir: Option<PathBuf>,
+    /// The policy's offline access, as last received (audit L-3).
+    #[serde(default)]
+    pub offline_days: Option<u32>,
 }
 
 pub fn local_path(vault: &Path) -> PathBuf {
@@ -205,6 +208,8 @@ pub enum Outcome {
         conn: Box<Conn>,
         changes: Changes,
         state: Box<State>,
+        /// Changes the server refused (`(kind, id)`): the server's version comes back.
+        refused: Vec<(String, String)>,
     },
     /// The server wants a verification code (`wrong`: the one typed was refused; `message`:
     /// where a code was sent).
@@ -240,8 +245,10 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
                 hello: Box::new(hello),
             });
         }
+        let mut refused = vec![];
         if !push.rows.is_empty() || !push.purged.is_empty() {
-            let _: PushReply = conn.call("/v1/push", &push)?;
+            let r: PushReply = conn.call("/v1/push", &push)?;
+            refused = r.refused;
         }
         let mut changes = Changes {
             seq: since,
@@ -269,6 +276,7 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
             conn: Box::new(conn.clone()),
             changes,
             state: Box::new(state),
+            refused,
         })
     };
     match run(&mut conn) {
@@ -516,7 +524,7 @@ impl CleisApp {
         let m: Option<Membership> = s.vault.org_setting(SETTING).ok().flatten();
         s.org = m.map(|m| {
             let local = load_local(&path);
-            let offline_days = 14;
+            let offline_days = i64::from(local.offline_days.unwrap_or(14));
             let offline_locked = !demo
                 && local
                     .last_ok
@@ -749,6 +757,7 @@ impl CleisApp {
                 conn,
                 changes,
                 state,
+                refused,
             } => {
                 o.token = conn.client.token.clone();
                 if conn.new_remembered.is_some() {
@@ -757,8 +766,23 @@ impl CleisApp {
                 o.code = None;
                 o.error = None;
                 o.local.last_ok = Some(cleis_core::now());
+                o.local.offline_days = Some(state.policy.offline_days);
                 save_local(&path, &o.local);
                 let _ = s.vault.org_pushed(&sent.rows, &sent.purged);
+                // Audit L-1: what the server refused is put back as the server has it.
+                if !refused.is_empty() {
+                    let spaces = s.vault.org_refused(&refused).unwrap_or_default();
+                    o.full.extend(spaces);
+                    o.again = true;
+                    s.toast = Some(
+                        format!(
+                            "{} change{} refused by your role: put back",
+                            refused.len(),
+                            if refused.len() == 1 { "" } else { "s" }
+                        )
+                        .into(),
+                    );
+                }
                 apply_state(s, *state, &changes);
             }
             Outcome::NeedCode { wrong, message } => {
@@ -1812,6 +1836,40 @@ impl CleisApp {
     // ---------- Activity reported by the app ----------
 
     /// Views, copies, fills of an organization's item (written if the policy records them).
+    /// Writes an event without an item (an export of several contacts).
+    pub fn org_log(
+        &mut self,
+        action: Action,
+        space: Option<SpaceId>,
+        note: String,
+        cx: &mut Context<Self>,
+    ) {
+        let detail = self.session().and_then(|s| {
+            let o = s.org.as_ref()?;
+            let st = o.state.as_ref()?;
+            let p: [u8; 32] = st.org.org_public.clone()?.try_into().ok()?;
+            let d = serde_json::to_vec(&EventDetail {
+                item: note,
+                field: String::new(),
+            })
+            .ok()?;
+            cleis_crypto::seal_to(&PublicKey(p), DETAIL_CONTEXT, &d).ok()
+        });
+        let req = Report {
+            action,
+            space,
+            item: None,
+            detail,
+        };
+        let Some(mut conn) = self.org_conn() else {
+            return;
+        };
+        cx.background_spawn(async move {
+            let _: Result<PushReply, _> = conn.call("/v1/log", &req);
+        })
+        .detach();
+    }
+
     pub fn org_report(
         &mut self,
         action: Action,

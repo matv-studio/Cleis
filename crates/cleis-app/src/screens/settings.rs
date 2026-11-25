@@ -108,10 +108,11 @@ pub fn page(
             );
         }
     }
+    // D-67: the organization's backups need the Backups right.
     let manage = s
         .org
         .as_ref()
-        .is_some_and(|o| o.can(cleis_core::org::Perm::Manage));
+        .is_some_and(|o| o.can(cleis_core::org::Perm::Backups));
     let body = match s.settings_page {
         "Autofill" => autofill(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),

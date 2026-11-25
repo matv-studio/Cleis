@@ -2068,12 +2068,41 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         s.contacts_ui.menu = None;
         let list: Vec<&Contact> = s.contacts.iter().filter(|c| ids.contains(&c.id)).collect();
+        // Audit L-4 (D-19): an organization's contacts leave Cleis only with the Export right,
+        // and the export is written to its log.
+        let org_spaces: std::collections::BTreeSet<cleis_core::SpaceId> = list
+            .iter()
+            .map(|c| c.space)
+            .filter(|sp| s.is_org_space(*sp))
+            .collect();
+        if !org_spaces.is_empty() {
+            let allowed = s
+                .org
+                .as_ref()
+                .and_then(|o| o.me())
+                .is_some_and(|m| m.export || cleis_core::org::is_admin_role(&m.role));
+            if !allowed {
+                s.toast = Some("Your organization does not let you export its contacts".into());
+                cx.notify();
+                return;
+            }
+        }
         let Some(first) = list.first() else { return };
         let name = format!(
             "{}.vcf",
             first.display_name().replace(['/', '\\', ':'], "-")
         );
         let data = cleis_core::vcard::write(&list);
+        let count = list.len();
+        for sp in org_spaces {
+            self.org_log(
+                cleis_core::org::Action::Exported,
+                Some(sp),
+                format!("{count} contacts"),
+                cx,
+            );
+        }
+        let Some(_s) = self.session() else { return };
         let dir = directories::UserDirs::new()
             .and_then(|d| d.download_dir().map(|p| p.to_owned()))
             .unwrap_or_else(std::env::temp_dir);

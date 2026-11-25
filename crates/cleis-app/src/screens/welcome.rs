@@ -491,7 +491,7 @@ impl CleisApp {
                     if let Some((place, secret)) = remote {
                         let cache = crate::sync::remote_cache(&dest);
                         let _ = std::fs::rename(&src, &cache);
-                        let _ = v.set_org_setting(crate::remote::SECRET_SETTING, &Some(secret));
+                        let _ = v.set_org_setting(&cfg.secret_key(), &Some(secret));
                         cfg.place = Some(cache);
                         cfg.remote = Some(place);
                     }

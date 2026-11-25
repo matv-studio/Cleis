@@ -30,6 +30,9 @@ pub const DB_FILE: &str = "server.db";
 /// Invitations expire after a week.
 pub const INVITE_DAYS: i64 = 7;
 /// Sessions last a working day.
+/// Connections served at once (audit S-4).
+pub const MAX_CONNECTIONS: usize = 512;
+
 pub const SESSION_SECS: i64 = 12 * 3600;
 /// An announced certificate replaces the current one at the first restart after this delay.
 pub const ROTATION_DAYS: i64 = 7;
@@ -125,7 +128,7 @@ impl App {
         let tmp = dir.join(".backup.tmp");
         let _ = std::fs::remove_file(&tmp);
         {
-            let conn = self.db.lock().expect("database lock");
+            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
             conn.execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])?;
         }
         std::fs::rename(&tmp, &dest)?;
@@ -223,7 +226,7 @@ impl App {
     }
 
     pub fn identity(&self) -> Result<tls::Identity, ServerError> {
-        let conn = self.db.lock().expect("database lock");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(tls::Identity {
             cert: db::meta_get(&conn, "cert")?.unwrap_or_default(),
             key: db::meta_get(&conn, "cert_key")?.unwrap_or_default(),
@@ -233,7 +236,11 @@ impl App {
     /// Counts a failed sign-in or join from `ip`; true when it should be refused (more than 20
     /// failures in 10 minutes).
     pub fn too_many_failures(&self, ip: IpAddr, failed: bool) -> bool {
-        let mut f = self.failures.lock().expect("failures lock");
+        let mut f = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        // Addresses with no recent failure are forgotten (the table does not grow forever).
+        if f.len() > 1024 {
+            f.retain(|_, l| l.iter().any(|t| t.elapsed().as_secs() < 600));
+        }
         let list = f.entry(ip).or_default();
         list.retain(|t| t.elapsed().as_secs() < 600);
         if failed {
@@ -247,13 +254,16 @@ impl App {
         if !db::policy(conn).records(event.action) {
             return Ok(());
         }
-        self.log.lock().expect("log lock").append(conn, &event)?;
+        self.log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .append(conn, &event)?;
         Ok(())
     }
 
     /// A new invitation code for the server's current certificate (command line).
     pub fn invite(&self, name: &str, email: &str, role: &str) -> Result<String, ServerError> {
-        let conn = self.db.lock().expect("database lock");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(api::create_invite(
             &conn,
             &self.cert,
@@ -334,6 +344,7 @@ async fn accept_loop(
     acceptor: tokio_rustls::TlsAcceptor,
     router: axum::Router,
 ) {
+    let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     loop {
         let (tcp, peer) = match listener.accept().await {
             Ok(x) => x,
@@ -343,9 +354,14 @@ async fn accept_loop(
                 continue;
             }
         };
+        // At most MAX_CONNECTIONS at once (audit S-4); the next ones wait.
+        let Ok(permit) = slots.clone().acquire_owned().await else {
+            return;
+        };
         let acceptor = acceptor.clone();
         let router = router.clone();
         tokio::spawn(async move {
+            let _permit = permit;
             let Ok(Ok(tls)) =
                 tokio::time::timeout(std::time::Duration::from_secs(10), acceptor.accept(tcp))
                     .await
@@ -358,9 +374,12 @@ async fn accept_loop(
                     router.clone().oneshot(req)
                 },
             );
-            let _ = hyper::server::conn::http1::Builder::new()
-                .serve_connection(hyper_util::rt::TokioIo::new(tls), svc)
-                .await;
+            // A request's headers must arrive within 15 s; a connection lives 10 min at most.
+            let conn = hyper::server::conn::http1::Builder::new()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .header_read_timeout(std::time::Duration::from_secs(15))
+                .serve_connection(hyper_util::rt::TokioIo::new(tls), svc);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(600), conn).await;
         });
     }
 }
@@ -422,7 +441,7 @@ impl App {
             return Ok(());
         }
         let org = {
-            let conn = self.db.lock().expect("database lock");
+            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
             String::from_utf8(
                 db::meta_get(&conn, "org_name")
                     .ok()

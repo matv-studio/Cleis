@@ -16,14 +16,20 @@ use uuid::Uuid;
 
 type Res<T> = Result<Json<T>, ApiErr>;
 
+/// Requests sent before signing in stay small (audit S-4).
+const OPEN_LIMIT: usize = 64 * 1024;
+
 pub fn router(app: Arc<App>) -> Router {
+    let small = || DefaultBodyLimit::max(OPEN_LIMIT);
     Router::new()
         .route("/v1/hello", get(hello))
         .route("/v1/health", get(health))
-        .route("/v1/invite-info", post(invite_info))
-        .route("/v1/join", post(join))
-        .route("/v1/challenge", post(challenge))
-        .route("/v1/session", post(session))
+        .route("/v1/invite-info", post(invite_info).layer(small()))
+        .route("/v1/join", post(join).layer(small()))
+        .route("/v1/challenge", post(challenge).layer(small()))
+        .route("/v1/session", post(session).layer(small()))
+        .route("/v1/members/reset-step", post(reset_step))
+        .route("/v1/members/sign-out", post(sign_out_member))
         .route("/v1/state", get(state))
         .route("/v1/pull", post(pull))
         .route("/v1/push", post(push))
@@ -55,8 +61,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/recovery", post(recovery))
         .route("/v1/rotate", post(rotate))
         .route("/v1/backup", get(backup))
-        .route("/v1/restore", post(restore))
-        .layer(DefaultBodyLimit::max(256 * 1024 * 1024))
+        .route(
+            "/v1/restore",
+            post(restore).layer(DefaultBodyLimit::max(256 * 1024 * 1024)),
+        )
+        .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
         .with_state(app)
 }
 
@@ -235,7 +244,7 @@ impl FromRequestParts<Arc<App>> for Caller {
             .and_then(|v| v.strip_prefix("Bearer "))
             .ok_or_else(|| ApiErr::unauthorized("unauthorized", "Sign in again."))?;
         let hash = sha256(token.as_bytes());
-        let conn = app.db.lock().expect("database lock");
+        let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
         let found: Option<(String, String, i64)> = conn
             .query_row(
                 "SELECT s.member, s.device, s.setup_only FROM sessions s JOIN members m ON m.id = s.member
@@ -307,6 +316,37 @@ fn guard_reserved(conn: &Connection, caller: &Caller, s: SpaceId) -> Result<(), 
     }
 }
 
+/// An invitation for an admin role or a reserved space is renewed, revoked or seen by a Super
+/// Admin only, as it is made (audit S-1).
+fn sensitive_invite(conn: &Connection, id: &str) -> Result<Option<bool>, ApiErr> {
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT role, spaces FROM invites WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((role, spaces)) = row else {
+        return Ok(None);
+    };
+    let spaces: Vec<SpaceId> = serde_json::from_str(&spaces).unwrap_or_default();
+    let mut reserved = false;
+    for s in spaces {
+        reserved |= is_reserved(conn, s)?;
+    }
+    Ok(Some(is_admin_role(&role) || reserved))
+}
+
+fn guard_invite(conn: &Connection, caller: &Caller, id: &str) -> Result<(), ApiErr> {
+    match sensitive_invite(conn, id)? {
+        None => Err(ApiErr::not_found("No such invitation.")),
+        Some(true) if !caller.role.can(Perm::Admins) => Err(ApiErr::forbidden(
+            "Only a Super Admin changes this invitation.",
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
 fn mode_str(m: SpaceMode) -> &'static str {
     match m {
         SpaceMode::Standard => "standard",
@@ -335,7 +375,7 @@ fn org_info(conn: &Connection, cert: &[u8; 32]) -> rusqlite::Result<OrgInfo> {
 
 /// For monitoring: answers while the database answers.
 async fn health(State(app): State<Arc<App>>) -> Result<Json<serde_json::Value>, ApiErr> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let n: i64 = conn.query_row(
         "SELECT count(*) FROM members WHERE revoked IS NULL",
         [],
@@ -345,7 +385,7 @@ async fn health(State(app): State<Arc<App>>) -> Result<Json<serde_json::Value>, 
 }
 
 async fn hello(State(app): State<Arc<App>>) -> Json<Hello> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     Json(Hello {
         name: String::from_utf8(
             db::meta_get(&conn, "org_name")
@@ -432,7 +472,7 @@ async fn invite_info(
     Json(req): Json<InviteLookup>,
 ) -> Res<InviteInfo> {
     throttle(&app, &peer, false)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let found: Option<(String, String)> = conn
         .query_row(
             "SELECT name, email FROM invites WHERE token_hash = ?1 AND expires > ?2",
@@ -462,7 +502,7 @@ async fn join(
     Json(req): Json<JoinRequest>,
 ) -> Res<JoinReply> {
     throttle(&app, &peer, false)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let t = now();
     #[allow(clippy::type_complexity)]
     let invite: Option<(String, String, String, String, String, Option<String>)> = conn
@@ -550,7 +590,7 @@ async fn join(
 
 async fn challenge(State(app): State<Arc<App>>) -> Res<Challenge> {
     let nonce: [u8; 32] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     conn.execute("DELETE FROM challenges WHERE expires < ?1", [now()])?;
     conn.execute(
         "INSERT INTO challenges(nonce, expires) VALUES (?1, ?2)",
@@ -618,7 +658,7 @@ async fn session(
             (m, true)
         }
     };
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let policy = db::policy(&conn);
     let mut remembered = None;
     if checked && policy.remember_days > 0 {
@@ -669,7 +709,7 @@ async fn session(
 
 /// Challenge, member and signature, then the second step as far as it goes without the network.
 fn session_check(app: &App, peer: &Peer, req: &SessionRequest, t: i64) -> Result<Next, ApiErr> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if conn.execute(
         "DELETE FROM challenges WHERE nonce = ?1 AND expires >= ?2",
         params![&req.nonce[..], t],
@@ -851,7 +891,7 @@ async fn check_identity(
             .await
             .map_err(|_| ApiErr::bad("identity"))?
             .map_err(|e| ApiErr::unauthorized("wrong_code", &format!("Sign-in refused: {e}.")))?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     conn.execute("DELETE FROM used_tokens WHERE expires < ?1", [now()])?;
     if conn.execute(
         "INSERT OR IGNORE INTO used_tokens(hash, expires) VALUES (?1, ?2)",
@@ -893,11 +933,11 @@ async fn code_setup(
     });
     if req.method.is_identity() {
         {
-            let conn = app.db.lock().expect("database lock");
+            let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
             method_allowed(&app, &conn, req.method)?;
         }
         let claims = check_identity(&app, req.method, req.target).await?;
-        let conn = app.db.lock().expect("database lock");
+        let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
         set_factor(&app, &conn, &caller, req.method, Some(claims.account()))?;
         return Ok(Json(CodeSetup {
             secret: String::new(),
@@ -906,7 +946,7 @@ async fn code_setup(
         }));
     }
     let (to, fresh) = {
-        let conn = app.db.lock().expect("database lock");
+        let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
         method_allowed(&app, &conn, req.method)?;
         if req.method == Method::AuthenticatorApp {
             let key: [u8; 20] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
@@ -990,7 +1030,7 @@ async fn code_confirm(
     caller: Caller,
     Json(req): Json<CodeCheck>,
 ) -> Res<SessionReply> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let pending_code = conn
         .prepare("SELECT 1 FROM codes WHERE member = ?1 AND purpose = 'setup'")?
         .exists([caller.id.to_string()])?;
@@ -1019,10 +1059,65 @@ async fn code_confirm(
     }))
 }
 
+/// A member lost the phone or the account of their second step (audit S-10): it is removed
+/// with the devices remembered and the sessions; the next sign-in asks to set one up again
+/// when the policy requires it. Sign-in rules right; a Super Admin's only by a Super Admin.
+async fn reset_step(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<IdOnly>,
+) -> Res<PushReply> {
+    caller.can(Perm::Rules)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let id = MemberId(req.id);
+    let m = member(&conn, id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+    if is_admin_role(&m.role) && !caller.role.can(Perm::Admins) {
+        return Err(ApiErr::forbidden(
+            "Only a Super Admin resets an admin's verification.",
+        ));
+    }
+    conn.execute(
+        "UPDATE members SET factor = NULL, factor_target = NULL, totp = NULL, totp_pending = NULL WHERE id = ?1",
+        [id.to_string()],
+    )?;
+    end_sessions(&conn, id)?;
+    let mut e = caller.event(Action::MemberChanged);
+    e.note = format!("Two-step verification reset for {}", m.name);
+    app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+/// Signs a member out of every device (their remembered devices are forgotten too).
+async fn sign_out_member(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<IdOnly>,
+) -> Res<PushReply> {
+    caller.can(Perm::Manage)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let id = MemberId(req.id);
+    let m = member(&conn, id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+    if is_admin_role(&m.role) && !caller.role.can(Perm::Admins) {
+        return Err(ApiErr::forbidden("Only a Super Admin signs an admin out."));
+    }
+    end_sessions(&conn, id)?;
+    let mut e = caller.event(Action::SignedOut);
+    e.note = m.name.clone();
+    app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+fn end_sessions(conn: &Connection, id: MemberId) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM sessions WHERE member = ?1", [id.to_string()])?;
+    conn.execute("DELETE FROM remembered WHERE member = ?1", [id.to_string()])?;
+    conn.execute("DELETE FROM codes WHERE member = ?1", [id.to_string()])?;
+    Ok(())
+}
+
 // ---------- State ----------
 
 async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::org::State> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let me = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
     let manage = caller.role.can(Perm::Manage);
     let audit = caller.role.can(Perm::Audit);
@@ -1052,6 +1147,15 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
             .collect::<rusqlite::Result<_>>()?;
         // The first administrator's code has no e-mail: it stays out of the list.
         invites.retain(|i: &InviteView| !i.email.is_empty());
+        if !caller.role.can(Perm::Admins) {
+            let mut kept = vec![];
+            for i in invites {
+                if sensitive_invite(&conn, &i.id.to_string())? == Some(false) {
+                    kept.push(i);
+                }
+            }
+            invites = kept;
+        }
     }
 
     let sql = if manage {
@@ -1254,7 +1358,7 @@ const PAGE: usize = 1000;
 
 async fn pull(State(app): State<Arc<App>>, caller: Caller, Json(req): Json<Pull>) -> Res<Changes> {
     caller.full()?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let me = caller.id.to_string();
     let mut st = conn.prepare(&format!(
         "SELECT {ROW_COLS}, seq FROM records WHERE seq > ?1 AND space IN (SELECT space FROM access WHERE member = ?2) ORDER BY seq LIMIT {PAGE}"
@@ -1319,7 +1423,7 @@ async fn push(
     Json(req): Json<Changes>,
 ) -> Res<PushReply> {
     caller.full()?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let tx = conn.unchecked_transaction()?;
     let mut refused = vec![];
     let t = now();
@@ -1428,7 +1532,7 @@ async fn versions(
     Json(req): Json<Versions>,
 ) -> Res<VersionList> {
     caller.full()?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let Some(ex) = existing(&conn, &req.kind, &req.id)? else {
         return Err(ApiErr::not_found("No such item."));
     };
@@ -1452,7 +1556,7 @@ async fn create_space(
     Json(req): Json<NewSpace>,
 ) -> Res<PushReply> {
     caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if space_exists(&conn, req.id)? {
         return Err(ApiErr::bad("This space already exists."));
     }
@@ -1490,7 +1594,7 @@ async fn rekey(
     Json(req): Json<Rekey>,
 ) -> Res<PushReply> {
     caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let Some(cur) = key_gen(&conn, req.space)? else {
         return Err(ApiErr::not_found("No such space."));
     };
@@ -1569,7 +1673,7 @@ async fn grants(
     Json(req): Json<Grants>,
 ) -> Res<PushReply> {
     caller.full()?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let admin = caller.role.can(Perm::Manage);
     let mut refused = vec![];
     for w in req.wraps {
@@ -1604,7 +1708,7 @@ async fn admin_keys(
     if !caller.role.is_admin() {
         return Err(ApiErr::forbidden("Administrators only."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let tx = conn.unchecked_transaction()?;
     let holds = conn
         .prepare("SELECT 1 FROM admin_keys WHERE member = ?1")?
@@ -1642,8 +1746,8 @@ async fn recovery(
     caller: Caller,
     Json(req): Json<Recovery>,
 ) -> Res<OrgInfo> {
-    caller.can(Perm::Admins)?;
-    let conn = app.db.lock().expect("database lock");
+    caller.can(Perm::Keys)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let tx = conn.unchecked_transaction()?;
     if req.public.is_empty() {
         db::meta_del(&conn, "recovery_public")?;
@@ -1675,9 +1779,9 @@ async fn recovery(
 }
 
 async fn rotate(State(app): State<Arc<App>>, caller: Caller) -> Res<OrgInfo> {
-    caller.can(Perm::Admins)?;
+    caller.can(Perm::Keys)?;
     let id = crate::tls::Identity::generate(&[]).map_err(|e| ApiErr::bad(&e))?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     db::meta_set(&conn, "next_cert", &id.cert)?;
     db::meta_set(&conn, "next_cert_key", &id.key)?;
     db::meta_set_json(&conn, "next_cert_at", &now())?;
@@ -1713,7 +1817,7 @@ async fn update_member(
     Json(req): Json<MemberChange>,
 ) -> Res<MemberView> {
     caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let Some(m) = member(&conn, req.member)?.filter(|m| m.revoked.is_none()) else {
         return Err(ApiErr::not_found("No such member."));
     };
@@ -1809,7 +1913,7 @@ async fn revoke(
     if id == caller.id {
         return Err(ApiErr::bad("You cannot remove yourself."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let Some(m) = member(&conn, id)?.filter(|m| m.revoked.is_none()) else {
         return Err(ApiErr::not_found("No such member."));
     };
@@ -1856,7 +1960,7 @@ async fn transfer(
     if to == caller.id {
         return Err(ApiErr::bad("Choose another member."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let Some(m) = member(&conn, to)?.filter(|m| m.revoked.is_none()) else {
         return Err(ApiErr::not_found("No such member."));
     };
@@ -1894,7 +1998,7 @@ async fn invite(
     if !email.contains('@') {
         return Err(ApiErr::bad("Enter an e-mail address."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if !db::roles(&conn).iter().any(|r| r.id == req.role) {
         return Err(ApiErr::bad("No such role."));
     }
@@ -1929,7 +2033,8 @@ async fn revoke_invite(
     Json(req): Json<IdOnly>,
 ) -> Res<PushReply> {
     caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    guard_invite(&conn, &caller, &req.id.to_string())?;
     conn.execute("DELETE FROM invites WHERE id = ?1", [req.id.to_string()])?;
     Ok(Json(PushReply::default()))
 }
@@ -1941,7 +2046,8 @@ async fn renew_invite(
 ) -> Res<InviteReply> {
     caller.can(Perm::Manage)?;
     let token: [u8; 10] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    guard_invite(&conn, &caller, &req.id.to_string())?;
     let t = now();
     if conn.execute(
         "UPDATE invites SET token_hash = ?2, created = ?3, expires = ?4 WHERE id = ?1",
@@ -1972,7 +2078,7 @@ async fn set_roles(
             "Each role needs its own name; Admin cannot change.",
         ));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let ids: BTreeSet<&str> = req.iter().map(|r| r.id.as_str()).collect();
     let mut st = conn
         .prepare("SELECT role FROM members WHERE revoked IS NULL UNION SELECT role FROM invites")?;
@@ -1995,14 +2101,18 @@ async fn set_policy(
     Json(req): Json<Policy>,
 ) -> Res<Policy> {
     caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let before = db::policy(&conn);
+    // D-67: sign-in and log rules are the Super Admin's unless delegated.
+    if !before.same_rules(&req) {
+        caller.can(Perm::Rules)?;
+    }
     db::meta_set_json(&conn, "policy", &req)?;
     // Written even when the new policy records nothing, so turning the log off is visible.
     if before.record_activity {
         app.log
             .lock()
-            .expect("log lock")
+            .unwrap_or_else(|e| e.into_inner())
             .append(&conn, &caller.event(Action::PolicyChanged))?;
     } else {
         app.record(&conn, caller.event(Action::PolicyChanged))?;
@@ -2021,7 +2131,7 @@ async fn report(
     if !req.action.from_client() {
         return Err(ApiErr::bad("The server writes this event itself."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = req.space
         && !in_space(&conn, s, caller.id)?
     {
@@ -2064,7 +2174,7 @@ async fn query_log(
     Json(q): Json<LogQuery>,
 ) -> Res<LogPage> {
     caller.can(Perm::Audit)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let hidden: BTreeSet<SpaceId> = if caller.role.can(Perm::Admins) {
         BTreeSet::new()
     } else {
@@ -2096,8 +2206,12 @@ async fn query_log(
 
 async fn verify_log(State(app): State<Arc<App>>, caller: Caller) -> Res<Integrity> {
     caller.can(Perm::Audit)?;
-    let conn = app.db.lock().expect("database lock");
-    let rep = app.log.lock().expect("log lock").verify(&conn, now())?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let rep = app
+        .log
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .verify(&conn, now())?;
     db::meta_set_json(&conn, "integrity", &rep)?;
     Ok(Json(rep))
 }
@@ -2115,8 +2229,8 @@ fn snapshot(conn: &Connection, dir: &std::path::Path) -> Result<Vec<u8>, ApiErr>
 /// A copy of the whole server file (only sealed data, but also the server's certificate key and
 /// the members' authenticator keys: the app seals it with the backup key before keeping it).
 async fn backup(State(app): State<Arc<App>>, caller: Caller) -> Result<Vec<u8>, ApiErr> {
-    caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    caller.can(Perm::Backups)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     app.record(&conn, caller.event(Action::BackedUp))?;
     snapshot(&conn, &app.dir)
 }
@@ -2138,7 +2252,7 @@ async fn restore(
         let other = Connection::open(&tmp)?;
         let ok: String = other.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
         let same = db::meta_get(&other, "org_id")?;
-        let conn = app.db.lock().expect("database lock");
+        let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
         if ok != "ok" || same.is_none() || same != db::meta_get(&conn, "org_id")? {
             return Err(ApiErr::bad(
                 "This backup is not one of this organization's.",
@@ -2155,7 +2269,7 @@ async fn restore(
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
-    let mut conn = app.db.lock().expect("database lock");
+    let mut conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let path = app.dir.join(crate::DB_FILE);
     let keep = app.dir.join(format!("{}.before-restore", crate::DB_FILE));
     // Close the current connection before the files move.
@@ -2174,7 +2288,10 @@ async fn restore(
         return Err(ApiErr::bad(&e.to_string()));
     }
     *conn = db::open(&path)?;
-    app.log.lock().expect("log lock").reload(&conn)?;
+    app.log
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .reload(&conn)?;
     let mut e = caller.event(Action::BackedUp);
     e.note = "Restored".into();
     app.record(&conn, e)?;
@@ -2200,7 +2317,7 @@ async fn profile(
     if !email.contains('@') {
         return Err(ApiErr::bad("Enter an e-mail address."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if members(&conn)?
         .iter()
         .any(|m| m.id != caller.id && m.email.eq_ignore_ascii_case(email))
@@ -2216,7 +2333,7 @@ async fn profile(
 }
 
 async fn devices(State(app): State<Arc<App>>, caller: Caller) -> Res<Vec<DeviceView>> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let t = now();
     let me = caller.id.to_string();
     let mut out: Vec<DeviceView> = vec![];
@@ -2260,7 +2377,7 @@ async fn sign_out(
     caller: Caller,
     Json(req): Json<DeviceRef>,
 ) -> Res<PushReply> {
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let me = caller.id.to_string();
     conn.execute(
         "DELETE FROM sessions WHERE member = ?1 AND device = ?2",
@@ -2282,7 +2399,7 @@ async fn update_space(
     Json(req): Json<SpaceUpdate>,
 ) -> Res<PushReply> {
     caller.can(Perm::Manage)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if !has_key(&conn, req.id, caller.id)? {
         return Err(ApiErr::forbidden("You do not hold this space's key."));
     }
@@ -2308,7 +2425,7 @@ async fn delete_space(
 ) -> Res<PushReply> {
     caller.can(Perm::Manage)?;
     let id = SpaceId(req.id).to_string();
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     if !space_exists(&conn, SpaceId(req.id))? {
         return Err(ApiErr::not_found("No such space."));
     }
@@ -2336,7 +2453,7 @@ async fn reserve(
     Json(req): Json<Reserve>,
 ) -> Res<PushReply> {
     caller.can(Perm::Admins)?;
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let row: Option<(String, Option<Vec<u8>>)> = conn
         .query_row(
             "SELECT mode, org_wrapped FROM spaces WHERE id = ?1",
@@ -2378,7 +2495,7 @@ async fn super_keys(
     if !caller.role.is_super() {
         return Err(ApiErr::forbidden("Super Admins only."));
     }
-    let conn = app.db.lock().expect("database lock");
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let tx = conn.unchecked_transaction()?;
     let holds = conn
         .prepare("SELECT 1 FROM super_keys WHERE member = ?1")?

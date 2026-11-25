@@ -281,9 +281,8 @@ impl CleisApp {
                         }
                     }
                     Ok(None) => {
-                        let _ = s
-                            .vault
-                            .set_org_setting(crate::remote::SECRET_SETTING, &Some(secret));
+                        let key = s.sync.secret_key();
+                        let _ = s.vault.set_org_setting(&key, &Some(secret));
                         s.sync.remote = Some(place);
                         s.sync.provider = kind;
                         s.sync.place = Some(crate::sync::remote_cache(&path));

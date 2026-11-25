@@ -8,6 +8,7 @@ use cleis_core::SpaceId;
 use cleis_core::org::Row;
 use cleis_crypto::{KeyPair, PublicKey, SymmetricKey, open, seal, unwrap_key, wrap_key};
 use rusqlite::{OptionalExtension, params};
+use std::collections::BTreeSet;
 
 /// Seals a space's name and settings (the `sealed` field of a space, here and on the server).
 pub fn seal_space_info(key: &SymmetricKey, info: &SpaceInfo) -> Result<Vec<u8>> {
@@ -189,6 +190,31 @@ impl Vault {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Changes the server refused (the member's role, audit L-1): erasures made here are
+    /// forgotten so the server's rows come back; returns the spaces to pull whole again.
+    pub fn org_refused(&self, refused: &[(String, String)]) -> Result<Vec<SpaceId>> {
+        let mut spaces = BTreeSet::new();
+        for (k, i) in refused {
+            let space: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT space FROM records WHERE kind = ?1 AND id = ?2
+                     UNION SELECT space FROM purged WHERE kind = ?1 AND id = ?2 AND space IS NOT NULL",
+                    params![k, i],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            self.conn.execute(
+                "DELETE FROM purged WHERE kind = ?1 AND id = ?2",
+                params![k, i],
+            )?;
+            if let Some(s) = space.and_then(|s| s.parse().ok()) {
+                spaces.insert(SpaceId(s));
+            }
+        }
+        Ok(spaces.into_iter().collect())
     }
 
     /// Takes rows and erasures from the server. A row changed here after the server's copy, not

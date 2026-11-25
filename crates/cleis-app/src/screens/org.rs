@@ -713,9 +713,14 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(div().flex_1())
             .children(st.roles.iter().map(|r| {
                 div()
+                    .id(SharedString::from(format!("role-head-{}", r.id)))
                     .w(px(110.))
                     .flex()
                     .justify_center()
+                    .when(r.id == cleis_core::org::ADMIN, |d| {
+                        d.text_color(t.set_text)
+                            .tooltip(tip("Set by a Super Admin"))
+                    })
                     .child(r.name.clone())
             })),
     );
@@ -726,10 +731,25 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .items_center()
             .border_b_1()
             .border_color(t.line)
-            .child(div().flex_1().child(p.label()));
+            .child(
+                div()
+                    .id(SharedString::from(format!("perm-label-{p:?}")))
+                    .flex_1()
+                    .when_some(perm_tip(p), |d, tx| d.tooltip(tip(tx)))
+                    .child(p.label()),
+            );
         for (ri, r) in st.roles.iter().enumerate() {
             let on = r.can(p);
-            let fixed = r.is_admin() || p == Perm::Admins || !i_admins;
+            // D-67: the Admin column's delegable rights are set by a Super Admin.
+            let delegable = cleis_core::org::DELEGABLE.contains(&p);
+            let fixed = !i_admins
+                || r.is_super()
+                || p == Perm::Admins
+                || if r.id == cleis_core::org::ADMIN {
+                    !delegable
+                } else {
+                    delegable
+                };
             let roles = st.roles.clone();
             line = line.child(
                 div().w(px(110.)).flex().justify_center().child(
@@ -737,8 +757,12 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .id(SharedString::from(format!("perm-{}-{p:?}", r.id)))
                         .when(!fixed, |d| d.cursor_pointer())
                         .when(fixed, |d| {
-                            d.opacity(0.6).tooltip(tip(if r.is_admin() {
-                                "Fixed for Super Admin and Admin"
+                            d.opacity(0.6).tooltip(tip(if r.is_super() {
+                                "The Super Admin can do everything"
+                            } else if r.is_admin() {
+                                "Fixed for Admin"
+                            } else if delegable {
+                                "Super Admin and Admin only"
                             } else if p == Perm::Admins {
                                 "Super Admin only"
                             } else {
@@ -785,6 +809,18 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 )
             }),
     )
+}
+
+fn perm_tip(p: Perm) -> Option<&'static str> {
+    Some(match p {
+        Perm::Audit => "Read, verify and export the activity log",
+        Perm::Backups => {
+            "Download the server file: it also holds the server key and the members' authenticator keys"
+        }
+        Perm::Keys => "Recovery key, rotate the server key",
+        Perm::Rules => "Verification, methods, remembered devices, what the log records and keeps",
+        _ => return None,
+    })
 }
 
 /// Element ids must live long enough: the few dynamic ids of selects are kept for the session.
@@ -845,6 +881,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return head(t, "Security policy");
     };
     let p = &st.policy;
+    let rules = o.can(Perm::Rules);
     let menu = o.ui.menu;
     let sel = |id: &'static str,
                w: f32,
@@ -1178,12 +1215,32 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex_col()
         .gap(px(16.))
         .child(head(t, "Security policy"))
-        .child(signing)
-        .child(methods)
+        .child(rules_lock("pol-lock-signing", rules, signing))
+        .child(rules_lock("pol-lock-methods", rules, methods))
         .child(locking)
         .child(passwords)
-        .child(log)
+        .child(rules_lock("pol-lock-log", rules, log))
         .child(autofill)
+}
+
+/// D-67: sign-in and log rules seen by an Admin without the Rules right: shown, dimmed, not
+/// clickable.
+fn rules_lock(id: &'static str, rules: bool, d: Div) -> gpui_kit::AnyElement {
+    if rules {
+        return d.into_any_element();
+    }
+    div()
+        .relative()
+        .child(d.opacity(0.55))
+        .child(
+            div()
+                .id(id)
+                .absolute()
+                .inset_0()
+                .occlude()
+                .tooltip(tip("Set by a Super Admin")),
+        )
+        .into_any_element()
 }
 
 // ---------- Encryption (09, 10) ----------
@@ -1471,14 +1528,30 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .test_support(),
                 ),
         );
+    // D-67: recovery and server keys need the Keys right (Super Admin, or delegated).
+    let can_keys = o.can(Perm::Keys);
     div()
         .flex()
         .flex_col()
         .gap(px(16.))
         .child(head(t, "Encryption"))
         .child(modes)
-        .child(recovery)
-        .child(keys)
+        .when(can_keys, |d| d.child(recovery).child(keys))
+        .when(!can_keys, |d| {
+            d.child(
+                section(t)
+                    .id("keys-locked")
+                    .tooltip(tip(
+                        "A Super Admin keeps the recovery key and the server key",
+                    ))
+                    .child(titled(t, "Recovery and server keys", None))
+                    .child(
+                        row(t, true)
+                            .child(div().flex_1().text_color(t.text_muted).child("Super Admin"))
+                            .child(icon("lock", 14., t.text_muted)),
+                    ),
+            )
+        })
 }
 
 // ---------- Server / organization ----------

@@ -195,7 +195,7 @@ fn run(a: Args) -> Result<(), ServerError> {
         "status" => {
             let app = App::open(&a.data)?;
             let cfg = Config::load(&a.data).map_err(ServerError::Setup)?;
-            let conn = app.db.lock().expect("database lock");
+            let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
             let n: i64 = conn.query_row(
                 "SELECT count(*) FROM members WHERE revoked IS NULL",
                 [],

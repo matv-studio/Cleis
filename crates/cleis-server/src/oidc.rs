@@ -159,7 +159,11 @@ pub fn verify(provider: &Oidc, token: &str, now: i64, cache: &KeyCache) -> Resul
         return Err("token from another issuer".into());
     }
     let sig = B64.decode(s.as_bytes()).map_err(|e| e.to_string())?;
-    let keys = cache.keys(&provider.issuer, &header.kid)?;
+    // A multi-tenant Microsoft issuer ("{tenantid}") publishes its keys under "organizations".
+    let keys = cache.keys(
+        &provider.issuer.replace("{tenantid}", "organizations"),
+        &header.kid,
+    )?;
     let signed = keys
         .iter()
         .filter(|k| k.kty == "RSA" && (header.kid.is_empty() || k.kid == header.kid))

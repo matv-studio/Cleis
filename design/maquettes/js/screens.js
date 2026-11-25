@@ -25,14 +25,14 @@ const statusChip = (s) => {
 
 // ---------- App frame ----------
 const TABS = ['Vault', 'Contacts', 'Health', 'Activity', 'Settings'];
-function shell(active, inner, { primary = `${i('plus')}New item`, overlay = '' } = {}) {
+function shell(active, inner, { primary = `${i('plus')}New item`, overlay = '', tabs = TABS, doc = 'Example Studio' } = {}) {
   return `<div class="app">
     <header class="topbar">
       <div class="topbar-start">
         <span class="logo" aria-hidden="true">${i('key')}</span>
-        <span class="doc-switch" title="Switch vault">Example Studio ${i('chevron', 'chev')}</span>
+        <span class="doc-switch" title="Switch vault">${doc} ${i('chevron', 'chev')}</span>
       </div>
-      <nav class="tabs" role="tablist">${TABS.map((t) => `<span class="tab ${t === active ? 'is-active' : ''}" role="tab">${t}</span>`).join('')}</nav>
+      <nav class="tabs" role="tablist">${tabs.map((t) => `<span class="tab ${t === active ? 'is-active' : ''}" role="tab">${t}</span>`).join('')}</nav>
       <div class="topbar-end">
         <span class="sync" title="Synced with vault.example-studio.com at 11:34"><span class="dot"></span>Synced</span>
         <button class="icon-btn" aria-label="Lock" title="Lock (Ctrl+L)">${i('lock')}</button>
@@ -1014,6 +1014,141 @@ function placeSftp() {
     <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Connect</button></div>`));
 }
 
+// ---------- Added 25/11/2026 (after the full audit) ----------
+// Vault tabs (32): the personal vault in its own tab, one tab per organization.
+const VTABS = ['My vault', 'Example Studio', 'Acme Partners', 'Contacts', 'Health', 'Activity', 'Settings'];
+function orgSidebar() {
+  const it = (ico, label, count, tip = '', active = false) =>
+    `<div class="side-item ${active ? 'is-active' : ''}" ${tip ? `title="${tip}"` : ''}>${i(ico)}<span>${label}</span>${count !== undefined ? `<span class="count">${count}</span>` : ''}</div>`;
+  return `<aside class="sidebar pane">
+    ${it('list', 'All items', 72, '', true)}${it('star', 'Favorites', 6)}${it('clock', 'Renew soon', 2)}
+    <div class="side-group"><span>Spaces</span><button class="icon-btn icon-btn--sm" aria-label="New space" title="New space">${i('plus')}</button></div>
+    ${it('folder', 'General', 41)}${it('folder', 'Design', 18)}
+    <div class="side-item" title="Reserved · end-to-end encrypted">${i('lock')}<span>Accounting</span><span class="count">12</span></div>
+    ${it('folder', 'Dev', 9)}${it('folder', 'Interns', 6)}
+    <div style="flex:1"></div>
+    ${it('upload', 'Import')}${it('trash', 'Trash')}
+  </aside>`;
+}
+function personalSidebar() {
+  const it = (ico, label, count, active = false) =>
+    `<div class="side-item ${active ? 'is-active' : ''}">${i(ico)}<span>${label}</span>${count !== undefined ? `<span class="count">${count}</span>` : ''}</div>`;
+  return `<aside class="sidebar pane">
+    ${it('list', 'All items', 14, true)}${it('star', 'Favorites', 3)}${it('clock', 'Renew soon', 1)}
+    <div class="side-group"><span>Folders</span><button class="icon-btn icon-btn--sm" aria-label="New folder" title="New folder">${i('plus')}</button></div>
+    ${it('folder', 'Banking', 4)}${it('folder', 'Home', 6)}${it('folder', 'Shopping', 4)}
+    <div style="flex:1"></div>
+    ${it('upload', 'Import')}${it('trash', 'Trash')}
+  </aside>`;
+}
+const vaultTabsShell = (active, side, overlay = '') => shell(active, `
+    <div class="work">${side}
+      <section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable({ hover: 'Notion' })}</div></section>
+      ${inspector()}
+    </div>${statusbar()}`, { tabs: VTABS, doc: 'Lea Martin', overlay });
+function ongletsOrg() { return vaultTabsShell('Example Studio', orgSidebar()); }
+function ongletsPerso() {
+  return vaultTabsShell('My vault', personalSidebar()).replace('General › Figma', 'Banking › Bank — business portal').replace(/Standard encryption/, 'End-to-end encryption');
+}
+// Settings with two organizations (32c): one group each, "Add an organization" at the end.
+function reglagesDeuxOrgs() {
+  const it = (ico, n, active = false) => `<div class="side-item ${active ? 'is-active' : ''}">${i(ico)}<span>${n}</span></div>`;
+  const nav = `<nav class="settings-nav">
+    <div class="side-group" style="padding-top:var(--s-1)">My account</div>
+    ${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences', true)}${it('fill', 'Autofill')}${it('sync', 'Sync & backups')}
+    <div class="side-group">Example Studio</div>
+    ${it('users', 'Members')}${it('folder', 'Spaces')}${it('shield', 'Security policy')}${it('key', 'Encryption')}${it('server', 'Server')}${it('upload', 'Import & export')}
+    <div class="side-group">Acme Partners</div>
+    ${it('folder', 'Spaces')}${it('server', 'Server')}
+    <div style="height:var(--s-2)"></div>
+    <div class="side-item" title="Join or create another organization" style="color:var(--text-muted)">${i('plus')}<span>Add an organization</span></div>
+  </nav>`;
+  const body = preferences().match(/<div class="settings-body">([\s\S]*)<\/div><\/div><\/main>/)?.[1] ?? '';
+  const vaults = `<div class="section">${sectionTitle('Vaults', 'How your vaults appear at the top of the window')}
+      <div class="row"><span class="row-label" title="Off: one Vault tab, every vault in its sidebar">Personal vault in its own tab</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label">Personal vault name</span><div class="input is-focus" style="width:200px"><span class="grow">My vault</span></div></div>
+    </div>`;
+  const page = body.replace('<div class="section">', vaults + '<div class="section">');
+  return shell('Settings', `<div class="settings">${nav}<div class="settings-body">${page}</div></div>`, { primary: null, tabs: VTABS, doc: 'Lea Martin' });
+}
+// Activity with two organizations (32d): the organization is the first filter.
+function journalDeuxOrgs() {
+  return journal().replace('<div class="input select" style="width:150px"><span class="grow">All members</span></div>',
+    '<div class="input select" style="width:170px" title="Organization"><span class="grow">Example Studio</span></div><div class="input select" style="width:150px"><span class="grow">All members</span></div>')
+    .replace(/<nav class="tabs" role="tablist">[\s\S]*?<\/nav>/, `<nav class="tabs" role="tablist">${VTABS.map((t) => `<span class="tab ${t === 'Activity' ? 'is-active' : ''}" role="tab">${t}</span>`).join('')}</nav>`);
+}
+
+// Context menus (33): right-click on any object of a list.
+const ctx = (x, y, items, w = 240) => `<div class="menu" style="left:${x}px;top:${y}px;width:${w}px">${items}</div>`;
+const mi = (ico, label, kbd = '', { danger = false, sub = false, hover = false } = {}) =>
+  `<div class="menu-item ${hover ? 'is-hover' : ''}" ${danger ? 'style="color:var(--danger-text)"' : ''}>${ico ? i(ico) : '<span style="width:16px"></span>'}<span>${label}</span>${kbd ? `<span class="kbd">${kbd}</span>` : ''}${sub ? `<span class="kbd" style="display:inline-grid;transform:rotate(-90deg)">${i('chevron')}</span>` : ''}</div>`;
+const sep = '<div class="menu-sep"></div>';
+function menuElement() {
+  const m = ctx(520, 236, `${mi('copy', 'Copy username', 'Ctrl+C')}${mi('key', 'Copy password', 'Ctrl+Shift+C')}${mi('totp', 'Copy 2FA code', 'Ctrl+Alt+C')}${mi('external', 'Open website')}${sep}${mi('star', 'Add to favorites')}${mi('copy', 'Duplicate', 'Ctrl+D')}${mi('folder', 'Move to', '', { sub: true, hover: true })}${sep}${mi('trash', 'Move to trash', 'Del', { danger: true })}`)
+    + ctx(764, 418, `<div class="menu-head">Example Studio</div>${mi('folder', 'General')}${mi('folder', 'Dev')}${mi('folder', 'Interns')}${sep}<div class="menu-item" style="color:var(--text-faint)" title="An organization's items stay in the organization">${i('user')}<span>My vault</span></div>`, 200);
+  return shell('Vault', `
+    <div class="work">${sidebar()}
+      <section class="center" style="position:relative">${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: 'Figma', hover: 'Google Workspace' })}</div>${m}</section>
+      ${inspector()}
+    </div>${statusbar()}`);
+}
+function menuEspace() {
+  const m = ctx(150, 360, `${mi('plus', 'New item here')}${mi('text', 'Rename')}${mi('users', 'Members…')}${mi('shield', 'Encryption…')}${sep}${mi('trash', 'Delete space', '', { danger: true })}`, 220);
+  return shell('Vault', `
+    <div class="work">${sidebar('Design')}
+      <section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable()}</div></section>
+      ${inspector()}
+    </div>${statusbar()}${m}`);
+}
+function menuContact() {
+  const m = ctx(470, 196, `${mi('mail', 'Send e-mail')}${mi('phone', 'Call')}${mi('copy', 'Copy', '', { sub: true })}${sep}${mi('star', 'Add to favorites')}${mi('download', 'Export vCard')}${mi('folder', 'Move to', '', { sub: true })}${sep}${mi('trash', 'Delete', 'Del', { danger: true })}`, 230);
+  return contacts().replace('</main>', `${m}</main>`);
+}
+function menuMembre() {
+  const m = ctx(720, 250, `${mi('users', 'Role', '', { sub: true })}${mi('folder', 'Spaces', '', { sub: true })}${mi('refresh', 'Reset two-step verification')}${mi('logout', 'Sign out everywhere')}${sep}${mi('shield', 'Make Super Admin')}${mi('refresh', 'Transfer Super Admin…')}${sep}${mi('trash', 'Remove…', '', { danger: true })}`, 250);
+  return membres().replace('</main>', `${m}</main>`).replace('>2FA<', '>2-step<');
+}
+
+// Admin delegations (07f): the Admin column, set by a Super Admin.
+function rolesDelegation() {
+  const c = (on, fixed, tip = '') => `<td style="text-align:center" ${tip ? `title="${tip}"` : ''}>${on ? `<span class="check on" style="display:inline-grid;${fixed ? 'opacity:.45' : ''}">${i('check')}</span>` : `<span class="check" style="display:inline-grid;${fixed ? 'opacity:.45' : ''}"></span>`}</td>`;
+  const row = (n, tip, cells) => `<tr><td ${tip ? `title="${tip}"` : ''}>${n}${tip ? ' <i class="info" style="display:inline-grid">i</i>' : ''}</td>${cells.join('')}</tr>`;
+  const F = (v) => c(v, true), E = (v, tip) => c(v, false, tip);
+  const body = membres().match(/<div class="settings-body"><div class="page"[^>]*>([\s\S]*)<\/div><\/div><\/div>/)?.[1] ?? '';
+  const roles = `<div class="section">${sectionTitle('Roles', 'What each role can do. Only a Super Admin changes the Admin column.')}
+      <table class="table" style="margin-top:-4px"><thead><tr><th></th><th style="text-align:center">Super Admin</th><th style="text-align:center;color:var(--set-text)" title="Set by a Super Admin">Admin</th><th style="text-align:center">Member</th><th style="text-align:center">Read only</th><th style="text-align:center">Intern</th></tr></thead><tbody>
+        ${row('See passwords', '', [F(1), F(1), E(1), E(1), E(0)])}
+        ${row('Copy, fill', '', [F(1), F(1), E(1), E(1), E(1)])}
+        ${row('Add, edit', '', [F(1), F(1), E(1), E(0), E(0)])}
+        ${row('Delete', '', [F(1), F(1), E(1), E(0), E(0)])}
+        ${row('Manage members and spaces', '', [F(1), F(1), F(0), F(0), F(0)])}
+        ${row('Activity log, health report', 'Read, verify and export the activity log', [F(1), E(1, 'Admins read the activity log'), F(0), F(0), F(0)])}
+        ${row('Server backups', 'Download the server file: it also holds the server key and the members’ authenticator keys', [F(1), E(0, 'Admins download server backups'), F(0), F(0), F(0)])}
+        ${row('Recovery and server keys', 'Recovery key, rotate the server key', [F(1), E(0), F(0), F(0), F(0)])}
+        ${row('Sign-in and log rules', 'Verification code, methods, remembered devices, what the log records and keeps', [F(1), E(0), F(0), F(0), F(0)])}
+        ${row('Admins, roles', '', [F(1), F(0), F(0), F(0), F(0)])}
+      </tbody></table>
+      <div><button class="btn btn--ghost btn--sm">${i('plus')}New role</button></div>
+    </div>`;
+  const page = body.replace(/<div class="section">\$\{sectionTitle\('Roles'[\s\S]*$/, '').replace(/<div class="section"><div class="section-title"><h2>Roles<\/h2>[\s\S]*$/, '') + roles;
+  return settings('Members', page.replace('>2FA<', '>2-step<'));
+}
+// Security policy seen by an Admin without "Sign-in and log rules" (08b).
+function politiqueAdmin() {
+  return politique().replace(/<div class="section"><div class="section-title"><h2>Signing in to the server<\/h2>/, '<div class="section" title="Set by a Super Admin"><div class="section-title"><h2>Signing in to the server</h2><span class="chip chip--warn" style="margin-left:var(--s-2)">' + i('lock') + 'Super Admin</span>')
+    .replace('<div class="section"><div class="section-title"><h2>Allowed methods</h2>', '<div class="section" style="opacity:.55" title="Set by a Super Admin"><div class="section-title"><h2>Allowed methods</h2>');
+}
+// Confirmations (34): actions that cannot be undone.
+const membersBody = () => membres().match(/<div class="settings-body"><div class="page"[^>]*>([\s\S]*)<\/div><\/div><\/div>/)?.[1] ?? '';
+function confirmTransfert() {
+  return settings('Members', membersBody(), dlg('Transfer Super Admin to Hugo Bernard?', `<span style="color:var(--text-muted)">You become Admin.</span>
+    <div class="dialog-actions"><button class="btn" style="outline:2px solid var(--focus);outline-offset:1px">Cancel</button><button class="btn btn--danger">Transfer</button></div>`));
+}
+function confirmRetrait() {
+  return settings('Members', membersBody(), dlg('Remove Sarah Roux?', `<span style="color:var(--text-muted)" title="Her devices lose the organization's spaces at their next sync">Her access ends now. Re-encrypt her end-to-end spaces after.</span>
+    <div class="dialog-actions"><button class="btn" style="outline:2px solid var(--focus);outline-offset:1px">Cancel</button><button class="btn btn--danger">Remove</button></div>`));
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -1049,6 +1184,18 @@ export const SCREENS = {
   '21-fusion': ['Contacts — merge & fix', fusion],
   '22-restaurer': ['Restore my vault', restaurer],
   '23-synchro': ['Sync & backups', synchro],
+  '32-onglets-organisation': ['Vault tabs — organization', ongletsOrg],
+  '32b-onglets-personnel': ['Vault tabs — My vault', ongletsPerso],
+  '32c-reglages-coffres': ['Preferences — vaults, two organizations', reglagesDeuxOrgs],
+  '32d-journal-deux-orgs': ['Activity — two organizations', journalDeuxOrgs],
+  '33-menu-element': ['Right-click — item', menuElement],
+  '33b-menu-espace': ['Right-click — space', menuEspace],
+  '33c-menu-contact': ['Right-click — contact', menuContact],
+  '33d-menu-membre': ['Right-click — member', menuMembre],
+  '07f-roles-delegation': ['Roles — Admin delegations', rolesDelegation],
+  '08b-politique-admin': ['Security policy seen by an Admin', politiqueAdmin],
+  '34-confirmer-transfert': ['Confirm — transfer Super Admin', confirmTransfert],
+  '34b-confirmer-retrait': ['Confirm — remove a member', confirmRetrait],
   '23b-place-github': ['Place: GitHub', placeGithub],
   '23c-place-sftp': ['Place: SFTP', placeSftp],
   '24-serveur': ['Server', serveur],

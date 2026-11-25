@@ -110,6 +110,8 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
             s.spaces
                 .iter()
                 .filter(|sp| sp.id != e.space && !sp.for_contacts)
+                // Audit L-2: an organization's item does not leave the organization.
+                .filter(|sp| !s.is_org_space(e.space) || s.is_org_space(sp.id))
                 .map(|sp| {
                     let to = sp.id;
                     menu_item(
