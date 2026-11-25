@@ -30,8 +30,11 @@
 
 - D-66 : déverrouillage par Windows Hello / Touch ID.
 
+- Audit complet fait : `docs/AUDIT-2026-11-25-complet.md` (1 critique, 8 élevés, 28 moyens,
+  31 faibles ; rien de corrigé).
+
 ## Prochaines étapes
-1. Audit complet demandé par l'utilisateur.
+1. Corrections de l'audit, dans l'ordre de sa section 8 (S-1 d'abord), après accord.
 2. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients
    OAuth Google / Microsoft, serveur hébergé et service installé.
 
