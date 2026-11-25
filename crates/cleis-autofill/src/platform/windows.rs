@@ -19,7 +19,8 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_F22, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F22, VK_LWIN, VK_MENU, VK_RWIN,
+    VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SW_RESTORE,
@@ -179,6 +180,34 @@ pub fn accessibility_allowed() -> bool {
 
 pub fn request_accessibility() -> bool {
     true
+}
+
+/// Sends an unassigned key (0xE8) while Alt or Windows is still held after a shortcut, so their
+/// release is not taken as a lone press (menu keys of the app in front, Start menu). Same idea
+/// as AutoHotkey's `A_MenuMaskKey`.
+pub fn mask_menu_key() {
+    let down = |vk: VIRTUAL_KEY| {
+        // SAFETY: reads the asynchronous key state; no pointers involved.
+        (unsafe { GetAsyncKeyState(i32::from(vk.0)) }) as u16 & 0x8000 != 0
+    };
+    if ![VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(down) {
+        return;
+    }
+    let key = |flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(0xE8),
+                dwFlags: flags,
+                ..Default::default()
+            },
+        },
+    };
+    let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
+    // SAFETY: `inputs` is a valid array of INPUT structures for the duration of the call.
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
 }
 
 /// Waits until Ctrl, Shift, Alt and Windows are up: typing while the shortcut's keys are

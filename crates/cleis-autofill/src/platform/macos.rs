@@ -125,3 +125,6 @@ impl Driver for SystemDriver {
         std::thread::sleep(d);
     }
 }
+
+/// Nothing to mask: releasing a modifier opens no menu here.
+pub fn mask_menu_key() {}

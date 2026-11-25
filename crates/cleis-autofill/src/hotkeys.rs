@@ -96,6 +96,9 @@ impl Hotkeys {
                 return;
             }
             if let Some((_, s)) = map.iter().find(|(id, _)| *id == e.id()) {
+                // The shortcut's key never reaches the app in front; without a mask, releasing
+                // its Alt looks like a lone Alt press there and opens the app's menu keys.
+                crate::platform::mask_menu_key();
                 f(*s);
             }
         }));

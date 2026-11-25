@@ -36,6 +36,8 @@ pub enum FillError {
     Clipboard(String),
     #[error("Cleis is not allowed to control the computer (Accessibility permission)")]
     NotAllowed,
+    #[error("the focus is not in a text field")]
+    NotAField,
 }
 
 /// A window, as the system names it: `HWND` on Windows, process id on macOS.
@@ -155,6 +157,13 @@ pub fn run<D: Driver>(
                 let v = values.get(*f);
                 if v.is_empty() {
                     continue;
+                }
+                // Never type a secret into a button, a menu or a list: its letters would act as
+                // shortcuts there (seen on Windows with Notepad's settings, 25/11/2026).
+                let focus = driver.focus();
+                if focus == Focus::Other {
+                    log(&format!("run: {f:?} refused, focus {focus:?}"));
+                    return Err(FillError::NotAField);
                 }
                 match method {
                     FillMethod::Paste => driver.paste(v)?,
@@ -381,6 +390,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(f.log, ["BackTab", "Tab", "type:Bk-2026!", "Enter"]);
+    }
+
+    /// The rest of a two-step sign-in while the focus is on a button: nothing is typed.
+    #[test]
+    fn secret_never_typed_into_a_button() {
+        let mut f = Form {
+            log: vec![],
+            fields: vec![Focus::Other],
+            at: 0,
+            front: true,
+            accept_set: false,
+        };
+        let r = run(
+            &mut f,
+            &[Action::Fill(Field::Password), Action::Press(Key::Enter)],
+            &values(),
+            FillMethod::Automatic,
+            TypingSpeed::Fast,
+        );
+        assert!(matches!(r, Err(FillError::NotAField)));
+        assert!(f.log.is_empty());
     }
 
     /// Two-step sign-in (email page, then password page): the password is not typed into
