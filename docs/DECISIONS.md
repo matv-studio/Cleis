@@ -431,6 +431,8 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     pas d'une organisation à une autre.
   - Réglages : un groupe par organisation ; « Add an organization » ouvre la page de jonction.
     Activity : l'organisation est le premier filtre quand plusieurs donnent le droit au journal.
+  - Health : filtre de coffre en premier (tous, personnel, chaque organisation), puis les espaces
+    de ce coffre (maquette 32e, demande du 25/11/2026 à 16 h).
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
@@ -443,5 +445,4 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 8. Essai de Windows Hello et Touch ID sur de vraies machines (D-66).
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).
-9. ~~Onglets de coffre~~ (D-69). Reste : filtre d'organisation de Health (les espaces de toutes
-   les organisations sont déjà dans sa liste), essai à deux serveurs réels.
+9. ~~Onglets de coffre~~ (D-69). L'essai à deux serveurs réels n'est pas demandé pour l'instant.

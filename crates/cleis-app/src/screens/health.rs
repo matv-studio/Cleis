@@ -22,6 +22,9 @@ pub enum IssueKind {
 
 #[derive(Default)]
 pub struct HealthUi {
+    /// Vault shown: the personal vault or one organization (mockup 32e); `None`: all.
+    pub vault: Option<crate::app::Scope>,
+    pub vault_menu: bool,
     pub space: Option<SpaceId>,
     pub only: IssueKind,
     pub space_menu: bool,
@@ -49,6 +52,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
     let entries: Vec<_> = s
         .entries
         .iter()
+        .filter(|e| ui.vault.as_ref().is_none_or(|v| s.scope_has(v, e.space)))
         .filter(|e| ui.space.is_none_or(|sp| e.space == sp))
         .cloned()
         .collect();
@@ -246,7 +250,11 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
             .on_click(cx.listener(|this, _, _, cx| this.health_space(None, cx)))
             .test_support(),
     );
-    for sp in s.spaces.iter().filter(|sp| !sp.for_contacts) {
+    for sp in s
+        .spaces
+        .iter()
+        .filter(|sp| !sp.for_contacts && ui.vault.as_ref().is_none_or(|v| s.scope_has(v, sp.id)))
+    {
         let id = sp.id;
         menu = menu.child(
             menu_item(format!("hs-{id}"), t, None, sp.name.clone(), false)
@@ -254,6 +262,71 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                 .test_support(),
         );
     }
+    // Mockup 32e: with an organization, the vault comes first (personal, then each one).
+    use crate::app::Scope;
+    let mut vaults: Vec<(Option<Scope>, String, Option<&str>, String)> =
+        vec![(None, "All vaults".into(), None, "hv-all".into())];
+    vaults.push((
+        Some(Scope::Personal),
+        s.personal_name(),
+        Some("user"),
+        "hv-personal".into(),
+    ));
+    for (key, name) in s.org_tabs() {
+        vaults.push((
+            Some(Scope::Org(key.clone())),
+            name,
+            Some("folder"),
+            format!("hv-{key}"),
+        ));
+    }
+    let vault_label = vaults
+        .iter()
+        .find(|v| v.0 == ui.vault)
+        .map(|v| v.1.clone())
+        .unwrap_or_default();
+    let mut vmenu = menu_box(t).top(px(32.)).left_0().w(px(200.));
+    for (scope, name, ico, id) in vaults {
+        let on = scope == ui.vault;
+        vmenu = vmenu.child(
+            menu_item(id, t, ico, name, false)
+                .child(div().flex_1())
+                .when(on, |d| d.child(icon("check", 14., t.text)))
+                .on_click(cx.listener(move |this, _, _, cx| this.health_vault(scope.clone(), cx)))
+                .test_support(),
+        );
+    }
+    let vault_select = (s.org.is_some()).then(|| {
+        div()
+            .relative()
+            .child(
+                div()
+                    .id("health-vault")
+                    .tooltip(tip("Vault"))
+                    .child(
+                        value_box(t)
+                            .w(px(170.))
+                            .cursor_pointer()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(vault_label),
+                            )
+                            .child(icon("chevron", 14., t.text_muted)),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.health.vault_menu = !s.health.vault_menu;
+                            s.health.space_menu = false;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .when(ui.vault_menu, |d| d.child(deferred(vmenu)))
+    });
     div()
         .id("health")
         .flex_1()
@@ -273,6 +346,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                         .items_center()
                         .gap(px(12.))
                         .child(div().flex_1().text_size(TEXT_XL).font_weight(W_STRONG).child("Health report"))
+                        .children(vault_select)
                         .child(
                             div()
                                 .relative()
@@ -289,6 +363,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if let Some(s) = this.session() {
                                                 s.health.space_menu = !s.health.space_menu;
+                                                s.health.vault_menu = false;
                                             }
                                             cx.notify();
                                         }))
@@ -339,6 +414,20 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
 }
 
 impl CleisApp {
+    fn health_vault(&mut self, v: Option<crate::app::Scope>, cx: &mut Context<Self>) {
+        if let Some(s) = self.session() {
+            // A space of another vault is no longer shown.
+            if let (Some(sp), Some(scope)) = (s.health.space, v.as_ref())
+                && !s.scope_has(scope, sp)
+            {
+                s.health.space = None;
+            }
+            s.health.vault = v;
+            s.health.vault_menu = false;
+        }
+        cx.notify();
+    }
+
     fn health_space(&mut self, sp: Option<SpaceId>, cx: &mut Context<Self>) {
         if let Some(s) = self.session() {
             s.health.space = sp;

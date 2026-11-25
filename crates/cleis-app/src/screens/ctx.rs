@@ -880,6 +880,10 @@ impl CleisApp {
             s.pref_menu = None;
             s.columns_menu = None;
             true
+        } else if s.health.vault_menu || s.health.space_menu {
+            s.health.vault_menu = false;
+            s.health.space_menu = false;
+            true
         } else if s.contacts_ui.menu.is_some() {
             s.contacts_ui.menu = None;
             true

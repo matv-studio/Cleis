@@ -37,10 +37,11 @@
   L-8, L-12 ; menus contextuels (clic droit), raccourcis de l'élément, confirmations, Échap (U-1,
   U-2), nom « Two-step verification » (U-4). Maquettes 07f, 08b, 32–34b validées.
 
-- D-69 : onglets de coffre (Preferences › Vaults), plusieurs organisations par coffre.
+- D-69 : onglets de coffre (Preferences › Vaults), plusieurs organisations par coffre, filtre de
+  coffre dans Health (maquette 32e). Build Windows : branche `build/full-app`.
 
 ## Prochaines étapes
-1. Essai de D-69 avec deux serveurs réels (rejoindre une deuxième organisation).
+1. Retour de l'utilisateur sur le build.
 2. Reste de l'audit : U-6, U-10 à U-12, S-6, S-7, S-12, L-6, L-10, L-13 à L-19, U-8, X-1 à X-9,
    D-3 à D-5.
 3. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients

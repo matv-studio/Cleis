@@ -1557,3 +1557,57 @@ fn read_keys(cx: &mut TestAppContext, app: &Entity<CleisApp>) -> (String, String
         (key("Example Studio"), key("Acme Partners"))
     })
 }
+
+/// Scenario (mockup 32e): Health filtered by vault — the personal vault, then one organization;
+/// a space of another vault is dropped from the filter.
+#[gpui_kit::test]
+fn health_by_vault(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+        cleis_app::demo::second_org(s);
+    });
+    let (_, acme) = read_keys(cx, &app);
+    act(cx, h, |w, cx| w.click("tab-Health", cx));
+    let banking = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.spaces.iter().find(|x| x.name == "Banking").unwrap().id
+    });
+    act(cx, h, |w, cx| w.click("health-space", cx));
+    act(cx, h, |w, cx| w.click(format!("hs-{banking}"), cx));
+    act(cx, h, |w, cx| w.click("health-vault", cx));
+    act(cx, h, |w, cx| w.click("hv-personal", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.health.vault, Some(cleis_app::app::Scope::Personal));
+        assert_eq!(s.health.space, Some(banking), "Banking is personal: kept");
+    });
+    act(cx, h, |w, cx| w.click("health-vault", cx));
+    act(cx, h, |w, cx| w.click(format!("hv-{acme}"), cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(
+            s.health.vault,
+            Some(cleis_app::app::Scope::Org(acme.clone()))
+        );
+        assert_eq!(s.health.space, None, "Banking is not Acme's");
+    });
+    act(cx, h, |w, cx| w.click("health-vault", cx));
+    act(cx, h, |w, cx| w.press("escape", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.health.vault_menu);
+    });
+}

@@ -3619,6 +3619,12 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 }
             }
         }
+        "health-vault" => {
+            if let Some(s) = app.session() {
+                s.health.vault = s.org.as_ref().map(|o| crate::app::Scope::Org(o.m.key()));
+                s.health.vault_menu = true;
+            }
+        }
         "rekey" => {
             if let Some(o) = org_mut(app) {
                 let acc = o

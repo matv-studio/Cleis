@@ -61,5 +61,6 @@ for theme in ${THEMES:-dark}; do
   shot "vault-tabs-org-$theme" --demo --unlocked --two-orgs --theme $theme
   shot "vault-tabs-personal-$theme" --demo --unlocked --two-orgs --vault-tab personal --theme $theme
   shot "vault-tabs-settings-$theme" --demo --unlocked --two-orgs --tab settings --theme $theme
+  shot "health-vault-$theme" --demo --unlocked --two-orgs --tab health --menu health-vault --theme $theme
 done
 echo "captures in $out"

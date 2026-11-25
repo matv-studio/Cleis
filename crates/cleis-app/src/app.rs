@@ -288,7 +288,12 @@ impl Session {
 
     /// Whether an item of `space` is shown by the current scope (D-69).
     pub fn in_scope(&self, space: cleis_core::SpaceId) -> bool {
-        match &self.scope {
+        self.scope_has(&self.scope, space)
+    }
+
+    /// Whether `space` is in the vault(s) `scope` names (vault tabs, Health filter).
+    pub fn scope_has(&self, scope: &Scope, space: cleis_core::SpaceId) -> bool {
+        match scope {
             Scope::All => true,
             Scope::Personal => self
                 .spaces

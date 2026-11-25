@@ -1078,6 +1078,16 @@ function journalDeuxOrgs() {
     .replace(/<nav class="tabs" role="tablist">[\s\S]*?<\/nav>/, `<nav class="tabs" role="tablist">${VTABS.map((t) => `<span class="tab ${t === 'Activity' ? 'is-active' : ''}" role="tab">${t}</span>`).join('')}</nav>`);
 }
 
+// Health with two organizations (32e): the vault is the first filter, then its spaces.
+function santeDeuxOrgs() {
+  const menu = `<div class="menu" style="left:826px;top:102px;width:200px">${['All vaults', 'My vault', 'Example Studio', 'Acme Partners'].map((n, k) => `<div class="menu-item ${k === 2 ? 'is-hover' : ''}">${k === 0 ? '<span style="width:16px"></span>' : i(k === 1 ? 'user' : 'folder')}<span>${n}</span>${k === 2 ? `<span class="kbd">${i('check')}</span>` : ''}</div>`).join('')}</div>`;
+  return sante()
+    .replace('<div class="input select" style="width:170px"><span class="grow">All spaces</span></div>',
+      '<div class="input select is-focus" style="width:170px" title="Vault"><span class="grow">Example Studio</span></div><div class="input select" style="width:170px"><span class="grow">All spaces</span></div>')
+    .replace(/<nav class="tabs" role="tablist">[\s\S]*?<\/nav>/, `<nav class="tabs" role="tablist">${VTABS.map((t) => `<span class="tab ${t === 'Health' ? 'is-active' : ''}" role="tab">${t}</span>`).join('')}</nav>`)
+    .replace('</div></div></main>', `</div></div>${menu}</main>`);
+}
+
 // Context menus (33): right-click on any object of a list.
 const ctx = (x, y, items, w = 240) => `<div class="menu" style="left:${x}px;top:${y}px;width:${w}px">${items}</div>`;
 const mi = (ico, label, kbd = '', { danger = false, sub = false, hover = false } = {}) =>
@@ -1188,6 +1198,7 @@ export const SCREENS = {
   '32b-onglets-personnel': ['Vault tabs — My vault', ongletsPerso],
   '32c-reglages-coffres': ['Preferences — vaults, two organizations', reglagesDeuxOrgs],
   '32d-journal-deux-orgs': ['Activity — two organizations', journalDeuxOrgs],
+  '32e-sante-deux-orgs': ['Health — two organizations', santeDeuxOrgs],
   '33-menu-element': ['Right-click — item', menuElement],
   '33b-menu-espace': ['Right-click — space', menuEspace],
   '33c-menu-contact': ['Right-click — contact', menuContact],
