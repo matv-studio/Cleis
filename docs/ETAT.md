@@ -1,5 +1,27 @@
 # Cleis — état
 
+## 25/11/2026 (suite, branche `feat/full-app`)
+- Essais Windows en pilotage d'écran (builds `651fe04` → `3558b4d`) : Quick Access sur le bon écran et
+  au clavier (plus d'Alt simulé : touche F22 factice comme Chromium), remplissage identifiant + mot de
+  passe validé sur le formulaire d'essai (`design/tools/autofill-form.hta`, lancé par
+  `ouvrir-formulaire.bat`), garde-fou : rien n'est tapé dans un bouton ou un menu, masque Alt (0xE8)
+  après un raccourci. Icône de zone de notification : fermer cache, un clic rouvre.
+- Fonctions ajoutées (D-54 à D-58) : menu Colonnes + champs personnalisés ; import CSV en 3 étapes ;
+  filtre et vue Cartes du coffre ; contacts (édition, dossiers, étiquettes, Merge & fix, vCard) ;
+  Sécurité (code à l'ouverture + codes de secours, verrouillage après inactivité, presse-papiers,
+  mot de passe maître) ; synchronisation par dossier (OneDrive / Google Drive par leur appli, partage),
+  sauvegardes datées, export, kit d'urgence PDF, restauration au premier lancement ; santé par espace
+  avec corrections ; préférences (devise, vue de départ) ; icône de zone de notification et ouverture
+  à la connexion.
+- 101 essais (dont 12 de bout en bout).
+
+## Prochaines étapes
+1. Contacts : menu Colonnes et import CSV.
+2. Fonctions d'organisation (écrans 07-11, 18) et `cleis-server` (D-42) : membres, partage des clés
+   d'espace, politique, journal, rechiffrement.
+3. Places GitHub / OneDrive / Google sans appli de bureau : enregistrement OAuth (en suspens, D-50).
+4. Audit complet demandé par l'utilisateur une fois tout en place.
+
 ## 25/11/2026
 - Apparence : sombre, accent Ochre `#e0a93b` (D-51 ; teinte approfondie calculée en clair), étendue
   « Étendue » ; pastilles et étendue réglables dans *Preferences* ; menu « Sync & backups » unique.
