@@ -19,6 +19,7 @@ type Res<T> = Result<Json<T>, ApiErr>;
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/v1/hello", get(hello))
+        .route("/v1/health", get(health))
         .route("/v1/invite-info", post(invite_info))
         .route("/v1/join", post(join))
         .route("/v1/challenge", post(challenge))
@@ -313,6 +314,17 @@ fn org_info(conn: &Connection, cert: &[u8; 32]) -> rusqlite::Result<OrgInfo> {
 }
 
 // ---------- Sign-in ----------
+
+/// For monitoring: answers while the database answers.
+async fn health(State(app): State<Arc<App>>) -> Result<Json<serde_json::Value>, ApiErr> {
+    let conn = app.db.lock().expect("database lock");
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM members WHERE revoked IS NULL",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(Json(serde_json::json!({ "ok": true, "members": n })))
+}
 
 async fn hello(State(app): State<Arc<App>>) -> Json<Hello> {
     let conn = app.db.lock().expect("database lock");

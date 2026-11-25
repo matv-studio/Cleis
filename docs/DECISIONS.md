@@ -316,9 +316,29 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   rescellé avec sa clé). Déplacement d'un élément par le menu de l'inspecteur (« Move to … »).
   « All items » regroupe tous les dossiers. Un dossier supprimé est noté effacé : une
   synchronisation ne le ramène pas. Maquettes 01d, 01e.
+- **D-63 Serveur universel, organisation créée depuis l'appli** (25/11/2026, demande de
+  l'utilisateur : ne pas attendre un système ou un type de serveur, ne rien brider) :
+  - `cleis-server` tourne partout : Linux (systemd), Windows (service SCM, `windows-service`),
+    macOS (launchd), Docker (`deploy/`). `install` / `uninstall` posent le service ; `--print`
+    affiche le fichier sans rien écrire. Dossier par défaut propre à chaque système
+    (`CLEIS_DATA` sinon). Sous Linux, un dossier gardé dans un répertoire personnel garde son
+    propriétaire (`User=` du service).
+  - `cleis-server.toml` dans le dossier : adresses d'écoute (IPv4 et IPv6 par défaut), sauvegardes
+    automatiques (toutes les 24 h, 30 gardées), et sections prêtes pour l'e-mail (SMTP), les SMS
+    (passerelle HTTP) et la connexion Google / Microsoft (OpenID Connect). Commandes ajoutées :
+    `invite`, `backup`, `restore`, `status`, `rotate --finish` ; `/v1/health` pour la supervision.
+  - Settings › Organization › Create an organization (maquette 25b) : « This computer » lance le
+    `cleis-server` livré à côté de Cleis, dans le dossier de données de l'utilisateur, sur le premier
+    port libre à partir de 8443, et rejoint en premier admin (Super Admin) ; « Another machine »
+    donne les commandes à copier. Le serveur tourne tant que Cleis tourne (la zone de notification
+    le garde ouvert), s'arrête avec lui, redémarre à l'ouverture du coffre ; « Install » le pose en
+    service système (droits administrateur demandés).
+  - Page Server d'une organisation hébergée ici (maquette 24b) : état, adresses à donner aux
+    membres (copie), Install.
+  - Versions : `cleis-server` livré dans les archives Windows et macOS, archive Linux à part.
 
 ## En suspens
-1. Serveur de l'entreprise : système (Windows ou Linux).
+1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Enregistrement des applications OAuth (GitHub, Microsoft, Google) pour les places sans appli de

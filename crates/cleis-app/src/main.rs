@@ -137,7 +137,7 @@ fn main() {
                                     "members" => "Members",
                                     "policy" => "Security policy",
                                     "encryption" => "Encryption",
-                                    "server" => "Server",
+                                    "server" | "server-here" => "Server",
                                     "join" => "Organization",
                                     "profile" => "Profile",
                                     "devices" => "Devices",
@@ -148,6 +148,16 @@ fn main() {
                                     && let Some(o) = s.org.as_mut()
                                 {
                                     o.ui.org_backups = true;
+                                }
+                                if p == "server-here"
+                                    && let Some(o) = s.org.as_mut()
+                                {
+                                    // Screen 24b: the server runs on this computer.
+                                    o.local.host_dir = Some("server".into());
+                                    o.ui.host = Some((
+                                        true,
+                                        vec!["192.168.1.24:8443".into(), "10.8.0.3:8443".into()],
+                                    ));
                                 }
                             }
                         }

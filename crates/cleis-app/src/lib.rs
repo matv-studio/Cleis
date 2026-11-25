@@ -9,6 +9,7 @@ pub mod contact_editor;
 pub mod demo;
 pub mod editor;
 pub mod format;
+pub mod host;
 pub mod kit;
 pub mod org;
 pub mod screens;

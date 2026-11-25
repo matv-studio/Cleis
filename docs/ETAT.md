@@ -17,9 +17,16 @@
   Profile, Devices, Spaces (renommer, supprimer). Maquettes 07 mise à jour, 07e, 26–28. Captures en
   thème sombre seulement.
 
+- Suite (D-61 à D-63) : espaces réservés (Super Admin), dossiers personnels, serveur universel
+  (services Linux / Windows / macOS, Docker, configuration, sauvegardes automatiques), création
+  d'une organisation depuis l'appli (serveur sur cet ordinateur ou commandes pour une autre machine).
+  Maquettes 25b, 24b. Essai `organization_hosted_here` (lance le vrai `cleis-server`).
+
 ## Prochaines étapes
-1. Audit complet demandé par l'utilisateur.
-3. Installation du serveur sur la machine de l'entreprise (système en suspens) : service, sauvegardes.
+1. Fonctions dépendant d'un service extérieur, prêtes dès leur configuration : code par e-mail
+   (SMTP), SMS (passerelle HTTP), places GitHub (jeton) et SFTP, Windows Hello / Touch ID,
+   connexion Google / Microsoft (OpenID Connect).
+2. Audit complet demandé par l'utilisateur.
 
 ## 25/11/2026 (suite, branche `feat/full-app`)
 - Essais Windows en pilotage d'écran (builds `651fe04` → `3558b4d`) : Quick Access sur le bon écran et

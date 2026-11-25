@@ -61,6 +61,8 @@ impl Membership {
 pub struct Local {
     pub remembered: Option<String>,
     pub last_ok: Option<i64>,
+    /// The organization's server runs on this computer, from this folder (D-63).
+    pub host_dir: Option<PathBuf>,
 }
 
 pub fn local_path(vault: &Path) -> PathBuf {
@@ -480,7 +482,112 @@ impl CleisApp {
         if s.org.as_ref().is_some_and(|o| o.offline_locked) {
             hide_org_entries(s);
         }
+        // Hosted here: start the server if nothing answers yet.
+        let host = s.org.as_ref().and_then(|o| {
+            let port = crate::host::port_of(&o.m.address);
+            o.local.host_dir.clone().map(|d| (d, port))
+        });
+        if let (Some((dir, port)), Some(exe), false) = (host, crate::host::server_exe(), demo) {
+            cx.background_spawn(async move {
+                if let Err(e) = crate::host::ensure_running(&exe, &dir, port) {
+                    eprintln!("hosted server: {e}");
+                }
+            })
+            .detach();
+        }
         cx.notify();
+    }
+
+    /// Creates an organization whose server runs on this computer, and joins it as its first
+    /// administrator (D-63).
+    pub fn org_create_here(&mut self, name: String, cx: &mut Context<Self>) {
+        let Some(exe) = crate::host::server_exe() else {
+            if let Some(s) = self.session() {
+                s.join.error = Some("cleis-server is not beside Cleis".into());
+            }
+            cx.notify();
+            return;
+        };
+        let Some(s) = self.session() else { return };
+        let public = s.vault.account_public().0;
+        let signing = SigningKeyPair::from_secret_bytes(*s.vault.signing_key().secret_bytes());
+        s.join.busy = true;
+        s.join.error = None;
+        let me = std::env::var("USERNAME")
+            .or_else(|_| std::env::var("USER"))
+            .unwrap_or_else(|_| "Administrator".into());
+        let dir = crate::host::default_dir();
+        let task = cx.background_spawn(async move {
+            let port = crate::host::free_port();
+            let code = crate::host::create(&exe, &dir, name.trim(), port)?;
+            crate::host::ensure_running(&exe, &dir, port)?;
+            let addr = format!("127.0.0.1:{port}");
+            let m = join(&addr, &code, &me, "", public, &signing)?;
+            Ok::<_, String>((m, dir))
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                let path = app.path.clone();
+                match r {
+                    Ok((m, dir)) => {
+                        let mut local = load_local(&path);
+                        local.host_dir = Some(dir);
+                        save_local(&path, &local);
+                        app.org_joined(Ok(m), cx);
+                        if let Some(s) = app.session() {
+                            s.settings_page = "Server";
+                        }
+                    }
+                    Err(e) => app.org_joined(Err(e), cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Makes the hosted server start with the system (administrator rights asked).
+    pub fn org_install_host(&mut self, cx: &mut Context<Self>) {
+        let Some((dir, port)) = self.session().and_then(|s| s.org.as_ref()).and_then(|o| {
+            let port = crate::host::port_of(&o.m.address);
+            o.local.host_dir.clone().map(|d| (d, port))
+        }) else {
+            return;
+        };
+        let Some(exe) = crate::host::server_exe() else {
+            return;
+        };
+        let task = cx.background_spawn(async move {
+            // The service takes the port: the copy started by Cleis gives it up first.
+            crate::host::stop();
+            let r = crate::host::install_service(&exe, &dir);
+            for _ in 0..30 {
+                if crate::host::listening(port) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            if r.is_err() {
+                let _ = crate::host::ensure_running(&exe, &dir, port);
+            }
+            r
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                app.toast(
+                    match r {
+                        Ok(()) => "The server now starts with the system".to_owned(),
+                        Err(e) => format!("Not installed: {e}"),
+                    },
+                    cx,
+                )
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn org_conn(&self) -> Option<Conn> {

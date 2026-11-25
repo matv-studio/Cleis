@@ -32,7 +32,7 @@ jobs:
       - name: Tests
         run: cargo test --workspace
       - name: Release build
-        run: cargo build --release -p cleis-app --locked
+        run: cargo build --release -p cleis-app -p cleis-server --locked
       - name: Package (portable)
         shell: pwsh
         run: |
@@ -40,7 +40,9 @@ jobs:
           $name = "Cleis-0.1.0-$sha-windows-x64-portable"
           New-Item -ItemType Directory -Path "dist/$name" | Out-Null
           Copy-Item target/release/cleis.exe "dist/$name/Cleis.exe"
+          Copy-Item target/release/cleis-server.exe "dist/$name/cleis-server.exe"
           Copy-Item README.md, THIRD_PARTY.md "dist/$name/"
+          Copy-Item deploy/README.md "dist/$name/SERVER.md"
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
           Get-FileHash "dist/$name.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $name.zip" } | Out-File -Encoding ascii "dist/$name.zip.sha256"
           "NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
@@ -52,6 +54,30 @@ jobs:
             dist/${{ env.NAME }}.zip.sha256
           retention-days: 30
 
+  server-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p cleis-server --locked
+      - run: |
+          sha=$(echo "${{ github.sha }}" | cut -c1-7)
+          name="cleis-server-0.1.0-$sha-linux-x64"
+          mkdir -p "dist/$name"
+          cp target/release/cleis-server deploy/README.md THIRD_PARTY.md "dist/$name/"
+          cp -r deploy "dist/$name/deploy"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "NAME=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.tar.gz
+            dist/${{ env.NAME }}.tar.gz.sha256
+          retention-days: 30
+
   macos:
     if: github.event_name == 'workflow_dispatch' && inputs.macos
     runs-on: macos-latest
@@ -59,10 +85,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p cleis-app --locked
+      - run: cargo build --release -p cleis-app -p cleis-server --locked
       - run: |
-          mkdir -p dist && cp target/release/cleis dist/Cleis
-          cd dist && zip Cleis-macos-arm64-unsigned.zip Cleis
+          mkdir -p dist && cp target/release/cleis dist/Cleis && cp target/release/cleis-server dist/
+          cd dist && zip Cleis-macos-arm64-unsigned.zip Cleis cleis-server
       - uses: actions/upload-artifact@v4
         with:
           name: Cleis-macos-arm64-unsigned
@@ -71,7 +97,7 @@ jobs:
 
   draft-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: windows
+    needs: [windows, server-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write

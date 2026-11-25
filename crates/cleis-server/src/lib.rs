@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod api;
+pub mod config;
 pub mod db;
 pub mod tls;
 
@@ -98,6 +99,47 @@ impl IntoResponse for ApiErr {
 }
 
 impl App {
+    /// Copies the server file into `dir` (`server-YYYYMMDD-HHMMSS.db`) and keeps the `keep` most
+    /// recent copies (D-63).
+    pub fn backup_to(&self, dir: &Path, keep: u32) -> Result<PathBuf, ServerError> {
+        std::fs::create_dir_all(dir)?;
+        restrict(dir);
+        let now = cleis_core::now();
+        let (y, mo, d) = civil(now.div_euclid(86_400));
+        let s = now.rem_euclid(86_400);
+        let name = format!(
+            "server-{y}{mo:02}{d:02}-{:02}{:02}{:02}.db",
+            s / 3600,
+            s % 3600 / 60,
+            s % 60
+        );
+        let dest = dir.join(name);
+        let tmp = dir.join(".backup.tmp");
+        let _ = std::fs::remove_file(&tmp);
+        {
+            let conn = self.db.lock().expect("database lock");
+            conn.execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])?;
+        }
+        std::fs::rename(&tmp, &dest)?;
+        let mut old: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("server-") && n.ends_with(".db"))
+            })
+            .collect();
+        old.sort();
+        let keep = keep.max(1) as usize;
+        if old.len() > keep {
+            for p in &old[..old.len() - keep] {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+        Ok(dest)
+    }
+
     /// Creates the data folder's database and certificate. Returns the invitation code of the
     /// first administrator.
     pub fn init(dir: &Path, org: &str, names: &[String]) -> Result<String, ServerError> {
@@ -250,20 +292,45 @@ pub async fn serve(
     listener: TcpListener,
     shutdown: impl std::future::Future<Output = ()>,
 ) -> Result<(), ServerError> {
+    serve_all(app, vec![listener], shutdown).await
+}
+
+/// Serves HTTPS on every listener until `shutdown` resolves (D-63).
+pub async fn serve_all(
+    app: Arc<App>,
+    listeners: Vec<TcpListener>,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> Result<(), ServerError> {
     let config = app
         .identity()?
         .server_config()
         .map_err(ServerError::Setup)?;
     let acceptor = tokio_rustls::TlsAcceptor::from(config);
     let router = api::router(app.clone());
-    tokio::pin!(shutdown);
+    let tasks: Vec<_> = listeners
+        .into_iter()
+        .map(|l| tokio::spawn(accept_loop(l, acceptor.clone(), router.clone())))
+        .collect();
+    shutdown.await;
+    for t in tasks {
+        t.abort();
+    }
+    Ok(())
+}
+
+async fn accept_loop(
+    listener: TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+    router: axum::Router,
+) {
     loop {
-        let (tcp, peer) = tokio::select! {
-            r = listener.accept() => match r {
-                Ok(x) => x,
-                Err(e) => { eprintln!("accept: {e}"); continue; }
-            },
-            _ = &mut shutdown => return Ok(()),
+        let (tcp, peer) = match listener.accept().await {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("accept: {e}");
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
         };
         let acceptor = acceptor.clone();
         let router = router.clone();
@@ -284,5 +351,33 @@ pub async fn serve(
                 .serve_connection(hyper_util::rt::TokioIo::new(tls), svc)
                 .await;
         });
+    }
+}
+
+/// Days since 1970-01-01 → (year, month, day).
+fn civil(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
+/// Runs the automatic backups of the configuration until the process ends.
+pub async fn backup_loop(app: Arc<App>, dir: PathBuf, every_hours: u32, keep: u32) {
+    let every = std::time::Duration::from_secs(u64::from(every_hours.max(1)) * 3600);
+    loop {
+        let a = app.clone();
+        let (d, k) = (dir.clone(), keep);
+        match tokio::task::spawn_blocking(move || a.backup_to(&d, k)).await {
+            Ok(Ok(p)) => println!("backup: {}", p.display()),
+            Ok(Err(e)) => eprintln!("backup failed: {e}"),
+            Err(e) => eprintln!("backup failed: {e}"),
+        }
+        tokio::time::sleep(every).await;
     }
 }

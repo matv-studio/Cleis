@@ -38,6 +38,8 @@ for theme in ${THEMES:-dark}; do
   shot "rekey-$theme" --demo --unlocked --tab settings --page encryption --menu rekey --theme $theme
   shot "server-$theme" --demo --unlocked --tab settings --page server --theme $theme
   shot "join-$theme" --demo --no-org --unlocked --tab settings --page join --theme $theme
+  shot "create-elsewhere-$theme" --demo --no-org --unlocked --tab settings --page join --menu create-elsewhere --theme $theme
+  shot "server-here-$theme" --demo --unlocked --tab settings --page server-here --theme $theme
   shot "org-backups-$theme" --demo --unlocked --tab settings --page org-backups --theme $theme
   shot "activity-$theme" --demo --unlocked --tab activity --theme $theme
   shot "new-space-$theme" --demo --unlocked --menu new-space --theme $theme

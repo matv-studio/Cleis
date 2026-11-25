@@ -13,11 +13,14 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
    [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
-   profile|devices|spaces] [--menu filter|columns|new-column|open-code|invite|invite-code|new-role|
-   new-space|rekey|server-code|super-admin|rename-space|delete-space]
+   profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
+   new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
+   delete-folder|create-elsewhere]
    [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
-   --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché). Captures de l'appli : `design/tools/appshots.sh`, thème sombre seulement
+   --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
+   `install [--print]`, `backup`, `restore`, `invite`, `status` ; configuration `cleis-server.toml`,
+   Docker et guide dans `deploy/`. Captures de l'appli : `design/tools/appshots.sh`, thème sombre seulement
    (demande du 25/11/2026 ; `THEMES="dark light"` pour les deux) (Linux : Xvfb, ImageMagick,
    `mesa-vulkan-drivers` pour le rendu logiciel llvmpipe ; paquets de compilation GPUI listés dans la CI).
 5. Toute fonction d'interface nouvelle ou refaite passe d'abord par une maquette validée.
@@ -47,14 +50,15 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique ;
   `org.rs` : espaces d'organisation (`spaces.org`, `key_gen`, `records.pushed`), rechiffrement.
 - `crates/cleis-net` — client HTTPS du serveur (rustls, certificat épinglé, HTTP/1.1 minimal).
-- `crates/cleis-server` — serveur d'organisation (D-59) : `api.rs` (requêtes), `db.rs` (schéma,
-  journal chaîné), `tls.rs` (certificat), `main.rs` (ligne de commande) ; `tests/flow.rs`.
+- `crates/cleis-server` — serveur d'organisation (D-59, D-63) : `api.rs` (requêtes), `db.rs`
+  (schéma, journal chaîné), `tls.rs` (certificat), `config.rs` (`cleis-server.toml`), `main.rs`
+  (ligne de commande, services systemd / launchd / Windows) ; `tests/flow.rs`.
 - `crates/cleis-app` — appli GPUI : `theme.rs` (jetons de la charte), `ui.rs` (composants), `app.rs`
   (états premier lancement / verrouillé / ouvert), `autofill.rs` (raccourcis, remplissages en attente,
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
-  sauvegardes), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
+  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
   `tests/org.rs` (deux fenêtres contre un vrai serveur).
 

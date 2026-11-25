@@ -506,3 +506,56 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
         assert_eq!(f.password, "figma-pass-2026");
     });
 }
+
+/// Settings › Organization › Create on this computer: Cleis starts `cleis-server` beside it and
+/// joins as the first administrator (D-63). Skipped when the server is not built beside the tests.
+#[gpui_kit::test]
+fn organization_hosted_here(cx: &mut TestAppContext) {
+    if cleis_app::host::server_exe().is_none() {
+        eprintln!("skipped: cleis-server is not built");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    cleis_app::host::use_dir(dir.path().join("server"));
+    let (h, app) = open(cx, &dir.path().join("lea.cleis"));
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("new-password", cx);
+        w.input("correct horse battery staple", cx);
+        w.click("confirm-password", cx);
+        w.input("correct horse battery staple", cx);
+        w.click("create", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Organization", cx));
+    act(cx, h, |w, cx| {
+        w.click("create-name", cx);
+        w.input("Example Studio", cx);
+        w.click("create-org", cx);
+    });
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => s.org.is_some() || s.join.error.is_some(),
+            _ => false,
+        }) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    sync(cx, &app);
+    session(cx, &app, |s| {
+        assert!(s.join.error.is_none(), "{:?}", s.join.error);
+        let o = s.org.as_ref().expect("created");
+        assert_eq!(o.m.name, "Example Studio");
+        assert!(o.m.address.starts_with("127.0.0.1:"));
+        assert!(o.local.host_dir.is_some());
+        assert!(o.error.is_none(), "{:?}", o.error);
+        assert_eq!(
+            o.role().map(|r| r.id.clone()).as_deref(),
+            Some(cleis_core::org::SUPER_ADMIN)
+        );
+        assert_eq!(s.settings_page, "Server");
+    });
+    cleis_app::host::stop();
+}

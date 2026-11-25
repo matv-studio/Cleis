@@ -302,6 +302,12 @@ impl CleisApp {
             _ticker: ticker,
             _subs: vec![],
         };
+        // A server started by Cleis stops with it (an installed service does not).
+        cx.on_app_quit(|_, _| {
+            crate::host::stop();
+            async {}
+        })
+        .detach();
         if app.path.exists() {
             app.show_unlock(window, cx);
         } else {

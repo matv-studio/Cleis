@@ -62,6 +62,9 @@ pub struct JoinForm {
     pub checking: bool,
     pub error: Option<SharedString>,
     pub busy: bool,
+    /// Create an organization: its name, and where the server runs (D-63).
+    pub org_name: Option<Entity<InputState>>,
+    pub elsewhere: bool,
 }
 
 #[derive(Default)]
@@ -99,6 +102,9 @@ pub struct OrgUi {
     /// Space to reserve once its re-encryption to end-to-end is done.
     pub reserve_after: Option<SpaceId>,
     pub delete_space: Option<SpaceId>,
+    /// Server hosted on this computer: running, and the addresses members can reach.
+    pub host: Option<(bool, Vec<String>)>,
+    pub host_busy: bool,
 }
 
 impl OrgUi {
@@ -1493,6 +1499,9 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         chip(t, Tone::Neutral, "Not reached yet", false).into_any_element()
     };
     let me = o.me();
+    let hosted = o.local.host_dir.is_some();
+    let (running, addrs) = o.ui.host.clone().unwrap_or((false, Vec::new()));
+    let addr_text = addrs.join(" · ");
     div()
         .flex()
         .flex_col()
@@ -1501,17 +1510,81 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             section(t)
                 .child(titled(t, &o.m.name, None))
-                .child(
-                    row(t, true)
-                        .child(div().flex_1().child("Address"))
-                        .child(
-                            div()
-                                .font_family(FONT_MONO)
-                                .text_color(t.text_muted)
-                                .child(o.m.address.clone()),
-                        )
-                        .child(status),
-                )
+                .when(hosted, |d| {
+                    let copy = addr_text.clone();
+                    d.child(
+                        row(t, true)
+                            .child(div().flex_1().child("Hosted"))
+                            .child("This computer")
+                            .child(if o.ui.host.is_none() {
+                                chip(t, Tone::Neutral, "Checking…", false)
+                            } else if running {
+                                chip(t, Tone::Ok, "Running", true)
+                            } else {
+                                chip(t, Tone::Warn, "Stopped", true)
+                            }),
+                    )
+                    .child(
+                        row(t, false)
+                            .child(
+                                div()
+                                    .id("host-addrs")
+                                    .flex_1()
+                                    .tooltip(tip("Give one of these with each invitation code"))
+                                    .child("Addresses for members"),
+                            )
+                            .child(div().font_family(FONT_MONO).text_color(t.text_muted).child(
+                                if addr_text.is_empty() {
+                                    "No network".to_owned()
+                                } else {
+                                    addr_text.clone()
+                                },
+                            ))
+                            .child(
+                                icon_button("copy-host-addrs", t, "copy", false)
+                                    .tooltip(tip("Copy"))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.copy(copy.clone(), "Addresses", cx)
+                                    })),
+                            ),
+                    )
+                    .child(
+                        row(t, false)
+                            .child(
+                                div()
+                                    .id("host-service")
+                                    .flex_1()
+                                    .tooltip(tip("Otherwise it runs while Cleis runs"))
+                                    .child("Start with the system"),
+                            )
+                            .child(
+                                button("host-install", t, BtnKind::Default, false)
+                                    .child("Install")
+                                    .tooltip(tip("Asks for administrator rights"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if this.demo {
+                                            this.toast("Not in the demo", cx);
+                                        } else {
+                                            this.org_install_host(cx);
+                                        }
+                                    }))
+                                    .test_support(),
+                            ),
+                    )
+                })
+                .when(!hosted, |d| {
+                    d.child(
+                        row(t, true)
+                            .child(div().flex_1().child("Address"))
+                            .child(
+                                div()
+                                    .font_family(FONT_MONO)
+                                    .text_color(t.text_muted)
+                                    .child(o.m.address.clone()),
+                            )
+                            .child(status),
+                    )
+                })
                 .child(
                     row(t, false)
                         .child(div().flex_1().child("Certificate"))
@@ -1565,17 +1638,18 @@ pub fn join_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex_col()
         .gap(px(16.))
         .child(head(t, "Organization"))
+        .child(create_section(&s.join, t, cx))
         .child(
             section(t)
                 .child(titled(
                     t,
-                    "Add an organization server",
+                    "Join an organization",
                     Some("Shared spaces, on top of your personal vault"),
                 ))
                 .child(join_fields(&s.join, t, cx))
                 .child(
                     div().flex().justify_end().child(
-                        button("join", t, BtnKind::Primary, false)
+                        button("join", t, BtnKind::Default, false)
                             .when(s.join.busy, |b| b.opacity(0.6))
                             .child(if s.join.busy { "Joining…" } else { "Join" })
                             .on_click(cx.listener(|this, _, _, cx| this.join_from_settings(cx)))
@@ -1583,6 +1657,112 @@ pub fn join_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     ),
                 ),
         )
+}
+
+/// Create an organization (mockup 25b): the server runs on this computer, or the commands to run
+/// it on another machine.
+fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(name) = &j.org_name else {
+        return div();
+    };
+    let pick: Pick = Rc::new(|this, i, cx| {
+        if let Some(j) = this.join_form_mut() {
+            j.elsewhere = i == 1;
+        }
+        cx.notify();
+    });
+    let org = name.read(cx).value().trim().to_owned();
+    let org = if org.is_empty() {
+        "Example Studio".to_owned()
+    } else {
+        org
+    };
+    let cmds = [
+        format!("cleis-server init --org \"{org}\""),
+        "cleis-server install".to_owned(),
+    ];
+    let mut d = section(t)
+        .child(titled(
+            t,
+            "Create an organization",
+            Some("Shared spaces for a team: Cleis runs its server for you."),
+        ))
+        .child(field(t, "Name", Input::new(name).id("create-name")))
+        .child(
+            div()
+                .id("create-where")
+                .tooltip(tip(if j.elsewhere {
+                    "Linux, Windows, macOS or Docker"
+                } else {
+                    "Runs while Cleis runs; can start with the system"
+                }))
+                .child(field(
+                    t,
+                    "Server",
+                    segment(
+                        "create-where",
+                        t,
+                        &["This computer", "Another machine"],
+                        usize::from(j.elsewhere),
+                        pick,
+                        cx,
+                    ),
+                )),
+        );
+    if j.elsewhere {
+        for (n, c) in cmds.into_iter().enumerate() {
+            let copy = c.clone();
+            d = d.child(
+                value_box(t)
+                    .child(div().flex_1().font_family(FONT_MONO).child(c))
+                    .child(
+                        icon_button(SharedString::from(format!("copy-cmd-{n}")), t, "copy", true)
+                            .tooltip(tip("Copy"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.copy(copy.clone(), "Command", cx)
+                            })),
+                    ),
+            );
+        }
+        d.child(
+            div()
+                .id("create-then")
+                .tooltip(tip(
+                    "The code it prints, with the machine's address, joins below",
+                ))
+                .text_size(TEXT_SM)
+                .text_color(t.text_muted)
+                .child("Then join with the code it prints."),
+        )
+    } else {
+        d.child(
+            div().flex().justify_end().child(
+                button("create-org", t, BtnKind::Primary, false)
+                    .when(j.busy, |b| b.opacity(0.6))
+                    .child(if j.busy { "Creating…" } else { "Create" })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let Some(name) = this.join_form_mut().and_then(|j| j.org_name.clone())
+                        else {
+                            return;
+                        };
+                        let n = name.read(cx).value().trim().to_owned();
+                        if n.is_empty() {
+                            if let Some(j) = this.join_form_mut() {
+                                j.error = Some("Name the organization".into());
+                            }
+                            cx.notify();
+                            return;
+                        }
+                        if this.demo {
+                            this.toast("Not in the demo", cx);
+                            return;
+                        }
+                        this.org_create_here(n, cx);
+                    }))
+                    .test_support(),
+            ),
+        )
+    }
 }
 
 /// Address, invitation code, and name/e-mail when the invitation has none.
@@ -2607,6 +2787,7 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
     let code = make("XXXX-XXXX-…", window, cx);
     let name = make("", window, cx);
     let email = make("", window, cx);
+    let org_name = make("Example Studio", window, cx);
     let subs = [&address, &code]
         .into_iter()
         .map(|e| {
@@ -2623,6 +2804,7 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
             code: Some(code),
             name: Some(name),
             email: Some(email),
+            org_name: Some(org_name),
             ..Default::default()
         },
         subs,
@@ -2634,7 +2816,8 @@ impl CleisApp {
     pub fn ensure_org_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         if s.org.is_none() && s.join.address.is_none() {
-            let (join, subs) = join_form(window, cx);
+            let (mut join, subs) = join_form(window, cx);
+            join.elsewhere = s.join.elsewhere;
             if let Some(s) = self.session() {
                 s.join = join;
                 s.join_subs = subs;
@@ -2685,6 +2868,35 @@ impl CleisApp {
         if want_devices && !self.demo {
             self.org_devices(cx);
         }
+        // Hosted server: its state and addresses, read when the Server page is shown.
+        let want_host = self.session().is_some_and(|s| {
+            s.settings_page == "Server"
+                && s.org.as_ref().is_some_and(|o| {
+                    o.local.host_dir.is_some() && o.ui.host.is_none() && !o.ui.host_busy
+                })
+        });
+        if want_host && !self.demo {
+            let mut port = crate::host::PORT;
+            if let Some(o) = org_mut(self) {
+                o.ui.host_busy = true;
+                port = crate::host::port_of(&o.m.address);
+            }
+            let task = cx.background_spawn(async move {
+                (crate::host::listening(port), crate::host::addresses(port))
+            });
+            cx.spawn(async move |this, cx| {
+                let r = task.await;
+                this.update(cx, |app, cx| {
+                    if let Some(o) = org_mut(app) {
+                        o.ui.host = Some(r);
+                        o.ui.host_busy = false;
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
         let Some(s) = self.session() else { return };
         if let Some(o) = s.org.as_ref()
             && (o.ui.search.is_none() || o.ui.log_search.is_none())
@@ -2704,7 +2916,7 @@ impl CleisApp {
     }
 
     /// The join form shown: first launch or Settings › Organization.
-    fn join_form_mut(&mut self) -> Option<&mut JoinForm> {
+    pub(crate) fn join_form_mut(&mut self) -> Option<&mut JoinForm> {
         match &mut self.phase {
             crate::app::Phase::Welcome(w) => Some(&mut w.join),
             crate::app::Phase::Main(s) => Some(&mut s.join),
@@ -2896,6 +3108,11 @@ impl CleisApp {
 /// Dialogs opened for screenshots (`--menu`).
 pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Context<CleisApp>) {
     match m {
+        "create-elsewhere" => {
+            if let Some(j) = app.join_form_mut() {
+                j.elsewhere = true;
+            }
+        }
         "invite" => {
             app.open_invite(window, cx);
             if let Some(f) = org_mut(app).and_then(|o| o.ui.invite.as_mut()) {

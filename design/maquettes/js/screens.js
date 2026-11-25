@@ -971,6 +971,32 @@ function supprimerDossier() {
     <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger">Delete</button></div>`));
 }
 
+function creerOrganisation() {
+  return settings('Organization', `
+    <div class="page-head"><h1>Organization</h1></div>
+    <div class="section">${sectionTitle('Create an organization', 'Shared spaces for a team: Cleis runs its server for you.')}
+      ${fld('Name', 'Example Studio', true)}
+      <div class="field"><span class="label">Server</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="true" title="Runs while Cleis runs; can start with the system">This computer</button><button role="radio" aria-checked="false" title="Linux, Windows, macOS or Docker">Another machine</button></div></div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Create</button></div>
+    </div>
+    <div class="section">${sectionTitle('Join an organization', 'Shared spaces, on top of your personal vault')}
+      <div class="field"><span class="label">Server address</span><div class="input"><span class="grow muted">vault.example-studio.lan</span></div></div>
+      <div class="field"><span class="label">Invitation code</span><div class="input"><span class="grow muted">XXXX-XXXX-…</span></div></div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn">Join</button></div>
+    </div>`);
+}
+function serveurHeberge() {
+  return settings('Server', `
+    <div class="page-head"><h1>Server</h1></div>
+    <div class="section">${sectionTitle('Example Studio')}
+      <div class="row"><span class="row-label">Hosted</span><span>This computer</span><span class="chip chip--ok"><span class="dot"></span>Running</span></div>
+      <div class="row"><span class="row-label" title="Give one of these with each invitation code">Addresses for members</span><span class="code" style="color:var(--text-muted)">192.168.1.24:8443 · 10.8.0.3:8443</span><button class="icon-btn" title="Copy">${i('copy')}</button></div>
+      <div class="row"><span class="row-label" title="Otherwise it runs while Cleis runs">Start with the system</span><button class="btn">Install</button></div>
+      <div class="row"><span class="row-label">Certificate</span><span class="code" style="color:var(--text-muted)">SHA256:4f1c·9a2e·77b0·d31f</span></div>
+      <div class="row"><span class="row-label"></span><button class="btn">${i('sync')}Sync now</button><button class="btn btn--danger-ghost">Leave</button></div>
+    </div>`);
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -1008,6 +1034,8 @@ export const SCREENS = {
   '23-synchro': ['Sync & backups', synchro],
   '24-serveur': ['Server', serveur],
   '25-rejoindre': ['Join an organization', rejoindre],
+  '25b-creer-organisation': ['Create an organization', creerOrganisation],
+  '24b-serveur-heberge': ['Server hosted on this computer', serveurHeberge],
   '26-profil': ['Profile', profil],
   '27-appareils': ['Devices', appareils],
   '28-espaces': ['Spaces', espaces],

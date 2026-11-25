@@ -762,6 +762,7 @@ pub fn org(s: &mut crate::app::Session) {
         local: crate::org::Local {
             remembered: None,
             last_ok: Some(now - 120),
+            host_dir: None,
         },
         state: Some(st),
         busy: false,

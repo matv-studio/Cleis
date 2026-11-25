@@ -33,3 +33,5 @@ with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bund
 | `rcgen` | the server's self-signed certificate | MIT OR Apache-2.0 |
 | `axum`, `hyper`, `hyper-util`, `tower`, `tokio` | organization server | MIT |
 | `chrono` | local time of the activity log | MIT OR Apache-2.0 |
+| `toml` | server configuration file | MIT OR Apache-2.0 |
+| Mullvad `windows-service` (Windows) | server as a Windows service | MIT OR Apache-2.0 |
