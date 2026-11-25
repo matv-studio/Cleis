@@ -362,7 +362,7 @@ fn subscription(v: &str) -> Subscription {
 }
 
 /// Month number from an English or French name or abbreviation (`December`, `déc.`, `Feb`).
-fn month(word: &str) -> Option<u32> {
+pub(crate) fn month(word: &str) -> Option<u32> {
     let w = fold(word.trim_end_matches('.'));
     const NAMES: [(&str, &str); 12] = [
         ("jan", "janv"),

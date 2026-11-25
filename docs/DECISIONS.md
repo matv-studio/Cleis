@@ -207,6 +207,17 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   démarrage) ; rien n'est écrit pour le coffre de démonstration. Garde-fou du remplissage : aucune
   valeur n'est écrite si le focus n'est pas dans un champ de texte ; masque de la touche Alt (0xE8)
   quand un raccourci la contient.
+- **D-56 Contacts** (25/11/2026, écrans 20, 21) : édition dans l'inspecteur comme pour le coffre
+  (nom en une case : dernier mot = nom de famille ; poste et société sous le nom). Valeurs multiples :
+  clic sur le type (Work, Mobile…) pour passer au suivant, « + » ajoute une ligne et y place le
+  curseur, une ligne vidée est retirée. Adresse saisie sur une ligne (rue, code postal ville, pays) ;
+  anniversaire `Mar 12`, `12/03`, `12 mars 1990`. Étiquettes : « + » (liste des existantes ou nouvelle),
+  croix au survol. Onglets Details / Linked (éléments du coffre liés, copie du mot de passe) /
+  History. Dossiers de l'organisation créés par « + ». *Merge & fix* : le premier groupe s'ouvre, le
+  contact le plus complet est gardé (clic sur l'autre carte pour inverser) ; « Not a duplicate » est
+  retenu dans les préférences du coffre. Import vCard depuis la barre latérale (dans le dossier
+  affiché) ; *Share vCard* enregistre un fichier .vcf. Suppression après confirmation, définitive.
+  Reste : menu *Columns* et filtres pour les contacts, import CSV de contacts.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).

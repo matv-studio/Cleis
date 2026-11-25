@@ -131,6 +131,8 @@ pub struct Preferences {
     /// Clipboard cleared after this many seconds; `None` = never.
     pub clipboard_clear_secs: Option<u32>,
     pub open_at_login: bool,
+    /// Contact pairs marked "Not a duplicate" in *Merge & fix*.
+    pub not_duplicates: std::collections::BTreeSet<(crate::ContactId, crate::ContactId)>,
 }
 
 impl Default for Preferences {
@@ -145,6 +147,7 @@ impl Default for Preferences {
             autofill: Autofill::default(),
             clipboard_clear_secs: Some(30),
             open_at_login: true,
+            not_duplicates: Default::default(),
         }
     }
 }

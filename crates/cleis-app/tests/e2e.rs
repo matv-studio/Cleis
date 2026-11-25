@@ -538,3 +538,97 @@ fn import_notion_csv(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(saved.len(), before + 5);
 }
+
+/// Scenario (screens 20, 21): edit a contact in the inspector (a wrong email is refused), add a
+/// phone and a label, merge the duplicate, then delete a contact after confirming.
+#[gpui_kit::test]
+fn contacts_edit_merge_delete(cx: &mut TestAppContext) {
+    use cleis_app::screens::contacts::ContactFilter;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    let (camille, dup, total) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s.contacts.iter().find(|c| c.given == "Camille").unwrap().id;
+        let d = s.contacts.iter().find(|c| c.given == "C.").unwrap().id;
+        (c, d, s.contacts.len())
+    });
+    let row: &'static str = format!("c-{camille}").leak();
+    act(cx, h, |w, cx| w.click(row, cx));
+    act(cx, h, |w, cx| {
+        w.click("edit-email-0", cx);
+        w.press("ctrl-a", cx);
+        w.input("camille at example", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let ed = s.contacts_ui.editor.as_ref().unwrap();
+        assert!(!ed.errors.is_empty(), "refused email shows an error");
+        let c = s.contacts.iter().find(|c| c.id == camille).unwrap();
+        assert_eq!(c.emails[0].value, "camille@example-print.com");
+    });
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input("camille@example-print.com", cx);
+        w.press("enter", cx);
+    });
+    // New phone row: the cursor is put in it.
+    act(cx, h, |w, cx| w.click("add-phone", cx));
+    act(cx, h, |w, cx| {
+        w.input("+33 6 99 00 77 88", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("kind-phone-1", cx));
+    act(cx, h, |w, cx| w.click("add-label", cx));
+    act(cx, h, |w, cx| {
+        w.input("VIP", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s.contacts.iter().find(|c| c.id == camille).unwrap();
+        assert_eq!(c.phones.len(), 2);
+        assert_eq!(c.phones[1].value, "+33 6 99 00 77 88");
+        assert_eq!(c.phones[1].label, "Home", "Mobile → Home");
+        assert!(c.labels.contains("VIP"));
+    });
+
+    // Merge & fix: the first group is open, Camille kept.
+    act(cx, h, |w, cx| w.click("cf-merge", cx));
+    act(cx, h, |w, cx| w.click("merge-0", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.contacts.iter().all(|c| c.id != dup));
+        assert_eq!(s.contacts.len(), total - 1);
+        let c = s.contacts.iter().find(|c| c.id == camille).unwrap();
+        assert!(c.phones.iter().any(|p| p.value == "+33 6 99 00 12 35"));
+    });
+
+    // Delete, after confirming.
+    act(cx, h, |w, cx| w.click("cf-all", cx));
+    act(cx, h, |w, cx| w.click(row, cx));
+    act(cx, h, |w, cx| w.click("contact-more", cx));
+    act(cx, h, |w, cx| w.click("cm-delete", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.contacts.iter().all(|c| c.id != camille));
+        assert_eq!(s.contacts_ui.filter, ContactFilter::All);
+    });
+    let saved = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap()
+        .contacts()
+        .unwrap();
+    assert_eq!(saved.len(), total - 2);
+}

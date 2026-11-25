@@ -21,6 +21,7 @@ pub fn render(
 ) -> impl IntoElement {
     let t = app.tokens(cx).clone();
     app.ensure_editor(window, cx);
+    app.ensure_contact_editor(window, cx);
     let Phase::Main(s) = &app.phase else {
         unreachable!()
     };
@@ -238,7 +239,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                                 if id == "new-item" {
                                     this.new_entry(window, cx);
                                 } else {
-                                    this.new_contact(cx);
+                                    this.new_contact(window, cx);
                                 }
                             }))
                             .test_support(),

@@ -117,7 +117,10 @@ fn main() {
                                 Some("settings") => cleis_app::app::Tab::Settings,
                                 _ => cleis_app::app::Tab::Vault,
                             };
-                            if let Some(p) = page.as_deref() {
+                            if page.as_deref() == Some("merge") {
+                                s.contacts_ui.filter =
+                                    cleis_app::screens::contacts::ContactFilter::Merge;
+                            } else if let Some(p) = page.as_deref() {
                                 s.settings_page = match p {
                                     "autofill" => "Autofill",
                                     "sync" => "Sync & backups",

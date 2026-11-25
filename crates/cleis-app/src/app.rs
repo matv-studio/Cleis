@@ -42,6 +42,7 @@ pub struct Confirm {
 pub enum ConfirmAction {
     PurgeEntry(EntryId),
     EmptyTrash,
+    DeleteContact(cleis_core::ContactId),
 }
 
 pub struct Welcome {
@@ -94,6 +95,8 @@ pub struct Session {
     pub columns_menu: Option<crate::screens::columns::ColumnsMenu>,
     /// Settings › Import & export, kept while moving between pages.
     pub import: crate::screens::import::ImportState,
+    /// Contacts tab: filter, search, inspector boxes, menus (screens 20, 21).
+    pub contacts_ui: crate::screens::contacts::ContactsUi,
 }
 
 impl Session {
@@ -407,6 +410,7 @@ impl CleisApp {
             confirm: None,
             columns_menu: None,
             import: Default::default(),
+            contacts_ui: Default::default(),
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);

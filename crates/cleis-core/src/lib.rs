@@ -6,6 +6,7 @@
 pub mod autofill;
 pub mod column;
 pub mod contact;
+pub mod contact_edit;
 pub mod dedupe;
 pub mod edit;
 pub mod entry;

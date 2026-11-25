@@ -45,6 +45,45 @@ pub struct Address {
 }
 
 impl Address {
+    /// Reads an address typed on one line: `12 rue de l'Exemple, 69002 Lyon, France`. The first
+    /// part is the street; a part starting with digits is the postal code and city; a last part
+    /// after that is the country.
+    pub fn parse_line(s: &str) -> Self {
+        let parts: Vec<&str> = s
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .collect();
+        let mut a = Address::default();
+        let Some((first, rest)) = parts.split_first() else {
+            return a;
+        };
+        a.street = (*first).to_owned();
+        let mut after_city = false;
+        for p in rest {
+            let starts_digit = p.chars().next().is_some_and(|c| c.is_ascii_digit());
+            if !after_city && starts_digit {
+                let (code, city) = p.split_once(' ').unwrap_or((p, ""));
+                a.postal_code = code.to_owned();
+                a.city = city.trim().to_owned();
+                after_city = true;
+            } else if after_city {
+                if a.country.is_empty() {
+                    a.country = (*p).to_owned();
+                } else {
+                    a.country = format!("{}, {p}", a.country);
+                }
+            } else if a.city.is_empty() && rest.len() == 1 {
+                a.city = (*p).to_owned();
+            } else if a.extended.is_empty() {
+                a.extended = (*p).to_owned();
+            } else {
+                a.city = (*p).to_owned();
+            }
+        }
+        a
+    }
+
     pub fn one_line(&self) -> String {
         let city = [self.postal_code.as_str(), self.city.as_str()]
             .iter()
@@ -95,6 +134,60 @@ impl PartialDate {
         let month: u8 = rest[..2].parse().ok()?;
         let day: u8 = rest[2..].parse().ok()?;
         ((1..=12).contains(&month) && (1..=31).contains(&day)).then_some(Self { year, month, day })
+    }
+
+    /// Reads a date as people type it: ISO and vCard forms, `12/03` or `12/03/1990` (day first),
+    /// `Mar 12`, `12 mars`, `March 12, 1990`.
+    pub fn read(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if let Some(d) = Self::parse(s) {
+            return Some(d);
+        }
+        let ok = |y: Option<i32>, m: u32, d: u32| {
+            ((1..=12).contains(&m) && (1..=31).contains(&d)).then_some(Self {
+                year: y,
+                month: m as u8,
+                day: d as u8,
+            })
+        };
+        let year = |w: &str| w.parse::<i32>().ok().filter(|y| (1000..=9999).contains(y));
+        let nums: Vec<&str> = s.split(['/', '.', '-']).map(str::trim).collect();
+        if nums.len() >= 2
+            && nums
+                .iter()
+                .all(|n| n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty())
+        {
+            let d = nums[0].parse().ok()?;
+            let m = nums[1].parse().ok()?;
+            let y = match nums.get(2) {
+                Some(w) => Some(year(w)?),
+                None => None,
+            };
+            return ok(y, m, d);
+        }
+        let words: Vec<&str> = s
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|w| !w.is_empty())
+            .collect();
+        let m = words.iter().find_map(|w| crate::import_csv::month(w))?;
+        let mut digits = words
+            .iter()
+            .filter(|w| w.chars().all(|c| c.is_ascii_digit()) || w.ends_with("er"));
+        let d = digits.next()?.trim_end_matches("er").parse().ok()?;
+        let y = digits.next().and_then(|w| year(w));
+        ok(y, m, d)
+    }
+
+    /// `Mar 12` or `Mar 12, 1990`.
+    pub fn display(&self) -> String {
+        const M: [&str; 12] = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        let m = M[usize::from(self.month.clamp(1, 12) - 1)];
+        match self.year {
+            Some(y) => format!("{m} {}, {y}", self.day),
+            None => format!("{m} {}", self.day),
+        }
     }
 
     pub fn to_vcard(&self) -> String {
@@ -182,6 +275,54 @@ impl Contact {
         c.given = given.to_owned();
         c.family = family.to_owned();
         c
+    }
+
+    /// Sets the name from one box: the last word is the family name, the rest the given names
+    /// (`Camille Dubois`, `Jean-Pierre de La Tour` → given `Jean-Pierre de La`, family `Tour`).
+    /// An organisation keeps the text as its company name.
+    pub fn set_full_name(&mut self, s: &str) {
+        let s = s.trim();
+        if self.kind == ContactKind::Organization {
+            self.company = s.to_owned();
+            return;
+        }
+        self.prefix.clear();
+        self.additional.clear();
+        self.suffix.clear();
+        match s.rsplit_once(char::is_whitespace) {
+            Some((g, f)) => {
+                self.given = g.trim().to_owned();
+                self.family = f.to_owned();
+            }
+            None => {
+                self.given = s.to_owned();
+                self.family.clear();
+            }
+        }
+    }
+
+    /// Plain text card (Copy button): name, title, emails, phones, addresses.
+    pub fn text_card(&self) -> String {
+        let mut lines = vec![self.display_name()];
+        let sub = [self.job_title.as_str(), self.company.as_str()]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !sub.is_empty() && sub != lines[0] {
+            lines.push(sub);
+        }
+        for e in &self.emails {
+            lines.push(format!("{}: {}", e.label, e.value));
+        }
+        for p in &self.phones {
+            lines.push(format!("{}: {}", p.label, p.value));
+        }
+        for a in &self.addresses {
+            lines.push(format!("{}: {}", a.label, a.value.one_line()));
+        }
+        lines.join("\n")
     }
 
     /// Name as displayed and sorted: "Given Family", or the company for organisations.
@@ -306,6 +447,39 @@ impl Contact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_values() {
+        let a = Address::parse_line("12 rue de l'Exemple, 69002 Lyon, France");
+        assert_eq!(
+            (
+                a.street.as_str(),
+                a.postal_code.as_str(),
+                a.city.as_str(),
+                a.country.as_str()
+            ),
+            ("12 rue de l'Exemple", "69002", "Lyon", "France")
+        );
+        assert_eq!(a.one_line(), "12 rue de l'Exemple, 69002 Lyon, France");
+        let d = |s| PartialDate::read(s).map(|d| (d.year, d.month, d.day));
+        assert_eq!(d("12/03"), Some((None, 3, 12)));
+        assert_eq!(d("12/03/1990"), Some((Some(1990), 3, 12)));
+        assert_eq!(d("Mar 12"), Some((None, 3, 12)));
+        assert_eq!(d("12 mars 1990"), Some((Some(1990), 3, 12)));
+        assert_eq!(d("1er avril"), Some((None, 4, 1)));
+        assert_eq!(d("1990-03-12"), Some((Some(1990), 3, 12)));
+        assert_eq!(d("31/02/x"), None);
+        assert_eq!(
+            PartialDate::read("Mar 12, 1990").unwrap().display(),
+            "Mar 12, 1990"
+        );
+        let mut c = Contact::new(SpaceId::new());
+        c.set_full_name("Jean-Pierre de La Tour");
+        assert_eq!(
+            (c.given.as_str(), c.family.as_str()),
+            ("Jean-Pierre de La", "Tour")
+        );
+    }
 
     #[test]
     fn names_and_dates() {

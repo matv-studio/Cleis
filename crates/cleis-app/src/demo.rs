@@ -320,6 +320,31 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
         }
         cs.push(c);
     }
+    // Organisation folders, and a duplicate for Merge & fix (screen 21).
+    let suppliers = v.create_space(
+        "Suppliers",
+        SpaceKind::Organization,
+        EncryptionMode::Standard,
+        true,
+    )?;
+    v.create_space(
+        "Clients",
+        SpaceKind::Organization,
+        EncryptionMode::Standard,
+        true,
+    )?;
+    let mut dup = Contact::person(suppliers, "C.", "Dubois");
+    dup.company = "Example Print".into();
+    dup.emails
+        .push(Labeled::new("Work", "camille@example-print.com".into()));
+    dup.phones
+        .push(Labeled::new("Mobile", "+33 6 99 00 12 35".into()));
+    cs.push(dup);
+    if let Some(c) = cs.iter_mut().find(|c| c.given == "Camille")
+        && let Some(e) = entries.iter().find(|e| e.name == "Figma")
+    {
+        c.linked_entries.push(e.id);
+    }
     v.put_contacts(&cs)?;
     Ok(())
 }

@@ -202,6 +202,9 @@ impl CleisApp {
                     s.toast = Some("Deleted".into());
                 }
             }
+            ConfirmAction::DeleteContact(id) => {
+                self.delete_contact(id);
+            }
             ConfirmAction::EmptyTrash => {
                 let ids: Vec<_> = s.trash.iter().map(|e| e.id).collect();
                 let mut failed = 0;
