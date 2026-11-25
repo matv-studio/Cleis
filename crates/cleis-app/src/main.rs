@@ -1,4 +1,9 @@
-//! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked]`
+//! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
+//! [--quick-access]`
+
+// Release builds on Windows are a GUI program: no console window behind Cleis.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![forbid(unsafe_code)]
 
 use cleis_app::app::CleisApp;
 use cleis_app::theme::{self, Mode};
@@ -38,6 +43,8 @@ fn main() {
     let unlocked = flag("--unlocked") && flag("--demo");
     let tab = value("--tab");
     let page = value("--page");
+    let demo = flag("--demo");
+    let quick_access = flag("--quick-access") && unlocked;
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
@@ -63,6 +70,11 @@ fn main() {
             gpui_kit::open_window(opts, cx, move |window, cx| {
                 cx.new(|cx| {
                     let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
+                    if demo {
+                        // Demo and screenshots: never take the system's shortcuts or type.
+                        app.no_shortcuts = true;
+                        app.autofill.dry_run = Some(vec![]);
+                    }
                     if unlocked
                         && let Ok(v) = cleis_store::LockedVault::open(&path)
                             .and_then(|l| l.unlock(cleis_app::demo::PASSWORD))
@@ -78,11 +90,27 @@ fn main() {
                             if let Some(p) = page.as_deref() {
                                 s.settings_page = match p {
                                     "autofill" => "Autofill",
+                                    "sync" => "Sync & backups",
                                     "security" => "Security",
                                     _ => "Preferences",
                                 };
                             }
                         }
+                    }
+                    if quick_access {
+                        // Screen 17 for screenshots: as if pressed over a desktop app.
+                        app.open_quick_access(
+                            cleis_autofill::Foreground {
+                                window: cleis_autofill::WindowRef(0),
+                                context: cleis_core::autofill::Context {
+                                    program: "figma.exe".into(),
+                                    app_name: "Figma".into(),
+                                    title: "Figma".into(),
+                                    url: None,
+                                },
+                            },
+                            cx,
+                        );
                     }
                     app
                 })

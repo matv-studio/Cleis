@@ -61,6 +61,12 @@ pub struct Session {
     pub visible: Vec<usize>,
     pub selected_contact: Option<cleis_core::ContactId>,
     pub settings_page: &'static str,
+    /// Shortcut being recorded in Settings › Autofill (`"qa"` or `"best"`).
+    pub recording: Option<&'static str>,
+    /// Takes the keyboard while a shortcut is recorded.
+    pub keys_focus: gpui_kit::FocusHandle,
+    /// Main window shortcuts (Ctrl+L lock, Ctrl+F search) when no field has the focus.
+    pub main_focus: gpui_kit::FocusHandle,
 }
 
 impl Session {
@@ -106,6 +112,11 @@ pub struct CleisApp {
     pub phase: Phase,
     /// Theme forced on the command line (screenshots); otherwise preferences decide.
     pub forced_mode: Option<Mode>,
+    /// Main window, brought back when a shortcut is pressed while the vault is locked.
+    pub main_window: Option<gpui_kit::AnyWindowHandle>,
+    pub autofill: crate::autofill::AutofillState,
+    /// Screenshots and tests: never take the system shortcuts.
+    pub no_shortcuts: bool,
     _ticker: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -143,6 +154,9 @@ impl CleisApp {
                 busy: false,
             }),
             forced_mode,
+            main_window: Some(window.window_handle()),
+            autofill: Default::default(),
+            no_shortcuts: false,
             _ticker: ticker,
             _subs: vec![],
         };
@@ -342,9 +356,16 @@ impl CleisApp {
             visible: vec![],
             selected_contact: None,
             settings_page: "Preferences",
+            recording: None,
+            keys_focus: cx.focus_handle(),
+            main_focus: cx.focus_handle(),
         };
         s.refilter();
+        window.focus(&s.main_focus.clone(), cx);
         self.phase = Phase::Main(Box::new(s));
+        if !cfg!(test) && !self.no_shortcuts {
+            self.sync_autofill(cx);
+        }
         cx.notify();
     }
 
@@ -364,6 +385,29 @@ impl CleisApp {
         theme::apply(&a, cx);
         save_appearance(prefs);
         cx.notify();
+    }
+
+    /// Short message at the bottom of the main window.
+    pub fn toast(&mut self, msg: impl Into<SharedString>, cx: &mut Context<Self>) {
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        let msg: SharedString = msg.into();
+        s.toast = Some(msg.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(4)).await;
+            this.update(cx, |this, cx| {
+                if let Phase::Main(s) = &mut this.phase
+                    && s.toast.as_ref() == Some(&msg)
+                {
+                    s.toast = None;
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Copies a secret and clears the clipboard after the preference delay, if unchanged.

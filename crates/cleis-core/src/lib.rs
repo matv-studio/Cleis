@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod autofill;
 pub mod column;
 pub mod contact;
 pub mod dedupe;

@@ -27,7 +27,7 @@ pub fn render(
         Tab::Vault => vault_page(s, &t, window, cx).into_any_element(),
         Tab::Contacts => super::contacts::page(s, &t, cx).into_any_element(),
         Tab::Health => super::health::page(s, &t, cx).into_any_element(),
-        Tab::Settings => super::settings::page(s, &t, cx).into_any_element(),
+        Tab::Settings => super::settings::page(s, &app.autofill, &t, cx).into_any_element(),
     };
     let toast = s.toast.clone();
     div()
@@ -38,6 +38,37 @@ pub fn render(
         .font_family(FONT)
         .text_size(TEXT_MD)
         .text_color(t.text)
+        .track_focus(&s.main_focus)
+        .on_key_down(
+            cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                let k = &ev.keystroke;
+                let cmd = if cfg!(target_os = "macos") {
+                    k.modifiers.platform
+                } else {
+                    k.modifiers.control
+                };
+                if !cmd || k.modifiers.alt || k.modifiers.shift {
+                    return;
+                }
+                match k.key.as_str() {
+                    // Tooltip of the lock button (mockup 01): "Lock (Ctrl+L)".
+                    "l" => {
+                        cx.stop_propagation();
+                        this.lock(window, cx);
+                    }
+                    "f" => {
+                        cx.stop_propagation();
+                        if let Some(s) = this.session() {
+                            let search = s.search.clone();
+                            s.tab = crate::app::Tab::Vault;
+                            search.update(cx, |st, cx| st.focus(window, cx));
+                        }
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }),
+        )
         .child(topbar(s, &t, cx))
         .child(
             div()
