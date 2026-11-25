@@ -358,3 +358,122 @@ fn edit_item_trash_restore_purge(cx: &mut TestAppContext) {
             .all(|e| e.id != id)
     );
 }
+
+/// Scenario (screen 02): add a "Cancellation date" date column for all spaces, fill it in the
+/// inspector (a wrong date is refused), hide a column, then delete the new column.
+#[gpui_kit::test]
+fn custom_column_add_fill_hide_delete(cx: &mut TestAppContext) {
+    use cleis_core::column::{Table, Value};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("columns", cx));
+    act(cx, h, |w, cx| w.click("col-new", cx));
+    act(cx, h, |w, cx| {
+        w.input("Cancellation date", cx);
+        w.click("kind-Date", cx);
+        w.click("col-create", cx);
+    });
+    let col = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s
+            .columns
+            .iter()
+            .find(|c| c.name == "Cancellation date")
+            .expect("created");
+        assert!(c.visible && !c.builtin);
+        assert!(s.columns_menu.as_ref().unwrap().creating.is_none());
+        c.id.clone()
+    });
+    // Hide "Username"; drag "Price" onto "Password" (it takes its place).
+    act(cx, h, |w, cx| w.click("col-username", cx));
+    act(cx, h, |w, cx| w.drag_to("col-price", "col-password", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let mut v: Vec<_> = s
+            .columns
+            .iter()
+            .filter(|c| c.table == Table::Vault)
+            .collect();
+        v.sort_by_key(|c| c.order);
+        let names: Vec<&str> = v.iter().map(|c| c.id.0.as_str()).take(4).collect();
+        assert_eq!(names, ["name", "username", "price", "password"]);
+    });
+
+    // Fill the new field of the selected item.
+    let figma = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries.iter().find(|e| e.name == "Figma").unwrap().id
+    });
+    app.update(cx, |a, cx| {
+        if let Some(s) = a.session() {
+            s.columns_menu = None;
+            s.selected = Some(figma);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let field: &'static str = format!("custom-{}", col.0).leak();
+    act(cx, h, |w, cx| {
+        w.click(field, cx);
+        w.input("31/02/2026x", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.editor.as_ref().unwrap().custom_errors.contains_key(&col));
+    });
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input("2027-01-15", cx);
+        w.press("enter", cx);
+    });
+    let reopened = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap();
+    let e = reopened
+        .entries()
+        .unwrap()
+        .into_iter()
+        .find(|e| e.id == figma)
+        .unwrap();
+    assert_eq!(e.fields.get(&col), Some(&Value::Date("2027-01-15".into())));
+    let cols = reopened.vault_columns().unwrap();
+    assert!(!cols.iter().find(|c| c.id.0 == "username").unwrap().visible);
+    assert!(cols.iter().any(|c| c.id == col && c.table == Table::Vault));
+    drop(reopened);
+
+    // Delete the column.
+    act(cx, h, |w, cx| w.click("columns", cx));
+    let del = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let mut v: Vec<_> = s
+            .columns
+            .iter()
+            .filter(|c| c.table == Table::Vault)
+            .collect();
+        v.sort_by_key(|c| c.order);
+        let i = v
+            .iter()
+            .filter(|c| c.visible)
+            .position(|c| c.id == col)
+            .unwrap();
+        format!("col-del-{i}")
+    });
+    let del: &'static str = del.leak();
+    let row: &'static str = format!("col-{}", col.0).leak();
+    act(cx, h, |w, cx| w.hover(row, cx));
+    act(cx, h, |w, cx| w.click(del, cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.columns.iter().all(|c| c.id != col));
+    });
+}

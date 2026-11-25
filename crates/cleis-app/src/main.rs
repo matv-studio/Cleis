@@ -1,5 +1,5 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
-//! [--quick-access] [--try-autofill]`
+//! [--quick-access] [--menu columns|new-column] [--try-autofill]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -62,6 +62,7 @@ fn main() {
     let tab = value("--tab");
     let page = value("--page");
     let quick_access = flag("--quick-access") && unlocked;
+    let menu = value("--menu").filter(|_| unlocked);
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
@@ -87,7 +88,7 @@ fn main() {
                 ..Default::default()
             };
             let path = path.clone();
-            let (tab, page) = (tab.clone(), page.clone());
+            let (tab, page, menu) = (tab.clone(), page.clone(), menu.clone());
             gpui_kit::open_window(opts, cx, move |window, cx| {
                 cx.new(|cx| {
                     let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
@@ -116,6 +117,17 @@ fn main() {
                                     _ => "Preferences",
                                 };
                             }
+                        }
+                    }
+                    if let Some(m) = menu.as_deref() {
+                        // Screen 02 for screenshots.
+                        if let Some(s) = app.session() {
+                            s.selected = None;
+                        }
+                        app.toggle_columns_menu(cx);
+                        if m == "new-column" {
+                            app.start_new_column(window, cx);
+                            app.demo_new_column(window, cx);
                         }
                     }
                     if quick_access {

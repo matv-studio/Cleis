@@ -4,8 +4,9 @@
 //! written (charter §6, field).
 
 use crate::app::{CleisApp, Phase};
-use cleis_core::EntryId;
+use cleis_core::column::{ColumnDef, ColumnKind, ColumnScope, Table, Value};
 use cleis_core::edit::{self, Field};
+use cleis_core::{ColumnId, EntryId};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Entity, SharedString, Subscription, Task, Window};
@@ -30,6 +31,9 @@ pub struct EntryEditor {
     pub notes: Entity<TextareaState>,
     /// Refused values, by field.
     pub errors: HashMap<Field, SharedString>,
+    /// Boxes of the custom columns that apply to the item's space, in column order.
+    pub custom: Vec<(ColumnDef, Entity<InputState>)>,
+    pub custom_errors: HashMap<ColumnId, SharedString>,
     /// 2FA key box open (always open while the item has no key).
     pub editing_totp: bool,
     pub menu: Option<Menu>,
@@ -79,6 +83,17 @@ impl CleisApp {
             .map(|f| (*f, edit::text(e, *f)))
             .collect();
         let has_totp = e.totp.is_some();
+        let space = e.space;
+        let custom_cols: Vec<(ColumnDef, String)> = editable_custom(&s.columns, space)
+            .into_iter()
+            .map(|c| {
+                let v = e
+                    .cell(&c)
+                    .map(|v| field_text(&v, &c.kind))
+                    .unwrap_or_default();
+                (c, v)
+            })
+            .collect();
         let mut inputs = HashMap::new();
         let mut subs = vec![];
         let mut totp = None;
@@ -117,6 +132,23 @@ impl CleisApp {
                 inputs.insert(f, st);
             }
         }
+        let mut custom = vec![];
+        for (c, v) in custom_cols {
+            let masked = matches!(c.kind, ColumnKind::Secret) && !reveal;
+            let st = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(masked)
+                    .placeholder(custom_placeholder(&c.kind))
+                    .default_value(v)
+            });
+            let cid = c.id.clone();
+            subs.push(
+                cx.subscribe_in(&st, window, move |this, _, ev: &InputEvent, _, cx| {
+                    this.on_custom_event(cid.clone(), ev, cx);
+                }),
+            );
+            custom.push((c, st));
+        }
         let (Some(totp), Some(notes)) = (totp, notes) else {
             return;
         };
@@ -127,6 +159,8 @@ impl CleisApp {
                 totp,
                 notes,
                 errors: HashMap::new(),
+                custom,
+                custom_errors: HashMap::new(),
                 editing_totp: !has_totp,
                 menu: None,
                 pending: None,
@@ -152,6 +186,66 @@ impl CleisApp {
             InputEvent::PressEnter { .. } | InputEvent::Blur => self.commit_field(f, cx),
             InputEvent::Focus => {}
         }
+    }
+
+    fn on_custom_event(&mut self, id: ColumnId, ev: &InputEvent, cx: &mut Context<Self>) {
+        match ev {
+            InputEvent::Change => {
+                let task = cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(700))
+                        .await;
+                    this.update(cx, |this, cx| this.commit_custom(&id, cx)).ok();
+                });
+                if let Some(ed) = self.editor_mut() {
+                    ed.pending = Some(task);
+                }
+            }
+            InputEvent::PressEnter { .. } | InputEvent::Blur => self.commit_custom(&id, cx),
+            InputEvent::Focus => {}
+        }
+    }
+
+    /// Writes one custom field of the selected item from its box.
+    pub fn commit_custom(&mut self, id: &ColumnId, cx: &mut Context<Self>) {
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        let Some(ed) = s.editor.as_mut() else { return };
+        let Some((col, st)) = ed.custom.iter().find(|(c, _)| &c.id == id) else {
+            return;
+        };
+        let text = st.read(cx).value().to_string();
+        let col = col.clone();
+        let entry = ed.entry;
+        let Some(e) = s.entries.iter_mut().find(|e| e.id == entry) else {
+            return;
+        };
+        match Value::parse(&col.kind, &text) {
+            Ok(v) => {
+                ed.custom_errors.remove(id);
+                let old = e.fields.get(id).cloned();
+                if old == v {
+                    cx.notify();
+                    return;
+                }
+                match v {
+                    Some(v) => e.fields.insert(id.clone(), v),
+                    None => e.fields.remove(id),
+                };
+                e.touch(None);
+                let r = s.vault.put_entry(e);
+                s.toast = Some(match r {
+                    Ok(()) => "Saved".into(),
+                    Err(err) => format!("Not saved: {err}").into(),
+                });
+            }
+            Err(_) => {
+                ed.custom_errors
+                    .insert(id.clone(), refused(&col.kind).into());
+            }
+        }
+        cx.notify();
     }
 
     fn editor_mut(&mut self) -> Option<&mut EntryEditor> {
@@ -233,6 +327,67 @@ impl CleisApp {
         {
             i.update(cx, |st, cx| st.set_masked(!reveal, window, cx));
         }
+        if let Some(ed) = s.editor.as_ref() {
+            for (c, i) in &ed.custom {
+                if matches!(c.kind, ColumnKind::Secret) {
+                    i.update(cx, |st, cx| st.set_masked(!reveal, window, cx));
+                }
+            }
+        }
         cx.notify();
+    }
+}
+
+/// Custom vault columns that apply to a space and can be typed into (formulas are computed).
+pub fn editable_custom(cols: &[ColumnDef], space: cleis_core::SpaceId) -> Vec<ColumnDef> {
+    let mut v: Vec<ColumnDef> = cols
+        .iter()
+        .filter(|c| c.table == Table::Vault && !c.builtin)
+        .filter(|c| match c.scope {
+            ColumnScope::AllSpaces => true,
+            ColumnScope::Space(sp) => sp == space,
+        })
+        .filter(|c| !matches!(c.kind, ColumnKind::Formula { .. }))
+        .cloned()
+        .collect();
+    v.sort_by_key(|c| c.order);
+    v
+}
+
+/// Text put in a custom field's box: dates stay ISO so they read back unchanged.
+fn field_text(v: &Value, kind: &ColumnKind) -> String {
+    match v {
+        Value::Date(d) => d.clone(),
+        _ => v.display(kind),
+    }
+}
+
+fn custom_placeholder(kind: &ColumnKind) -> &'static str {
+    match kind {
+        ColumnKind::Date => "2026-12-03",
+        ColumnKind::Number { .. } => "0",
+        ColumnKind::Price { .. } => "€15 / month",
+        ColumnKind::Url => "example.com",
+        ColumnKind::Email => "name@example.com",
+        ColumnKind::Checkbox => "Yes or No",
+        ColumnKind::Choice { .. } => "One of the options",
+        _ => "",
+    }
+}
+
+fn refused(kind: &ColumnKind) -> String {
+    match kind {
+        ColumnKind::Date => "Not a date".into(),
+        ColumnKind::Number { .. } => "Not a number".into(),
+        ColumnKind::Price { .. } => "Not a price".into(),
+        ColumnKind::Choice { options } => format!(
+            "One of: {}",
+            options
+                .iter()
+                .map(|o| o.label.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => "Not accepted".into(),
     }
 }

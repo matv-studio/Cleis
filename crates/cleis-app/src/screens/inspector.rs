@@ -496,6 +496,27 @@ fn details(
             )
         })
         .child(kv("Renewal", Field::Renewal, cx));
+    for (c, st) in &ed.custom {
+        let err = ed.custom_errors.get(&c.id).cloned();
+        let inp = Input::new(st).id(SharedString::from(format!("custom-{}", c.id.0)));
+        d = d.child(field(
+            t,
+            &c.name,
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .rounded(RADIUS_MD)
+                        .when(err.is_some(), |d| d.border_1().border_color(t.danger_text))
+                        .child(inp),
+                )
+                .when_some(err, |d, e| {
+                    d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+                }),
+        ));
+    }
     d = d.child(sub);
     d.child(
         div()

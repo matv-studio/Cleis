@@ -12,6 +12,7 @@ shot() { # name, args...
 for theme in dark light; do
   shot "unlock-$theme" --demo --theme $theme
   shot "vault-$theme" --demo --unlocked --theme $theme
+  shot "columns-$theme" --demo --unlocked --menu new-column --theme $theme
   shot "contacts-$theme" --demo --unlocked --tab contacts --theme $theme
   shot "health-$theme" --demo --unlocked --tab health --theme $theme
   shot "preferences-$theme" --demo --unlocked --tab settings --theme $theme

@@ -567,10 +567,32 @@ fn row_cell(
                     )
                     .into_any_element();
             }
-            let text = e
-                .cell(c)
-                .and_then(|v| v.as_text().map(str::to_owned))
-                .unwrap_or_default();
+            let Some(v) = e.cell(c) else {
+                return base.into_any_element();
+            };
+            if matches!(c.kind, ColumnKind::Secret) {
+                return base
+                    .text_color(t.text_muted)
+                    .child("••••••")
+                    .into_any_element();
+            }
+            if let (cleis_core::column::Value::Choice(id), ColumnKind::Choice { options }) =
+                (&v, &c.kind)
+            {
+                let o = options.iter().find(|o| &o.id == id);
+                let tone = match o.and_then(|o| o.tone.as_deref()) {
+                    Some("ok") => Tone::Ok,
+                    Some("warn") => Tone::Warn,
+                    Some("danger") => Tone::Danger,
+                    Some("set") => Tone::Set,
+                    Some("auto") => Tone::Auto,
+                    _ => Tone::Neutral,
+                };
+                return base
+                    .child(chip(t, tone, v.display(&c.kind), false))
+                    .into_any_element();
+            }
+            let text = v.display(&c.kind);
             base.text_color(t.text_muted)
                 .child(div().overflow_hidden().text_ellipsis().child(text))
                 .into_any_element()
@@ -677,6 +699,7 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         div()
             .flex_1()
             .min_w_0()
+            .relative()
             .flex()
             .flex_col()
             .child(
@@ -702,9 +725,21 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                             .child("Filter"),
                     )
                     .child(
-                        button("columns", t, BtnKind::Ghost, false)
-                            .child(icon("columns", 16., t.text_muted))
-                            .child("Columns"),
+                        div()
+                            .relative()
+                            .child(
+                                button("columns", t, BtnKind::Ghost, false)
+                                    .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
+                                    .child(icon("columns", 16., t.text_muted))
+                                    .child("Columns")
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.toggle_columns_menu(cx)),
+                                    )
+                                    .test_support(),
+                            )
+                            .when_some(s.columns_menu.as_ref(), |d, m| {
+                                d.child(gpui_kit::deferred(super::columns::menu(s, m, t, cx)))
+                            }),
                     ),
             )
             .child(head)

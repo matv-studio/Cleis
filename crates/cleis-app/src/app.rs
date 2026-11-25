@@ -90,6 +90,8 @@ pub struct Session {
     pub history_tab: bool,
     /// Question shown over the window.
     pub confirm: Option<Confirm>,
+    /// Columns menu of the vault (screen 02).
+    pub columns_menu: Option<crate::screens::columns::ColumnsMenu>,
 }
 
 impl Session {
@@ -392,6 +394,7 @@ impl CleisApp {
             editor: None,
             history_tab: false,
             confirm: None,
+            columns_menu: None,
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);

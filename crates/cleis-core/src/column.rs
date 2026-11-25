@@ -199,6 +199,216 @@ pub fn default_contact_columns() -> Vec<ColumnDef> {
     ]
 }
 
+/// Kinds offered when creating a column (screen 02), in menu order.
+pub const NEW_KINDS: [(&str, &str); 9] = [
+    ("text", "Text"),
+    ("secret", "Secret text"),
+    ("number", "Number"),
+    ("price", "Price"),
+    ("date", "Date"),
+    ("choice", "Choice list"),
+    ("totp", "2FA code"),
+    ("formula", "Formula"),
+    ("url", "Web address"),
+];
+
+/// Builds the kind chosen in the "New column" form. `extra` holds the formula, or the choice
+/// options separated by commas.
+pub fn kind_from(key: &str, extra: &str, currency: &str) -> Result<ColumnKind, ColumnError> {
+    Ok(match key {
+        "text" => ColumnKind::Text,
+        "secret" => ColumnKind::Secret,
+        "number" => ColumnKind::Number { decimals: 2 },
+        "price" => ColumnKind::Price {
+            currency: currency.to_owned(),
+            default_period: None,
+        },
+        "date" => ColumnKind::Date,
+        "choice" => {
+            let options: Vec<ChoiceOption> = extra
+                .split(',')
+                .map(str::trim)
+                .filter(|o| !o.is_empty())
+                .map(|o| ChoiceOption {
+                    id: crate::text::fold(o),
+                    label: o.to_owned(),
+                    tone: None,
+                })
+                .collect();
+            if options.is_empty() {
+                return Err(ColumnError::NoOptions);
+            }
+            ColumnKind::Choice { options }
+        }
+        "totp" => ColumnKind::Totp,
+        "formula" => {
+            if extra.trim().is_empty() {
+                return Err(ColumnError::NoFormula);
+            }
+            ColumnKind::Formula {
+                expr: extra.trim().to_owned(),
+            }
+        }
+        "url" => ColumnKind::Url,
+        _ => ColumnKind::Text,
+    })
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ColumnError {
+    #[error("A name is required")]
+    NoName,
+    #[error("A column with this name exists")]
+    Taken,
+    #[error("Give at least one option")]
+    NoOptions,
+    #[error("Write the formula, e.g. [Price] * 12")]
+    NoFormula,
+    #[error("Built-in columns can be hidden, not deleted")]
+    Builtin,
+}
+
+/// Adds a custom column at the end of its table's shown columns.
+pub fn add_custom(
+    cols: &mut Vec<ColumnDef>,
+    table: Table,
+    name: &str,
+    kind: ColumnKind,
+    scope: ColumnScope,
+) -> Result<ColumnId, ColumnError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(ColumnError::NoName);
+    }
+    let folded = crate::text::fold(name);
+    if cols
+        .iter()
+        .any(|c| c.table == table && crate::text::fold(&c.name) == folded)
+    {
+        return Err(ColumnError::Taken);
+    }
+    let order = cols
+        .iter()
+        .filter(|c| c.table == table)
+        .map(|c| c.order)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let id = ColumnId::custom();
+    cols.push(ColumnDef {
+        id: id.clone(),
+        table,
+        name: name.to_owned(),
+        kind,
+        scope,
+        builtin: false,
+        visible: true,
+        width: None,
+        order,
+    });
+    Ok(id)
+}
+
+/// Deletes a custom column (its values stay in the items until they are next edited).
+pub fn remove_custom(cols: &mut Vec<ColumnDef>, id: &ColumnId) -> Result<(), ColumnError> {
+    match cols.iter().position(|c| &c.id == id) {
+        Some(i) if cols[i].builtin => Err(ColumnError::Builtin),
+        Some(i) => {
+            cols.remove(i);
+            Ok(())
+        }
+        None => Ok(()),
+    }
+}
+
+/// Moves `id` to position `to` among its table's columns and renumbers them.
+pub fn reorder(cols: &mut [ColumnDef], id: &ColumnId, to: usize) {
+    let Some(table) = cols.iter().find(|c| &c.id == id).map(|c| c.table) else {
+        return;
+    };
+    let mut ids: Vec<(i32, ColumnId)> = cols
+        .iter()
+        .filter(|c| c.table == table)
+        .map(|c| (c.order, c.id.clone()))
+        .collect();
+    ids.sort();
+    let mut ids: Vec<ColumnId> = ids.into_iter().map(|(_, i)| i).collect();
+    let Some(from) = ids.iter().position(|i| i == id) else {
+        return;
+    };
+    let moved = ids.remove(from);
+    ids.insert(to.min(ids.len()), moved);
+    for c in cols.iter_mut().filter(|c| c.table == table) {
+        if let Some(p) = ids.iter().position(|i| i == &c.id) {
+            c.order = p as i32;
+        }
+    }
+}
+
+/// A value that does not fit its column's type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BadValue;
+
+impl Value {
+    /// Reads a typed value for a custom column; empty text clears it.
+    pub fn parse(kind: &ColumnKind, text: &str) -> Result<Option<Value>, BadValue> {
+        let v = text.trim();
+        if v.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(match kind {
+            ColumnKind::Text
+            | ColumnKind::Secret
+            | ColumnKind::Url
+            | ColumnKind::Email
+            | ColumnKind::Phone
+            | ColumnKind::Totp => Value::Text(v.to_owned()),
+            ColumnKind::Number { .. } => Value::Number(
+                v.replace(',', ".")
+                    .replace([' ', '\u{a0}', '\u{202f}'], "")
+                    .parse::<f64>()
+                    .map_err(|_| BadValue)?,
+            ),
+            ColumnKind::Price {
+                currency,
+                default_period,
+            } => Value::Money(Money::parse(v, currency, *default_period).ok_or(BadValue)?),
+            ColumnKind::Date => Value::Date(crate::import_csv::parse_date(v).ok_or(BadValue)?),
+            ColumnKind::Choice { options } => {
+                let f = crate::text::fold(v);
+                let o = options
+                    .iter()
+                    .find(|o| crate::text::fold(&o.label) == f || o.id == f)
+                    .ok_or(BadValue)?;
+                Value::Choice(o.id.clone())
+            }
+            ColumnKind::Checkbox => Value::Bool(matches!(
+                crate::text::fold(v).as_str(),
+                "yes" | "oui" | "true" | "vrai" | "1" | "x"
+            )),
+            ColumnKind::Formula { .. } => return Err(BadValue),
+        }))
+    }
+
+    /// Text shown in a cell or a box.
+    pub fn display(&self, kind: &ColumnKind) -> String {
+        match (self, kind) {
+            (Value::Choice(id), ColumnKind::Choice { options }) => options
+                .iter()
+                .find(|o| &o.id == id)
+                .map(|o| o.label.clone())
+                .unwrap_or_else(|| id.clone()),
+            (Value::Text(s) | Value::Date(s) | Value::Choice(s), _) => s.clone(),
+            (Value::Number(n), ColumnKind::Number { decimals }) => {
+                format!("{n:.*}", usize::from(*decimals))
+            }
+            (Value::Number(n), _) => n.to_string(),
+            (Value::Money(m), _) => crate::edit::price_text(m),
+            (Value::Bool(b), _) => if *b { "Yes" } else { "No" }.into(),
+        }
+    }
+}
+
 /// Visible columns of one table for one space, in display order.
 pub fn visible_columns(
     cols: &[ColumnDef],
@@ -221,6 +431,70 @@ pub fn visible_columns(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_columns_add_reorder_remove() {
+        let mut cols = default_vault_columns("EUR");
+        let id = add_custom(
+            &mut cols,
+            Table::Vault,
+            "Cancellation date",
+            kind_from("date", "", "EUR").unwrap(),
+            ColumnScope::AllSpaces,
+        )
+        .unwrap();
+        assert_eq!(
+            add_custom(
+                &mut cols,
+                Table::Vault,
+                "cancellation DATE",
+                ColumnKind::Text,
+                ColumnScope::AllSpaces
+            ),
+            Err(ColumnError::Taken)
+        );
+        assert_eq!(
+            add_custom(
+                &mut cols,
+                Table::Vault,
+                " ",
+                ColumnKind::Text,
+                ColumnScope::AllSpaces
+            ),
+            Err(ColumnError::NoName)
+        );
+        reorder(&mut cols, &id, 1);
+        let v = visible_columns(&cols, Table::Vault, None);
+        assert_eq!(v[1].name, "Cancellation date");
+        assert_eq!(v[0].name, "Name");
+        let name = cols.iter().find(|c| c.id.0 == "name").unwrap().id.clone();
+        assert_eq!(remove_custom(&mut cols, &name), Err(ColumnError::Builtin));
+        remove_custom(&mut cols, &id).unwrap();
+        assert!(cols.iter().all(|c| c.id != id));
+        assert_eq!(
+            kind_from("choice", " , ", "EUR"),
+            Err(ColumnError::NoOptions)
+        );
+        assert_eq!(kind_from("formula", "", "EUR"), Err(ColumnError::NoFormula));
+    }
+
+    #[test]
+    fn values_parse_and_display() {
+        let choice = kind_from("choice", "Monthly, Yearly", "EUR").unwrap();
+        let v = Value::parse(&choice, "yearly").unwrap().unwrap();
+        assert_eq!(v.display(&choice), "Yearly");
+        assert!(Value::parse(&choice, "weekly").is_err());
+        let n = ColumnKind::Number { decimals: 2 };
+        assert_eq!(
+            Value::parse(&n, "1 234,5").unwrap().unwrap().display(&n),
+            "1234.50"
+        );
+        assert_eq!(
+            Value::parse(&ColumnKind::Date, "3 Dec 2026").unwrap(),
+            Some(Value::Date("2026-12-03".into()))
+        );
+        assert_eq!(Value::parse(&ColumnKind::Text, "  "), Ok(None));
+    }
 
     #[test]
     fn defaults_and_filtering() {
