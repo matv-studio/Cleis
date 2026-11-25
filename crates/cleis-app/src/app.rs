@@ -27,6 +27,21 @@ pub enum Filter {
     Favorites,
     RenewSoon,
     Space(cleis_core::SpaceId),
+    Trash,
+}
+
+/// A question asked before an action that cannot be undone.
+pub struct Confirm {
+    pub title: SharedString,
+    pub body: SharedString,
+    pub button: SharedString,
+    pub action: ConfirmAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfirmAction {
+    PurgeEntry(EntryId),
+    EmptyTrash,
 }
 
 pub struct Welcome {
@@ -46,6 +61,8 @@ pub struct Unlock {
 pub struct Session {
     pub vault: Vault,
     pub entries: Vec<Entry>,
+    /// Items in the trash (restorable until emptied).
+    pub trash: Vec<Entry>,
     pub contacts: Vec<Contact>,
     pub spaces: Vec<SpaceInfo>,
     pub columns: Vec<ColumnDef>,
@@ -67,6 +84,12 @@ pub struct Session {
     pub keys_focus: gpui_kit::FocusHandle,
     /// Main window shortcuts (Ctrl+L lock, Ctrl+F search) when no field has the focus.
     pub main_focus: gpui_kit::FocusHandle,
+    /// Boxes of the selected item (inspector).
+    pub editor: Option<crate::editor::EntryEditor>,
+    /// Inspector on its History tab.
+    pub history_tab: bool,
+    /// Question shown over the window.
+    pub confirm: Option<Confirm>,
 }
 
 impl Session {
@@ -81,12 +104,17 @@ impl Session {
                 Filter::Favorites => e.favorite,
                 Filter::RenewSoon => e.subscription == cleis_core::Subscription::RenewSoon,
                 Filter::Space(s) => e.space == s,
+                Filter::Trash => false,
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
             .map(|(i, _)| i)
             .collect();
         v.sort_by_key(|i| cleis_core::text::fold(&self.entries[*i].name));
         self.visible = v;
+        // The trash view has its own list: the vault selection waits for the return.
+        if self.filter == Filter::Trash {
+            return;
+        }
         if self
             .selected
             .is_none_or(|s| !self.visible.iter().any(|i| self.entries[*i].id == s))
@@ -309,13 +337,14 @@ impl CleisApp {
         let load = || -> cleis_store::Result<_> {
             Ok((
                 vault.entries()?,
+                vault.trashed_entries()?,
                 vault.contacts()?,
                 vault.spaces()?,
                 vault.vault_columns()?,
                 vault.preferences()?,
             ))
         };
-        let (entries, contacts, spaces, columns, prefs) = match load() {
+        let (entries, trash, contacts, spaces, columns, prefs) = match load() {
             Ok(x) => x,
             Err(e) => {
                 self.phase = Phase::Unlock(Unlock {
@@ -342,6 +371,7 @@ impl CleisApp {
         let mut s = Session {
             vault,
             entries,
+            trash,
             contacts,
             spaces,
             columns,
@@ -359,6 +389,9 @@ impl CleisApp {
             recording: None,
             keys_focus: cx.focus_handle(),
             main_focus: cx.focus_handle(),
+            editor: None,
+            history_tab: false,
+            confirm: None,
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);

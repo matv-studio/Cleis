@@ -1,7 +1,9 @@
 pub mod contacts;
 pub mod health;
+pub mod inspector;
 pub mod main;
 pub mod quick_access;
 pub mod settings;
+pub mod trash;
 pub mod unlock;
 pub mod welcome;

@@ -12,7 +12,7 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, Div, Hsla, SharedString, Window, div, px, uniform_list};
+use gpui_kit::{AnyElement, Context, Div, SharedString, Window, div, px, uniform_list};
 
 pub fn render(
     app: &mut CleisApp,
@@ -20,6 +20,7 @@ pub fn render(
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement {
     let t = app.tokens(cx).clone();
+    app.ensure_editor(window, cx);
     let Phase::Main(s) = &app.phase else {
         unreachable!()
     };
@@ -111,6 +112,9 @@ pub fn render(
                 }),
         )
         .child(topbar(s, &t, cx))
+        .when_some(s.confirm.as_ref(), |d, c| {
+            d.child(super::trash::dialog(c, &t, cx))
+        })
 }
 
 fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
@@ -299,6 +303,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 }
                 cx.notify();
             }))
+            .test_support()
     };
     let group = |label: &str| {
         div()
@@ -385,7 +390,14 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             ));
         }
     }
-    d.child(div().flex_1())
+    d.child(div().flex_1()).child(item(
+        "f-trash",
+        "trash",
+        "Trash".into(),
+        (!s.trash.is_empty()).then_some(s.trash.len()),
+        Filter::Trash,
+        cx,
+    ))
 }
 
 /// Width of each built-in column, as in mockup 01.
@@ -725,9 +737,14 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 .min_h_0()
                 .flex()
                 .child(sidebar(s, t, cx))
-                .child(center)
-                .when_some(s.selected_entry().cloned(), |d, e| {
-                    d.child(inspector(s, &e, t, cx))
+                .when(s.filter == Filter::Trash, |d| {
+                    d.child(super::trash::page(s, t, cx))
+                })
+                .when(s.filter != Filter::Trash, |d| {
+                    d.child(center)
+                        .when_some(s.selected_entry().cloned(), |d, e| {
+                            d.child(super::inspector::render(s, &e, t, cx))
+                        })
                 }),
         )
         .child(statusbar(s, t))
@@ -804,297 +821,6 @@ fn statusbar(s: &Session, t: &Tokens) -> Div {
         .child("Saved")
 }
 
-fn inspector(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let id = e.id;
-    let now = cleis_core::now();
-    let space = s
-        .spaces
-        .iter()
-        .find(|sp| sp.id == e.space)
-        .map(|sp| sp.name.clone())
-        .unwrap_or_default();
-    let copy_btn = |key: &str, value: String, what: &'static str, cx: &mut Context<CleisApp>| {
-        icon_button(SharedString::from(format!("{key}-{id}")), t, "copy", true)
-            .on_click(cx.listener(move |this, _, _, cx| this.copy(value.clone(), what, cx)))
-    };
-    let strength = cleis_core::generator::entropy_bits(&e.password);
-    let level = if e.password.is_empty() {
-        0
-    } else if strength >= 90. {
-        4
-    } else if strength >= 70. {
-        3
-    } else if strength >= 50. {
-        2
-    } else {
-        1
-    };
-    let bar_color: Hsla = match level {
-        4 | 3 => t.success_text,
-        2 => t.warning_text,
-        _ => t.danger_text,
-    };
-    let mut bars = div().flex().gap(px(3.));
-    for i in 0..4 {
-        bars = bars.child(div().flex_1().h(px(3.)).rounded(px(2.)).bg(if i < level {
-            bar_color
-        } else {
-            t.line_strong
-        }));
-    }
-    let website = e.urls.first().cloned();
-    let yearly = cleis_core::column::default_vault_columns("EUR")
-        .iter()
-        .find(|c| c.id.0 == "yearly_cost")
-        .and_then(|c| {
-            if let ColumnKind::Formula { expr } = &c.kind {
-                e.compute(expr, &s.columns).ok().flatten()
-            } else {
-                None
-            }
-        });
-    let fav = e.favorite;
-    div()
-        .w(INSPECTOR_W)
-        .flex_none()
-        .h_full()
-        .bg(t.surface)
-        .border_l_1()
-        .border_color(t.line)
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .p(px(12.))
-                .pb(px(8.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(site_icon(t, e.name.chars().next().unwrap_or('?'), 32.))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .text_size(TEXT_LG)
-                                .font_weight(W_MEDIUM)
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(e.name.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_size(TEXT_SM)
-                                .text_color(t.text_muted)
-                                .child(space),
-                        ),
-                )
-                .child(
-                    icon_button("fav", t, "star", false)
-                        .when(fav, |d| d.text_color(t.warning_text))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.update_entry(id, |e| e.favorite = !e.favorite, cx)
-                        }))
-                        .test_support(),
-                )
-                .child(icon_button("more", t, "more", false)),
-        )
-        .child(
-            div()
-                .flex()
-                .gap(px(2.))
-                .px(px(12.))
-                .border_b_1()
-                .border_color(t.line)
-                .child(
-                    div()
-                        .h(px(32.))
-                        .px(px(8.))
-                        .flex()
-                        .items_center()
-                        .font_weight(W_MEDIUM)
-                        .border_b_2()
-                        .border_color(t.accent_text)
-                        .text_color(t.accent_text)
-                        .child("Details"),
-                )
-                .child(
-                    div()
-                        .h(px(32.))
-                        .px(px(8.))
-                        .flex()
-                        .items_center()
-                        .font_weight(W_MEDIUM)
-                        .text_color(t.text_muted)
-                        .child("History"),
-                ),
-        )
-        .child(
-            div()
-                .id("inspector-body")
-                .flex_1()
-                .overflow_y_scroll()
-                .p(px(12.))
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .when_some(website, |d, w| {
-                    let url = if w.contains("://") {
-                        w.clone()
-                    } else {
-                        format!("https://{w}")
-                    };
-                    d.child(field(
-                        t,
-                        "Website",
-                        value_box(t)
-                            .child(div().flex_1().overflow_hidden().text_ellipsis().child(w))
-                            .child(
-                                icon_button("open", t, "external", true)
-                                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
-                            ),
-                    ))
-                })
-                .child(field(
-                    t,
-                    "Username",
-                    value_box(t)
-                        .child(
-                            div()
-                                .flex_1()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(e.username.clone()),
-                        )
-                        .child(copy_btn("iu", e.username.clone(), "Username", cx)),
-                ))
-                .child(
-                    field(
-                        t,
-                        "Password",
-                        value_box(t)
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .when(!s.reveal, |d| d.text_color(t.text_muted))
-                                    .when(s.reveal, |d| d.font_family(FONT_MONO))
-                                    .child(if s.reveal {
-                                        e.password.clone()
-                                    } else {
-                                        "••••••••••••••".into()
-                                    }),
-                            )
-                            .child(icon_button("reveal", t, "eye", true).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    if let Some(s) = this.session() {
-                                        s.reveal = !s.reveal;
-                                    }
-                                    cx.notify();
-                                },
-                            )))
-                            .child(copy_btn("ip", e.password.clone(), "Password", cx))
-                            .child(icon_button("gen", t, "refresh", true).on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if let Ok(p) =
-                                        cleis_core::generator::generate(&Default::default())
-                                    {
-                                        this.update_entry(id, |e| e.set_password(p, None), cx);
-                                    }
-                                },
-                            ))),
-                    )
-                    .child(bars),
-                )
-                .when_some(e.totp.clone(), |d, totp| {
-                    let code = totp.code_at(now);
-                    d.child(field(
-                        t,
-                        "2FA code",
-                        value_box(t)
-                            .h(px(36.))
-                            .child(div().flex_1().child(totp_view(t, &totp, now, true)))
-                            .child(copy_btn("it", code, "Code", cx)),
-                    ))
-                })
-                .when(!e.notes.is_empty(), |d| {
-                    d.child(field(
-                        t,
-                        "Notes",
-                        value_box(t)
-                            .h_auto()
-                            .min_h(px(48.))
-                            .py(px(6.))
-                            .items_start()
-                            .text_color(t.text_muted)
-                            .child(e.notes.clone()),
-                    ))
-                })
-                .when(
-                    e.price.is_some() || e.subscription != cleis_core::Subscription::None,
-                    |d| {
-                        let kv = |k: &str, v: String| {
-                            div()
-                                .flex()
-                                .text_size(TEXT_SM)
-                                .child(div().flex_1().text_color(t.text_muted).child(k.to_owned()))
-                                .child(v)
-                        };
-                        d.child(
-                            div()
-                                .p(px(12.))
-                                .flex()
-                                .flex_col()
-                                .gap(px(8.))
-                                .bg(t.surface_raised)
-                                .border_1()
-                                .border_color(t.line)
-                                .rounded(RADIUS_LG)
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .text_size(TEXT_SM)
-                                                .font_weight(W_MEDIUM)
-                                                .text_color(t.text_muted)
-                                                .child("Subscription"),
-                                        )
-                                        .when_some(subscription_chip(t, e.subscription), |d, c| {
-                                            d.child(c)
-                                        }),
-                                )
-                                .when_some(e.price.clone(), |d, m| {
-                                    d.child(kv(
-                                        "Price",
-                                        format!(
-                                            "{}{}",
-                                            crate::format::money_text(&m),
-                                            m.period
-                                                .map(crate::format::period_long)
-                                                .unwrap_or_default()
-                                        ),
-                                    ))
-                                })
-                                .when_some(e.licenses, |d, l| {
-                                    d.child(kv("Licenses", l.to_string()))
-                                })
-                                .when_some(yearly.clone(), |d, y| {
-                                    d.child(kv("Yearly cost", crate::format::num(&y)))
-                                })
-                                .when_some(e.renewal.clone(), |d, r| d.child(kv("Renewal", r))),
-                        )
-                    },
-                ),
-        )
-}
-
 impl CleisApp {
     pub fn update_entry(
         &mut self,
@@ -1117,18 +843,108 @@ impl CleisApp {
         cx.notify();
     }
 
-    pub fn new_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// New item, selected, its name box focused and selected so typing replaces it.
+    pub fn new_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let space = match s.filter {
             Filter::Space(sp) => sp,
             _ => s.vault.home_space(),
         };
         let e = Entry::new(space, "New item");
-        if s.vault.put_entry(&e).is_ok() {
-            s.selected = Some(e.id);
-            s.entries.push(e);
-            s.refilter();
+        if s.vault.put_entry(&e).is_err() {
+            return;
         }
+        s.query.clear();
+        s.selected = Some(e.id);
+        s.entries.push(e);
+        s.history_tab = false;
+        s.refilter();
+        self.ensure_editor(window, cx);
+        if let Some(name) = self
+            .session()
+            .and_then(|s| s.editor.as_ref())
+            .and_then(|ed| ed.inputs.get(&cleis_core::edit::Field::Name).cloned())
+        {
+            name.update(cx, |st, cx| {
+                st.focus(window, cx);
+                st.select_all(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_menu(&mut self, m: crate::editor::Menu, cx: &mut Context<Self>) {
+        if let Some(s) = self.session()
+            && let Some(ed) = s.editor.as_mut()
+        {
+            ed.menu = if ed.menu == Some(m) { None } else { Some(m) };
+        }
+        cx.notify();
+    }
+
+    /// Copy of an item ("Figma copy"), without its password history or links.
+    pub fn duplicate_entry(&mut self, id: EntryId, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let Some(src) = s.entries.iter().find(|e| e.id == id) else {
+            return;
+        };
+        let mut e = src.clone();
+        e.id = EntryId::new();
+        e.name = format!("{} copy", src.name);
+        e.password_history.clear();
+        e.linked_apps.clear();
+        let t = cleis_core::now();
+        e.created = t;
+        e.updated = t;
+        if let Err(err) = s.vault.put_entry(&e) {
+            s.toast = Some(format!("Not saved: {err}").into());
+            return;
+        }
+        s.selected = Some(e.id);
+        s.entries.push(e);
+        s.refilter();
+        cx.notify();
+    }
+
+    /// Moves an item to another space (re-sealed with that space's key by the store).
+    pub fn move_entry(&mut self, id: EntryId, to: cleis_core::SpaceId, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let Some(e) = s.entries.iter_mut().find(|e| e.id == id) else {
+            return;
+        };
+        let from = e.space;
+        e.space = to;
+        e.touch(None);
+        // Same record, sealed again with the destination space's key.
+        match s.vault.put_entry(e) {
+            Ok(()) => s.toast = Some("Moved".into()),
+            Err(err) => {
+                e.space = from;
+                s.toast = Some(format!("Not moved: {err}").into());
+            }
+        }
+        if let Some(ed) = s.editor.as_mut() {
+            ed.menu = None;
+        }
+        s.refilter();
+        cx.notify();
+    }
+
+    /// Moves an item to the trash (restorable from Trash in the sidebar).
+    pub fn trash_entry(&mut self, id: EntryId, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        match s.vault.delete_entry(id) {
+            Ok(_) => {
+                if let Some(i) = s.entries.iter().position(|e| e.id == id) {
+                    let e = s.entries.remove(i);
+                    s.trash.push(e);
+                }
+                s.editor = None;
+                s.toast = Some("Moved to trash".into());
+            }
+            Err(err) => s.toast = Some(format!("Not deleted: {err}").into()),
+        }
+        s.refilter();
         cx.notify();
     }
 }

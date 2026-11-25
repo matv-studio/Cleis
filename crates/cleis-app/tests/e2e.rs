@@ -256,3 +256,105 @@ fn autofill_settings_and_quick_access(cx: &mut TestAppContext) {
         assert!(s.entries.iter().all(|e| e.linked_apps.is_empty()));
     });
 }
+
+/// Inspector editing (screen 01): new item, typed fields saved to the vault file, a refused
+/// value left unsaved with its message, trash, restore, and deleting for good after confirming.
+#[gpui_kit::test]
+fn edit_item_trash_restore_purge(cx: &mut TestAppContext) {
+    use cleis_core::Subscription;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+
+    // New item: the name box is focused with its text selected.
+    act(cx, h, |w, cx| w.click("new-item", cx));
+    act(cx, h, |w, cx| {
+        w.input("Example Bank", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| {
+        w.click("edit-username", cx);
+        w.input("ines@example-studio.com", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| {
+        w.click("edit-Licenses", cx);
+        w.input("three", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| {
+        w.click("edit-Price", cx);
+        w.input("€12,50/mo", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("sub-state", cx));
+    act(cx, h, |w, cx| w.click("sub-Active", cx));
+    let id = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s
+            .entries
+            .iter()
+            .find(|e| e.name == "Example Bank")
+            .expect("renamed");
+        assert_eq!(e.username, "ines@example-studio.com");
+        assert_eq!(e.licenses, None, "refused value not written");
+        assert_eq!(e.subscription, Subscription::Active);
+        assert_eq!(e.price.as_ref().unwrap().yearly_cents(), 15_000);
+        let ed = s.editor.as_ref().unwrap();
+        assert!(ed.errors.contains_key(&cleis_core::edit::Field::Licenses));
+        e.id
+    });
+    // Written to the file, not only in memory.
+    let reopened = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap();
+    let saved = reopened.entries().unwrap();
+    let e = saved.iter().find(|e| e.id == id).unwrap();
+    assert_eq!(e.username, "ines@example-studio.com");
+    drop(reopened);
+
+    // Trash, restore, trash again, delete for good after confirming.
+    act(cx, h, |w, cx| w.click("more", cx));
+    act(cx, h, |w, cx| w.click("menu-trash", cx));
+    act(cx, h, |w, cx| w.click("f-trash", cx));
+    act(cx, h, |w, cx| w.click("restore-0", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.entries.iter().any(|e| e.id == id));
+        assert!(s.trash.is_empty());
+    });
+    act(cx, h, |w, cx| w.click("f-all", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.selected, Some(id), "the restored item stays selected");
+    });
+    act(cx, h, |w, cx| w.click("more", cx));
+    act(cx, h, |w, cx| w.click("menu-trash", cx));
+    act(cx, h, |w, cx| w.click("f-trash", cx));
+    act(cx, h, |w, cx| w.click("purge-0", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.trash.is_empty());
+        assert!(s.entries.iter().all(|e| e.id != id));
+    });
+    let reopened = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap();
+    assert!(
+        reopened
+            .trashed_entries()
+            .unwrap()
+            .iter()
+            .all(|e| e.id != id)
+    );
+}

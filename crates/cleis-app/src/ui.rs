@@ -24,6 +24,8 @@ pub enum BtnKind {
     Primary,
     Ghost,
     DangerGhost,
+    /// Only inside a confirmation (charter §6).
+    Danger,
 }
 
 /// `.btn`: 28 px, radius 6, medium weight; `small` = 24 px.
@@ -42,6 +44,12 @@ pub fn button(id: impl Into<ElementId>, t: &Tokens, kind: BtnKind, small: bool) 
             Hsla::transparent_black(),
             t.danger_text,
             t.danger_bg,
+        ),
+        BtnKind::Danger => (
+            t.danger_solid,
+            t.danger_solid,
+            gpui_kit::white(),
+            t.danger_solid.opacity(0.9),
         ),
     };
     div()

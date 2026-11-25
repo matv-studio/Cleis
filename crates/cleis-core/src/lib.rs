@@ -7,6 +7,7 @@ pub mod autofill;
 pub mod column;
 pub mod contact;
 pub mod dedupe;
+pub mod edit;
 pub mod entry;
 pub mod formula;
 pub mod generator;
