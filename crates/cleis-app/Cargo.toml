@@ -25,6 +25,10 @@ anyhow = "1"
 async-channel = "2"
 zeroize.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# Reads the Quick Access window handle to bring it in front without GPUI's simulated Alt.
+raw-window-handle = "0.6"
+
 [dev-dependencies]
 gpui-kit = { version = "=0.11.0", features = ["test-support"] }
 tempfile = "3"

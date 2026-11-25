@@ -78,7 +78,7 @@ pub fn set_log_file(path: Option<std::path::PathBuf>) {
     }
 }
 
-pub(crate) fn log(line: &str) {
+pub fn log(line: &str) {
     use std::io::Write;
     let Ok(l) = LOG.lock() else { return };
     let Some(path) = l.as_ref() else { return };

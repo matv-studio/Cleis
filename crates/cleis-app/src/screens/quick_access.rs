@@ -83,7 +83,12 @@ pub fn items(app: &CleisApp, fg: &Foreground, query: &str) -> Vec<Item> {
         .iter()
         .filter(|e| !ranked.iter().any(|c| c.entry == e.id) && keep(e))
         .collect();
-    others.sort_by_key(|e| (!e.favorite, fold(&e.name)));
+    // With a search, items whose name matches come before those found by their username or
+    // website ("example" otherwise lists every example-studio.com login first).
+    others.sort_by_key(|e| {
+        let by_name = q.is_empty() || matches(&e.name, q);
+        (!by_name, !e.favorite, fold(&e.name))
+    });
     out.extend(others.into_iter().map(|e| item(e, None)));
     out
 }
@@ -113,7 +118,7 @@ impl QuickAccess {
         search.update(cx, |s, cx| s.focus(window, cx));
         // Opened from a shortcut pressed in another app: take the foreground explicitly, or the
         // keys typed next would still go to that app (seen on Windows, 25/11/2026).
-        window.activate_window();
+        bring_to_front(window, cx);
         let ticker = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
@@ -409,4 +414,28 @@ impl Render for QuickAccess {
             .child(div().id("qa-list").flex_1().overflow_y_scroll().child(rows))
             .child(foot)
     }
+}
+
+/// Puts the Quick Access window in front with the keyboard. On Windows GPUI's
+/// `activate_window` simulates an Alt press that reaches the app in front first: it shows its
+/// access keys and keeps the keyboard, so the search got nothing and letters opened that app's
+/// menus (seen with Notepad, 25/11/2026). Cleis's own activation is used there instead.
+#[cfg(windows)]
+fn bring_to_front(window: &mut Window, cx: &mut Context<QuickAccess>) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let hwnd = match window.window_handle().map(|h| h.as_raw()) {
+        Ok(RawWindowHandle::Win32(h)) => h.hwnd.get() as u64,
+        _ => return window.activate_window(),
+    };
+    cx.background_spawn(async move {
+        if let Err(e) = cleis_autofill::activate(cleis_autofill::WindowRef(hwnd)) {
+            cleis_autofill::log(&format!("quick access: not in front ({e})"));
+        }
+    })
+    .detach();
+}
+
+#[cfg(not(windows))]
+fn bring_to_front(window: &mut Window, _: &mut Context<QuickAccess>) {
+    window.activate_window();
 }

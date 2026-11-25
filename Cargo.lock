@@ -1061,6 +1061,7 @@ dependencies = [
  "cleis-store",
  "directories",
  "gpui-kit",
+ "raw-window-handle",
  "serde_json",
  "tempfile",
  "zeroize",

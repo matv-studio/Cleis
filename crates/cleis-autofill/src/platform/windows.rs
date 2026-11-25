@@ -19,7 +19,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_F22, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SW_RESTORE,
@@ -145,18 +145,22 @@ pub fn activate(w: WindowRef) -> Result<(), FillError> {
     if wait_front(h, Duration::from_millis(300)) {
         return Ok(());
     }
-    crate::log("activate: refused, retrying after a simulated Alt press");
-    let alt = |flags| INPUT {
+    crate::log("activate: refused, retrying after a dummy F22 key press");
+    // Windows lets a process take the foreground after it received the last input event. A
+    // simulated Alt (the usual trick, also in GPUI) is delivered to the app in front, which then
+    // shows its access keys and keeps the keyboard: letters typed next open its menus. F22 has
+    // no meaning on usual keyboards and apps, as in Chromium's `ForegroundHelper`.
+    let key = |flags| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VK_MENU,
+                wVk: VK_F22,
                 dwFlags: flags,
                 ..Default::default()
             },
         },
     };
-    let inputs = [alt(KEYBD_EVENT_FLAGS(0)), alt(KEYEVENTF_KEYUP)];
+    let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
     // SAFETY: `inputs` is a valid array of INPUT structures for the duration of the call.
     unsafe {
         SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
