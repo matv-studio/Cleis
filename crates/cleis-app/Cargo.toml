@@ -21,6 +21,7 @@ cleis-autofill.workspace = true
 gpui-kit = "=0.11.0"
 directories = "6"
 serde_json.workspace = true
+serde.workspace = true
 anyhow = "1"
 async-channel = "2"
 zeroize.workspace = true

@@ -749,3 +749,87 @@ fn security_open_code_and_password(cx: &mut TestAppContext) {
             .is_ok()
     );
 }
+
+/// Scenario (screen 23): choose a sync folder (a copy is made), another device adds an item to
+/// that copy, Sync now brings it; Back up now makes a dated copy.
+#[gpui_kit::test]
+fn sync_folder_and_backup(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    let place_dir = dir.path().join("OneDrive/Cleis");
+    std::fs::create_dir_all(&place_dir).unwrap();
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.update(cx, |a, cx| {
+        a.set_sync_folder(&place_dir, cleis_app::sync::Provider::OneDrive, cx)
+    });
+    let place = place_dir.join("demo.cleis");
+    assert!(place.exists(), "copy made in the place");
+    // The other device.
+    {
+        let v = cleis_store::LockedVault::open(&place)
+            .unwrap()
+            .unlock(cleis_app::demo::PASSWORD)
+            .unwrap();
+        v.put_entry(&cleis_core::Entry::new(v.home_space(), "Example Wiki"))
+            .unwrap();
+    }
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+    act(cx, h, |w, cx| w.click("sync-now", cx));
+    act(cx, h, |w, cx| w.click("backup-now", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.entries.iter().any(|e| e.name == "Example Wiki"));
+        assert!(s.sync.last_error.is_none());
+    });
+    assert_eq!(cleis_app::sync::backups(&path).len(), 1);
+    // The place's settings stay on this device, beside the vault.
+    assert!(cleis_app::sync::config_path(&path).exists());
+}
+
+/// Scenario (screen 22): on a new computer, restore the vault from a OneDrive folder; a wrong
+/// password leaves nothing behind.
+#[gpui_kit::test]
+fn restore_from_folder(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let place_dir = dir.path().join("OneDrive/Cleis");
+    std::fs::create_dir_all(&place_dir).unwrap();
+    cleis_app::demo::create(&place_dir.join("vault.cleis")).unwrap();
+    let path = dir.path().join("new-pc/vault.cleis");
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("restore", cx));
+    app.update(cx, |a, cx| a.restore_found(place_dir.clone(), cx));
+    act(cx, h, |w, cx| {
+        w.click("restore-password", cx);
+        w.input("not it", cx);
+        w.click("restore-go", cx);
+    });
+    app.read_with(cx, |a, _| match &a.phase {
+        Phase::Welcome(w) => assert!(w.restore.as_ref().unwrap().error.is_some()),
+        _ => panic!("still on the restore screen"),
+    });
+    assert!(!path.exists());
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.click("restore-go", cx);
+    });
+    app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => {
+            assert_eq!(s.entries.len(), 14);
+            assert_eq!(
+                s.sync.place.as_deref(),
+                Some(place_dir.join("vault.cleis").as_path())
+            );
+        }
+        _ => panic!("restored"),
+    });
+}

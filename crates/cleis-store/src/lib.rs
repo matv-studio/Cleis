@@ -42,6 +42,8 @@ pub enum StoreError {
     Exists,
     #[error("file error: {0}")]
     Io(String),
+    #[error("this file holds another person's vault")]
+    OtherVault,
     #[error("unknown space")]
     UnknownSpace,
     #[error("the vault is damaged: {0}")]
@@ -55,6 +57,9 @@ pub enum StoreError {
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
+
+mod sync;
+pub use sync::SyncReport;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -134,6 +139,56 @@ CREATE INDEX records_space ON records(space, kind);
 CREATE TABLE settings (key TEXT PRIMARY KEY, sealed BLOB NOT NULL) STRICT;
 ";
 
+/// Columns and table added for sync (25/11/2026): when each row last changed on any device, and
+/// records erased for good, so a merge neither brings them back nor loses them. Idempotent.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has = |table: &str, col: &str| -> Result<bool> {
+        let mut st = conn.prepare(&format!(
+            "SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"
+        ))?;
+        Ok(st.exists([col])?)
+    };
+    for t in ["records", "spaces", "settings"] {
+        if !has(t, "changed")? {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {t} ADD COLUMN changed INTEGER NOT NULL DEFAULT 0"
+            ))?;
+        }
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS purged (kind TEXT NOT NULL, id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (kind, id)) STRICT;",
+    )?;
+    Ok(())
+}
+
+/// Milliseconds since 1970: orders changes made on different devices.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Unwraps every space key wrapped to this account (others' spaces are skipped).
+fn load_space_keys(
+    conn: &Connection,
+    account: &KeyPair,
+) -> Result<BTreeMap<SpaceId, SymmetricKey>> {
+    let mut space_keys = BTreeMap::new();
+    let mut st = conn.prepare("SELECT id, wrapped_key FROM spaces")?;
+    let rows = st.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
+    })?;
+    for row in rows {
+        let (id, wrapped) = row?;
+        let sid = SpaceId(id.parse().map_err(|_| StoreError::Corrupt("space id"))?);
+        if let Ok(k) = unwrap_key(account, &wrapped, sid.0.as_bytes()) {
+            space_keys.insert(sid, k);
+        }
+    }
+    Ok(space_keys)
+}
+
 fn meta_get(conn: &Connection, key: &str) -> Result<Option<Vec<u8>>> {
     Ok(conn
         .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
@@ -199,6 +254,7 @@ impl Vault {
         let conn = Connection::open(path)?;
         configure(&conn)?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         let salt: [u8; 16] = random_bytes()?;
         meta_set(&conn, "format", &FORMAT.to_be_bytes())?;
         meta_set(&conn, "kdf", &serde_json::to_vec(&kdf)?)?;
@@ -269,6 +325,11 @@ impl Vault {
         )?)
     }
 
+    pub(crate) fn reload_space_keys(&mut self) -> Result<()> {
+        self.space_keys = load_space_keys(&self.conn, &self.account)?;
+        Ok(())
+    }
+
     /// Re-seals the account secrets under a new master password. Records are untouched.
     pub fn change_password(&mut self, new_password: &str, kdf: KdfParams) -> Result<()> {
         let salt: [u8; 16] = random_bytes()?;
@@ -276,6 +337,7 @@ impl Vault {
         meta_set(&self.conn, "kdf", &serde_json::to_vec(&kdf)?)?;
         meta_set(&self.conn, "salt", &salt)?;
         self.seal_account(new_password, &salt, kdf)?;
+        meta_set(&self.conn, "password_changed", &now_ms().to_be_bytes())?;
         tx.commit()?;
         Ok(())
     }
@@ -303,8 +365,8 @@ impl Vault {
             &serde_json::to_vec(&info)?,
         )?;
         self.conn.execute(
-            "INSERT INTO spaces(id, wrapped_key, sealed) VALUES (?1, ?2, ?3)",
-            params![id.to_string(), wrapped, sealed],
+            "INSERT INTO spaces(id, wrapped_key, sealed, changed) VALUES (?1, ?2, ?3, ?4)",
+            params![id.to_string(), wrapped, sealed, now_ms()],
         )?;
         self.space_keys.insert(id, key);
         Ok(id)
@@ -324,8 +386,8 @@ impl Vault {
             &serde_json::to_vec(&info)?,
         )?;
         self.conn.execute(
-            "UPDATE spaces SET sealed = ?2, rev = rev + 1 WHERE id = ?1",
-            params![id.to_string(), sealed],
+            "UPDATE spaces SET sealed = ?2, rev = rev + 1, changed = ?3 WHERE id = ?1",
+            params![id.to_string(), sealed, now_ms()],
         )?;
         Ok(())
     }
@@ -371,10 +433,10 @@ impl Vault {
         let plain = Zeroizing::new(serde_json::to_vec(value)?);
         let sealed = seal(self.key(space)?, &aad(kind, id, &space), &plain)?;
         self.conn.execute(
-            "INSERT INTO records(kind, id, space, sealed, rev, updated, deleted) VALUES (?1, ?2, ?3, ?4, 1, ?5, NULL)
+            "INSERT INTO records(kind, id, space, sealed, rev, updated, deleted, changed) VALUES (?1, ?2, ?3, ?4, 1, ?5, NULL, ?6)
              ON CONFLICT(kind, id) DO UPDATE SET space = excluded.space, sealed = excluded.sealed,
-               rev = records.rev + 1, updated = excluded.updated, deleted = NULL",
-            params![kind, id, space.to_string(), sealed, updated],
+               rev = records.rev + 1, updated = excluded.updated, deleted = NULL, changed = excluded.changed",
+            params![kind, id, space.to_string(), sealed, updated, now_ms()],
         )?;
         Ok(())
     }
@@ -409,19 +471,25 @@ impl Vault {
     }
 
     fn soft_delete(&self, kind: &str, id: &str, at: i64) -> Result<bool> {
-        Ok(self.conn.execute("UPDATE records SET deleted = ?3, rev = rev + 1 WHERE kind = ?1 AND id = ?2 AND deleted IS NULL", params![kind, id, at])? == 1)
+        Ok(self.conn.execute("UPDATE records SET deleted = ?3, rev = rev + 1, changed = ?4 WHERE kind = ?1 AND id = ?2 AND deleted IS NULL", params![kind, id, at, now_ms()])? == 1)
     }
 
     fn restore(&self, kind: &str, id: &str) -> Result<bool> {
-        Ok(self.conn.execute("UPDATE records SET deleted = NULL, rev = rev + 1 WHERE kind = ?1 AND id = ?2 AND deleted IS NOT NULL", params![kind, id])? == 1)
+        Ok(self.conn.execute("UPDATE records SET deleted = NULL, rev = rev + 1, changed = ?3 WHERE kind = ?1 AND id = ?2 AND deleted IS NOT NULL", params![kind, id, now_ms()])? == 1)
     }
 
     /// Erases a record for good (emptying the trash).
     fn purge(&self, kind: &str, id: &str) -> Result<bool> {
-        Ok(self.conn.execute(
+        let n = self.conn.execute(
             "DELETE FROM records WHERE kind = ?1 AND id = ?2",
             params![kind, id],
-        )? == 1)
+        )?;
+        // Remembered so a sync does not bring it back from another copy.
+        self.conn.execute(
+            "INSERT INTO purged(kind, id, at) VALUES (?1, ?2, ?3) ON CONFLICT(kind, id) DO UPDATE SET at = excluded.at",
+            params![kind, id, now_ms()],
+        )?;
+        Ok(n == 1)
     }
 
     pub fn put_entry(&self, e: &Entry) -> Result<()> {
@@ -448,6 +516,10 @@ impl Vault {
     }
     pub fn contacts(&self) -> Result<Vec<Contact>> {
         self.load_all("contact", false)
+    }
+    /// Erases a contact for good (deleting from the inspector, merging duplicates).
+    pub fn purge_contact(&self, id: ContactId) -> Result<bool> {
+        self.purge("contact", &id.to_string())
     }
     pub fn delete_contact(&self, id: ContactId) -> Result<bool> {
         self.soft_delete("contact", &id.to_string(), cleis_core::now())
@@ -480,7 +552,7 @@ impl Vault {
             &aad("setting", key, &self.home),
             &serde_json::to_vec(value)?,
         )?;
-        self.conn.execute("INSERT INTO settings(key, sealed) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET sealed = excluded.sealed", params![key, sealed])?;
+        self.conn.execute("INSERT INTO settings(key, sealed, changed) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET sealed = excluded.sealed, changed = excluded.changed", params![key, sealed, now_ms()])?;
         Ok(())
     }
 
@@ -547,6 +619,7 @@ impl LockedVault {
             return Err(StoreError::TooNew);
         }
         configure(&conn)?;
+        migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -570,20 +643,7 @@ impl LockedVault {
         let home_bytes = meta_get(&self.conn, "home")?.ok_or(StoreError::Corrupt("home"))?;
         let home =
             SpaceId(uuid::Uuid::from_slice(&home_bytes).map_err(|_| StoreError::Corrupt("home"))?);
-        let mut space_keys = BTreeMap::new();
-        {
-            let mut st = self.conn.prepare("SELECT id, wrapped_key FROM spaces")?;
-            let rows = st.query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
-            })?;
-            for row in rows {
-                let (id, wrapped) = row?;
-                let sid = SpaceId(id.parse().map_err(|_| StoreError::Corrupt("space id"))?);
-                if let Ok(k) = unwrap_key(&account, &wrapped, sid.0.as_bytes()) {
-                    space_keys.insert(sid, k);
-                }
-            }
-        }
+        let space_keys = load_space_keys(&self.conn, &account)?;
         Ok(Vault {
             conn: self.conn,
             account,

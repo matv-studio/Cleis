@@ -1,6 +1,6 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
 //! [--quick-access] [--menu columns|new-column|open-code]
-//! [--import FILE [--review]] [--try-autofill] [--background]`
+//! [--import FILE [--review]] [--try-autofill] [--background] [--restore]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -67,6 +67,7 @@ fn main() {
     let import = value("--import").filter(|_| unlocked);
     let review = flag("--review");
     let background = flag("--background");
+    let restore = flag("--restore");
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
@@ -130,6 +131,10 @@ fn main() {
                                 };
                             }
                         }
+                    }
+                    if restore {
+                        // Screen 22 for screenshots.
+                        app.start_restore(window, cx);
                     }
                     if let Some(f) = import.as_deref() {
                         // Screen 14 for screenshots: `--import FILE [--review]`.

@@ -1121,6 +1121,7 @@ dependencies = [
  "gpui-kit",
  "qrcode",
  "raw-window-handle",
+ "serde",
  "serde_json",
  "tempfile",
  "tray-icon",

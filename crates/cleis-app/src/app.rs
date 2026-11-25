@@ -51,6 +51,8 @@ pub struct Welcome {
     pub confirm: Entity<InputState>,
     pub error: Option<SharedString>,
     pub busy: bool,
+    /// "Restore my vault" (screen 22) instead of creating one.
+    pub restore: Option<crate::screens::welcome::Restore>,
 }
 
 pub struct Unlock {
@@ -103,6 +105,9 @@ pub struct Session {
     pub gate: Option<crate::screens::security::Gate>,
     /// Last mouse or key input, for locking after inactivity.
     pub last_activity: std::time::Instant,
+    /// This device's sync place and backups (Settings › Sync & backups).
+    pub sync: crate::sync::SyncConfig,
+    pub sync_menu: bool,
 }
 
 impl Session {
@@ -190,6 +195,12 @@ impl CleisApp {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let Ok(idle) = this.update(cx, |app, cx| {
                     cx.notify();
+                    if app.auto_sync_due() {
+                        app.sync(true, cx);
+                    }
+                    if app.auto_backup_due() {
+                        app.backup(true, cx);
+                    }
                     app.idle_lock_due().then_some(app.main_window).flatten()
                 }) else {
                     break;
@@ -248,6 +259,7 @@ impl CleisApp {
             confirm,
             error: None,
             busy: false,
+            restore: None,
         });
         cx.notify();
     }
@@ -429,6 +441,8 @@ impl CleisApp {
             security: Default::default(),
             gate: None,
             last_activity: std::time::Instant::now(),
+            sync: crate::sync::load_config(&self.path),
+            sync_menu: false,
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);
@@ -442,6 +456,14 @@ impl CleisApp {
     }
 
     pub fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Last changes sent before the keys are wiped.
+        if let Phase::Main(s) = &self.phase
+            && s.sync.auto
+            && s.sync.place.is_some()
+            && s.gate.is_none()
+        {
+            self.sync(true, cx);
+        }
         if let Phase::Main(_) = self.phase {
             // Dropping the session drops the vault and wipes its keys.
             self.show_unlock(window, cx);

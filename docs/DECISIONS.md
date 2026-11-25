@@ -226,10 +226,25 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   (Never, 1, 5, 15, 30 min, 1 h ; résout « En suspens » 5). Effacement du presse-papiers réglable
   (10 s à 2 min). Changement du mot de passe maître : mot de passe actuel vérifié, 10 caractères au
   moins, mêmes réglages Argon2id. Biométrie : grisée (prévue).
+- **D-58 Synchronisation par dossier** (25/11/2026, applique D-50 sans attendre l'enregistrement OAuth) :
+  la place de synchronisation est un dossier ; OneDrive et Google Drive passent par leur appli de
+  bureau (dossier synchronisé), un partage réseau, Dropbox ou une clé USB par « Folder ». GitHub et
+  SFTP restent grisés. Fusion ligne par ligne sans déchiffrer : chaque enregistrement, espace et
+  réglage garde la version modifiée en dernier (colonne `changed`, millisecondes, ajoutée par une
+  migration) ; un élément effacé définitivement est retenu (`purged`) et ne revient pas ; un mot de
+  passe maître changé ailleurs est repris (même clés de compte, scellées autrement). La copie fusionnée
+  remplace celle du dossier en une fois (écriture à côté puis renommage). Synchronisation à
+  l'ouverture, toutes les 5 minutes et au verrouillage. Réglages de la place propres à l'ordinateur
+  (`<coffre>.sync.json`). Sauvegardes datées sur l'ordinateur (une par jour, « Back up now », 10 / 30
+  / 100 versions), restauration par fusion. Export chiffré = copie du coffre (mot de passe maître).
+  Kit d'urgence : PDF d'une page (emplacements, place pour écrire le mot de passe). « Restore my vault »
+  au premier lancement (écran 22). Code de configuration : avec les comptes GitHub / Microsoft / Google.
+  Contacts supprimés : effacés définitivement (remplace la suppression douce).
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
-4. Validation de la restauration et de la synchronisation (D-50, écrans 22, 23).
+4. Enregistrement des applications OAuth (GitHub, Microsoft, Google) pour les places sans appli de
+   bureau (D-50, D-58).
 5. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.

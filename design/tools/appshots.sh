@@ -23,6 +23,8 @@ for theme in dark light; do
   shot "open-code-$theme" --demo --unlocked --tab settings --page security --menu open-code --theme $theme
   shot "autofill-$theme" --demo --unlocked --tab settings --page autofill --theme $theme
   shot "quick-access-$theme" --demo --unlocked --quick-access --theme $theme
+  shot "sync-$theme" --demo --unlocked --tab settings --page sync --theme $theme
+  shot "restore-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --restore --theme $theme
   shot "welcome-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --theme $theme
 done
 echo "captures in $out"

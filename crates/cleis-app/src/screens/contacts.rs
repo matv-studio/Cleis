@@ -1759,7 +1759,7 @@ impl CleisApp {
 
     pub fn delete_contact(&mut self, id: ContactId) {
         let Some(s) = self.session() else { return };
-        match s.vault.delete_contact(id) {
+        match s.vault.purge_contact(id) {
             Ok(_) => {
                 s.contacts.retain(|c| c.id != id);
                 if s.selected_contact == Some(id) {
@@ -1864,7 +1864,7 @@ impl CleisApp {
             return;
         }
         for o in &others {
-            let _ = s.vault.delete_contact(o.id);
+            let _ = s.vault.purge_contact(o.id);
         }
         s.contacts.retain(|c| !others.iter().any(|o| o.id == c.id));
         s.contacts_ui.review = None;

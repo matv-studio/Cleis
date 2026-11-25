@@ -77,20 +77,7 @@ pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
         "Autofill" => autofill(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
         "Security" => super::security::page(s, t, cx),
-        "Sync & backups" => div()
-            .child(
-                div()
-                    .text_size(TEXT_XL)
-                    .font_weight(W_STRONG)
-                    .child("Sync & backups"),
-            )
-            .child(
-                section(t).mt(px(16.)).opacity(0.45).child(
-                    row(t, true)
-                        .child(div().flex_1().child("Encrypted export"))
-                        .child(button("export", t, BtnKind::Default, false).child("Export")),
-                ),
-            ),
+        "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
         _ => preferences(&s.prefs, t, cx),
     };
     div().flex_1().min_h_0().flex().child(nav).child(

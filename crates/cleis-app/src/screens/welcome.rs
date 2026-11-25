@@ -3,12 +3,212 @@
 
 use super::unlock::{logo, stage};
 use crate::app::{CleisApp, Phase};
+use crate::sync::{Provider, find_vaults};
 use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Div, Window, div, px};
+use gpui_kit::{Context, Div, Entity, PathPromptOptions, SharedString, Window, div, px};
+use std::path::PathBuf;
+
+/// Screen 22: an existing vault from a sync place, opened with its master password.
+pub struct Restore {
+    pub provider: Option<Provider>,
+    pub dir: Option<PathBuf>,
+    pub found: Vec<PathBuf>,
+    pub chosen: usize,
+    pub password: Entity<InputState>,
+    pub error: Option<SharedString>,
+    pub busy: bool,
+}
+
+fn tip(
+    text: &'static str,
+) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
+    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+}
+
+fn tile(
+    id: &'static str,
+    t: &Tokens,
+    ico: &str,
+    label: &str,
+    active: bool,
+) -> gpui_kit::Stateful<Div> {
+    let fg = if active { t.accent_text } else { t.text_muted };
+    div()
+        .id(id)
+        .flex_1()
+        .h(px(64.))
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(6.))
+        .px(px(4.))
+        .bg(if active { t.accent_soft } else { t.bg })
+        .border_1()
+        .border_color(if active { t.accent_text } else { t.line_strong })
+        .rounded(RADIUS_LG)
+        .text_size(TEXT_SM)
+        .font_weight(W_MEDIUM)
+        .text_color(fg)
+        .cursor_pointer()
+        .child(icon(ico, 18., fg))
+        .child(label.to_owned())
+}
+
+fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let pick = |id: &'static str,
+                ico: &str,
+                label: &str,
+                p: Provider,
+                tip_text: &'static str,
+                cx: &mut Context<CleisApp>| {
+        tile(id, t, ico, label, r.provider == Some(p))
+            .tooltip(tip(tip_text))
+            .on_click(cx.listener(move |this, _, _, cx| this.restore_choose(p, cx)))
+            .test_support()
+    };
+    let planned = |id: &'static str, ico: &str, label: &str, why: &'static str| {
+        tile(id, t, ico, label, false)
+            .opacity(0.45)
+            .tooltip(tip(why))
+    };
+    let tiles = div()
+        .flex()
+        .gap(px(8.))
+        .child(planned(
+            "t-github",
+            "repo",
+            "GitHub",
+            "Needs Cleis to be registered with GitHub (D-50)",
+        ))
+        .child(pick(
+            "t-onedrive",
+            "cloud",
+            "OneDrive",
+            Provider::OneDrive,
+            "Folder kept by the OneDrive app",
+            cx,
+        ))
+        .child(pick(
+            "t-gdrive",
+            "cloud",
+            "Google Drive",
+            Provider::GoogleDrive,
+            "Folder kept by Google Drive for desktop",
+            cx,
+        ))
+        .child(pick(
+            "t-folder",
+            "folder",
+            "Folder",
+            Provider::Folder,
+            "Network share, Dropbox, USB drive",
+            cx,
+        ))
+        .child(planned("t-sftp", "server", "SFTP", "Planned"));
+    let vault_box = match r.found.get(r.chosen) {
+        Some(p) => {
+            let when = std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| crate::format::date(d.as_secs() as i64))
+                .unwrap_or_default();
+            value_box(t)
+                .child(icon("file", 14., t.text_muted))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .font_family(FONT_MONO)
+                        .text_size(TEXT_SM)
+                        .child(p.display().to_string()),
+                )
+                .child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_muted)
+                        .child(when),
+                )
+        }
+        None => value_box(t)
+            .text_color(t.text_faint)
+            .child(match (&r.dir, r.provider) {
+                (Some(_), _) => "No Cleis vault in this folder",
+                (None, Some(_)) => "Choose the folder",
+                (None, None) => "Choose where it is",
+            }),
+    };
+    let busy = r.busy;
+    div()
+        .w(px(520.))
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(12.))
+                .child(logo(t, 40.))
+                .child(
+                    div()
+                        .text_size(TEXT_XL)
+                        .font_weight(W_STRONG)
+                        .child("Restore my vault"),
+                ),
+        )
+        .child(
+            section(t)
+                .child(
+                    div()
+                        .id("restore-where")
+                        .child(section_title(t, "Where is it?"))
+                        .tooltip(tip("Cleis opens your encrypted vault there. The provider never sees your passwords.")),
+                )
+                .child(tiles)
+                .child(field(t, "Vault", vault_box)),
+        )
+        .child(section(t).child(field(
+            t,
+            "Master password",
+            Input::new(&r.password).id("restore-password").mask_toggle(),
+        )))
+        .when_some(r.error.clone(), |d, e| {
+            d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+        })
+        .child(
+            div()
+                .flex()
+                .justify_between()
+                .child(
+                    button("restore-back", t, BtnKind::Ghost, false)
+                        .child("Back")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Phase::Welcome(w) = &mut this.phase {
+                                w.restore = None;
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+                .child(
+                    button("restore-go", t, BtnKind::Primary, false)
+                        .when(busy || r.found.is_empty(), |b| b.opacity(0.6))
+                        .child(if busy { "Restoring…" } else { "Restore" })
+                        .on_click(cx.listener(|this, _, window, cx| this.restore_vault(window, cx)))
+                        .test_support(),
+                ),
+        )
+}
 
 fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
     div()
@@ -63,6 +263,9 @@ pub fn render(
     let Phase::Welcome(w) = &app.phase else {
         unreachable!()
     };
+    if let Some(r) = &w.restore {
+        return stage(&t, restore_card(r, &t, cx));
+    }
     let busy = w.busy;
     let card = div()
         .w(px(460.))
@@ -119,13 +322,143 @@ pub fn render(
                 }),
         )
         .child(
-            div().flex().justify_end().child(
-                button("create", &t, BtnKind::Primary, false)
-                    .when(busy, |b| b.opacity(0.6))
-                    .child(if busy { "Creating…" } else { "Create vault" })
-                    .on_click(cx.listener(|this, _, window, cx| this.create_vault(window, cx)))
-                    .test_support(),
-            ),
+            div()
+                .flex()
+                .justify_between()
+                .child(
+                    button("restore", &t, BtnKind::Ghost, false)
+                        .child(icon("sync", 16., t.text_muted))
+                        .child("Restore my vault")
+                        .tooltip(tip("From OneDrive, Google Drive or a folder"))
+                        .on_click(cx.listener(|this, _, window, cx| this.start_restore(window, cx)))
+                        .test_support(),
+                )
+                .child(
+                    button("create", &t, BtnKind::Primary, false)
+                        .when(busy, |b| b.opacity(0.6))
+                        .child(if busy { "Creating…" } else { "Create vault" })
+                        .on_click(cx.listener(|this, _, window, cx| this.create_vault(window, cx)))
+                        .test_support(),
+                ),
         );
     stage(&t, card)
+}
+
+impl CleisApp {
+    pub fn start_restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let password = cx.new(|cx| InputState::new(window, cx).masked(true));
+        if let Phase::Welcome(w) = &mut self.phase {
+            w.restore = Some(Restore {
+                provider: None,
+                dir: None,
+                found: vec![],
+                chosen: 0,
+                password,
+                error: None,
+                busy: false,
+            });
+        }
+        cx.notify();
+    }
+
+    fn restore_choose(&mut self, p: Provider, cx: &mut Context<Self>) {
+        if let Phase::Welcome(w) = &mut self.phase
+            && let Some(r) = w.restore.as_mut()
+        {
+            r.provider = Some(p);
+        }
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Open".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(dir) = paths.into_iter().next()
+            {
+                this.update(cx, |this, cx| this.restore_found(dir, cx)).ok();
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Lists the vaults of the chosen folder (most recent first).
+    pub fn restore_found(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
+        if let Phase::Welcome(w) = &mut self.phase
+            && let Some(r) = w.restore.as_mut()
+        {
+            r.found = find_vaults(&dir);
+            r.dir = Some(dir);
+            r.chosen = 0;
+            r.error = None;
+        }
+        cx.notify();
+    }
+
+    /// Copies the vault from the place to this computer, opens it, and keeps the place as its
+    /// sync place. A wrong password leaves nothing behind.
+    pub fn restore_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Phase::Welcome(w) = &mut self.phase else {
+            return;
+        };
+        let Some(r) = w.restore.as_mut() else { return };
+        let Some(src) = r.found.get(r.chosen).cloned() else {
+            return;
+        };
+        if r.busy {
+            return;
+        }
+        let pw = r.password.read(cx).value().to_string();
+        let provider = r.provider.unwrap_or_default();
+        r.busy = true;
+        r.error = None;
+        cx.notify();
+        let dest = self.path.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let d2 = dest.clone();
+            let res = cx
+                .background_executor()
+                .spawn(async move {
+                    if let Some(dir) = d2.parent() {
+                        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                    }
+                    if d2.exists() {
+                        return Err("A vault already exists on this computer".to_owned());
+                    }
+                    std::fs::copy(&src, &d2).map_err(|e| e.to_string())?;
+                    let v = cleis_store::LockedVault::open(&d2)
+                        .and_then(|l| l.unlock(&pw))
+                        .map_err(|e| e.to_string());
+                    if v.is_err() {
+                        let _ = std::fs::remove_file(&d2);
+                    }
+                    v.map(|v| (v, src))
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| match res {
+                Ok((v, src)) => {
+                    let cfg = crate::sync::SyncConfig {
+                        place: Some(src),
+                        provider,
+                        ..Default::default()
+                    };
+                    crate::sync::save_config(&dest, &cfg);
+                    this.enter(v, window, cx);
+                }
+                Err(e) => {
+                    if let Phase::Welcome(w) = &mut this.phase
+                        && let Some(r) = w.restore.as_mut()
+                    {
+                        r.busy = false;
+                        r.error = Some(e.into());
+                    }
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
