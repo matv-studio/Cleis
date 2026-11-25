@@ -117,11 +117,8 @@ impl CleisApp {
             return;
         }
         let Phase::Main(s) = &self.phase else {
-            // Locked: bring the unlock screen.
-            if let Some(w) = self.main_window {
-                w.update(cx, |_, window, _| window.activate_window()).ok();
-            }
-            cx.activate(true);
+            // Locked: bring the unlock screen (also when hidden to the tray).
+            self.show_main(cx);
             return;
         };
         let read_url = fg.context.is_browser() && s.prefs.autofill.match_browser_urls;

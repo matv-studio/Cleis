@@ -128,3 +128,40 @@ impl Driver for SystemDriver {
 
 /// Nothing to mask: releasing a modifier opens no menu here.
 pub fn mask_menu_key() {}
+
+/// The app is hidden as a whole (`cx.hide()` in GPUI).
+pub fn set_window_visible(_: WindowRef, _: bool) {}
+
+const AGENT: &str = "studio.matv.cleis";
+
+pub fn set_open_at_login(on: bool, exe: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    let home = std::env::var_os("HOME").ok_or("no home folder")?;
+    let dir = std::path::Path::new(&home).join("Library/LaunchAgents");
+    let file = dir.join(format!("{AGENT}.plist"));
+    if !on {
+        return match std::fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        };
+    }
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    };
+    let mut program = format!("<string>{}</string>", esc(&exe.to_string_lossy()));
+    for a in args {
+        program.push_str(&format!("<string>{}</string>", esc(a)));
+    }
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+<plist version=\"1.0\"><dict>\
+<key>Label</key><string>{AGENT}</string>\
+<key>ProgramArguments</key><array>{program}</array>\
+<key>RunAtLoad</key><true/>\
+</dict></plist>\n"
+    );
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(&file, plist).map_err(|e| e.to_string())
+}

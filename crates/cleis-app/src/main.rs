@@ -1,6 +1,6 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
 //! [--quick-access] [--menu columns|new-column]
-//! [--import FILE [--review]] [--try-autofill]`
+//! [--import FILE [--review]] [--try-autofill] [--background]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -66,6 +66,7 @@ fn main() {
     let menu = value("--menu").filter(|_| unlocked);
     let import = value("--import").filter(|_| unlocked);
     let review = flag("--review");
+    let background = flag("--background");
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
@@ -88,14 +89,17 @@ fn main() {
                 }),
                 app_owns_titlebar_drag: true,
                 window_min_size: Some(size(px(960.), px(600.))),
+                // Started at login: only the tray icon until the user opens Cleis.
+                show: !background,
                 ..Default::default()
             };
             let path = path.clone();
             let (tab, page, menu, import) =
                 (tab.clone(), page.clone(), menu.clone(), import.clone());
             gpui_kit::open_window(opts, cx, move |window, cx| {
-                cx.new(|cx| {
+                let view = cx.new(|cx| {
                     let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
+                    app.demo = demo;
                     if demo && !try_autofill {
                         // Demo and screenshots: never take the system's shortcuts or type.
                         app.no_shortcuts = true;
@@ -158,10 +162,21 @@ fn main() {
                             cx,
                         );
                     }
+                    if !(demo && !try_autofill) {
+                        app.install_tray(cx);
+                    }
                     app
-                })
+                });
+                let weak = view.downgrade();
+                window.on_window_should_close(cx, move |window, cx| {
+                    weak.update(cx, |app, cx| app.on_main_close(window, cx))
+                        .unwrap_or(true)
+                });
+                view
             })
             .expect("open window");
-            cx.activate(true);
+            if !background {
+                cx.activate(true);
+            }
         });
 }

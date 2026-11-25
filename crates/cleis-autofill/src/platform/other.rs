@@ -67,3 +67,9 @@ impl Driver for SystemDriver {
 
 /// Nothing to mask: releasing a modifier opens no menu here.
 pub fn mask_menu_key() {}
+
+pub fn set_window_visible(_: WindowRef, _: bool) {}
+
+pub fn set_open_at_login(_: bool, _: &std::path::Path, _: &[&str]) -> Result<(), String> {
+    Ok(())
+}

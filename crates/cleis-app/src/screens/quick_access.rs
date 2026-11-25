@@ -422,10 +422,8 @@ impl Render for QuickAccess {
 /// menus (seen with Notepad, 25/11/2026). Cleis's own activation is used there instead.
 #[cfg(windows)]
 fn bring_to_front(window: &mut Window, cx: &mut Context<QuickAccess>) {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let hwnd = match window.window_handle().map(|h| h.as_raw()) {
-        Ok(RawWindowHandle::Win32(h)) => h.hwnd.get() as u64,
-        _ => return window.activate_window(),
+    let Some(hwnd) = crate::tray::hwnd_of(window) else {
+        return window.activate_window();
     };
     cx.background_spawn(async move {
         if let Err(e) = cleis_autofill::activate(cleis_autofill::WindowRef(hwnd)) {

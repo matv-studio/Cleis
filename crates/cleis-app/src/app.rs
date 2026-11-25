@@ -149,6 +149,12 @@ pub struct CleisApp {
     pub autofill: crate::autofill::AutofillState,
     /// Screenshots and tests: never take the system shortcuts.
     pub no_shortcuts: bool,
+    /// Notification area icon; while it exists, closing the window hides it (D-55).
+    pub tray: Option<crate::tray::Tray>,
+    /// Windows: handle of the main window, hidden and shown from the tray.
+    pub main_hwnd: Option<u64>,
+    /// Demo vault (`--demo`, `--try-autofill`): nothing is registered on the computer.
+    pub demo: bool,
     _ticker: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -189,6 +195,9 @@ impl CleisApp {
             main_window: Some(window.window_handle()),
             autofill: Default::default(),
             no_shortcuts: false,
+            tray: None,
+            main_hwnd: crate::tray::hwnd_of(window),
+            demo: false,
             _ticker: ticker,
             _subs: vec![],
         };
@@ -405,6 +414,7 @@ impl CleisApp {
         if !cfg!(test) && !self.no_shortcuts {
             self.sync_autofill(cx);
         }
+        self.sync_open_at_login();
         cx.notify();
     }
 

@@ -10,4 +10,5 @@ pub mod editor;
 pub mod format;
 pub mod screens;
 pub mod theme;
+pub mod tray;
 pub mod ui;

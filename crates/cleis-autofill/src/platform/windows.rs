@@ -23,8 +23,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SW_RESTORE,
-    SetForegroundWindow, ShowWindow,
+    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SW_HIDE,
+    SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 use windows::core::PWSTR;
 
@@ -315,5 +315,40 @@ impl Driver for SystemDriver {
 
     fn pause(&mut self, d: Duration) {
         std::thread::sleep(d);
+    }
+}
+
+pub fn set_window_visible(w: WindowRef, visible: bool) {
+    let h = hwnd(w);
+    // SAFETY: plain call on a window handle; Windows checks it and fails on a stale one.
+    unsafe {
+        let _ = ShowWindow(h, if visible { SW_SHOW } else { SW_HIDE });
+    }
+    if visible {
+        let _ = activate(w);
+    }
+}
+
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+pub fn set_open_at_login(on: bool, exe: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    let key = windows_registry::CURRENT_USER
+        .create(RUN_KEY)
+        .map_err(|e| e.to_string())?;
+    if on {
+        let mut cmd = format!("\"{}\"", exe.display());
+        for a in args {
+            cmd.push(' ');
+            cmd.push_str(a);
+        }
+        key.set_string("Cleis", cmd).map_err(|e| e.to_string())
+    } else {
+        match key.remove_value("Cleis") {
+            // Already absent.
+            Err(e) if e.code() == windows::Win32::Foundation::ERROR_FILE_NOT_FOUND.to_hresult() => {
+                Ok(())
+            }
+            r => r.map_err(|e| e.to_string()),
+        }
     }
 }

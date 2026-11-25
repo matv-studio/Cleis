@@ -959,6 +959,7 @@ impl CleisApp {
         }
         let prefs = s.prefs.clone();
         self.apply_appearance(&prefs, cx);
+        self.sync_open_at_login();
         if !self.no_shortcuts {
             self.sync_autofill(cx);
         }

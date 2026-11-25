@@ -71,6 +71,19 @@ pub fn activate(window: WindowRef) -> Result<(), FillError> {
     platform::activate(window)
 }
 
+/// Shows or hides one of Cleis's own windows (main window kept in the background, tray). No
+/// effect where the system does it itself (macOS hides the whole app).
+pub fn set_window_visible(window: WindowRef, visible: bool) {
+    platform::set_window_visible(window, visible);
+}
+
+/// Starts Cleis when the user signs in to the computer: `exe` with `args`. Windows: a value under
+/// `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; macOS: a LaunchAgent in
+/// `~/Library/LaunchAgents`. Other systems: nothing.
+pub fn set_open_at_login(on: bool, exe: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    platform::set_open_at_login(on, exe, args)
+}
+
 static LOG: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 
 /// Diagnostic log of fills (`--try-autofill`): steps, field kinds and outcomes, never values.

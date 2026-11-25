@@ -26,8 +26,13 @@ async-channel = "2"
 zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-# Reads the Quick Access window handle to bring it in front without GPUI's simulated Alt.
+# Reads window handles: Quick Access brought in front without GPUI's simulated Alt, main window
+# hidden to the notification area.
 raw-window-handle = "0.6"
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+# Notification area (Windows) / menu bar (macOS) icon.
+tray-icon = "0.26"
 
 [dev-dependencies]
 gpui-kit = { version = "=0.11.0", features = ["test-support"] }

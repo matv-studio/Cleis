@@ -199,6 +199,14 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Quick Access sous Windows : plus d'appui simulé sur Alt (GPUI et la reprise de Cleis) ; il arrivait
     à l'appli au premier plan, qui affichait ses touches d'accès et gardait le clavier (essai Bloc-notes
     du 25/11/2026). Reprise par une touche F22 factice, comme Chromium.
+- **D-55 Arrière-plan** (25/11/2026, remplace la limite « pas d'icône » de D-53) : icône dans la zone
+  de notification (Windows) ou la barre des menus (macOS), menu natif *Open Cleis*, *Lock*, *Quit
+  Cleis* ; un clic sur l'icône ouvre la fenêtre (Windows). Fermer la fenêtre la cache : les raccourcis
+  restent actifs ; quitter se fait par le menu de l'icône. *Open at login* (activé par défaut, D-38)
+  écrit `HKCU\…\Run` (Windows) ou un LaunchAgent (macOS) avec `--background` (icône seule au
+  démarrage) ; rien n'est écrit pour le coffre de démonstration. Garde-fou du remplissage : aucune
+  valeur n'est écrite si le focus n'est pas dans un champ de texte ; masque de la touche Alt (0xE8)
+  quand un raccourci la contient.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
