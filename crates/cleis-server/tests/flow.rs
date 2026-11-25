@@ -1,0 +1,604 @@
+//! The server driven by the real client over TLS on 127.0.0.1: joining with an invitation code,
+//! signing in, sharing a space, pushing and pulling sealed rows, rights, verification codes,
+//! revocation, re-encryption, the activity log and backups.
+
+use cleis_core::org::*;
+use cleis_core::{MemberId, SpaceId};
+use cleis_crypto::{KeyPair, SigningKeyPair, SymmetricKey, seal, unwrap_key, wrap_key};
+use cleis_net::{Client, NetError, Trust};
+use cleis_server::App;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+struct Server {
+    addr: String,
+    dir: PathBuf,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Server {
+    fn start(dir: PathBuf) -> Self {
+        let app = App::open(&dir).unwrap();
+        Self::start_app(app, dir)
+    }
+
+    fn start_app(app: Arc<App>, dir: PathBuf) -> Self {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (atx, arx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                atx.send(l.local_addr().unwrap().to_string()).unwrap();
+                cleis_server::serve(app, l, async {
+                    let _ = rx.await;
+                })
+                .await
+                .unwrap();
+            });
+        });
+        Self {
+            addr: arx.recv().unwrap(),
+            dir,
+            stop: Some(tx),
+            thread: Some(thread),
+        }
+    }
+
+    fn stop(mut self) -> PathBuf {
+        let _ = self.stop.take().unwrap().send(());
+        self.thread.take().unwrap().join().unwrap();
+        self.dir.clone()
+    }
+}
+
+struct Person {
+    account: KeyPair,
+    signing: SigningKeyPair,
+    member: MemberId,
+    client: Client,
+}
+
+fn join(addr: &str, code: &str, name: &str, email: &str) -> Result<Person, NetError> {
+    let inv = Invitation::parse(code).unwrap();
+    let account = KeyPair::generate().unwrap();
+    let signing = SigningKeyPair::generate().unwrap();
+    let mut req = JoinRequest {
+        token: inv.token.to_vec(),
+        name: name.into(),
+        email: email.into(),
+        device: format!("PC-{name}"),
+        account_public: account.public().0,
+        verify_key: signing.verifying_key().0,
+        signature: [0; 64],
+    };
+    req.signature = signing.sign(JOIN_DOMAIN, &req.signed_bytes());
+    let first = Client::new(addr, Trust::Prefix(inv.pin));
+    let reply: JoinReply = first.call("/v1/join", &req)?;
+    Ok(Person {
+        account,
+        signing,
+        member: reply.member,
+        client: Client::new(addr, Trust::Pinned(vec![reply.org.cert])),
+    })
+}
+
+impl Person {
+    fn sign_in(&mut self, code: Option<String>) -> Result<SessionReply, NetError> {
+        let c: Challenge = self.client.call("/v1/challenge", &())?;
+        let r = self.client.send("POST", "/v1/hello", None);
+        let cert = match r {
+            Ok(r) => r.cert,
+            Err(_) => [0; 32],
+        };
+        let sig = self
+            .signing
+            .sign(SIGN_IN_DOMAIN, &sign_in_message(&c.nonce, &cert));
+        let reply: SessionReply = self.client.call(
+            "/v1/session",
+            &SessionRequest {
+                member: self.member,
+                nonce: c.nonce,
+                signature: sig,
+                device: "PC".into(),
+                code,
+                remembered: None,
+            },
+        )?;
+        self.client.token = Some(reply.token.clone());
+        Ok(reply)
+    }
+
+    fn state(&self) -> State {
+        self.client.get("/v1/state").unwrap()
+    }
+}
+
+fn row(space: SpaceId, key: &SymmetricKey, id: &str, text: &str, changed: i64, gen_: u32) -> Row {
+    Row {
+        kind: "entry".into(),
+        id: id.into(),
+        space,
+        sealed: seal(
+            key,
+            format!("cleis/entry/{id}/{space}").as_bytes(),
+            text.as_bytes(),
+        )
+        .unwrap(),
+        rev: 1,
+        updated: 0,
+        deleted: None,
+        changed,
+        key_gen: gen_,
+    }
+}
+
+fn tempdir() -> PathBuf {
+    let d = std::env::temp_dir().join(format!("cleis-server-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+#[test]
+fn organization_flow() {
+    let dir = tempdir().join("data");
+    let code = App::init(&dir, "Example Studio", &[]).unwrap();
+    let srv = Server::start(dir.clone());
+
+    // A code with a wrong pin is refused at the TLS level.
+    let mut bad = Invitation::parse(&code).unwrap();
+    bad.pin[0] ^= 1;
+    let e = join(&srv.addr, &bad.code(), "Lea", "lea@example-studio.com")
+        .err()
+        .unwrap();
+    assert!(matches!(e, NetError::Untrusted), "{e:?}");
+
+    // The first admin joins and sets the organization key.
+    let mut lea = join(&srv.addr, &code, "Lea Martin", "lea@example-studio.com").unwrap();
+    // The code is used up.
+    assert!(join(&srv.addr, &code, "X", "x@example-studio.com").is_err());
+    lea.sign_in(None).unwrap();
+    let st = lea.state();
+    assert_eq!(st.org.name, "Example Studio");
+    assert_eq!(st.me.role, ADMIN);
+    assert!(st.org.org_public.is_none());
+    let org = KeyPair::generate().unwrap();
+    let org_secret = SymmetricKey::from_bytes(*org.secret_bytes());
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/admin-keys",
+            &AdminKeys {
+                org_public: Some(org.public().0.to_vec()),
+                wraps: vec![Wrap {
+                    space: SpaceId(uuid::Uuid::nil()),
+                    member: lea.member,
+                    wrapped: wrap_key(&lea.account.public(), &org_secret, b"cleis/org-key")
+                        .unwrap(),
+                }],
+            },
+        )
+        .unwrap();
+    let st = lea.state();
+    assert!(st.org_key.is_some() && st.org.org_public.is_some());
+
+    // A Standard space: key wrapped to Lea and to the organization key.
+    let general = SpaceId::new();
+    let k1 = SymmetricKey::generate().unwrap();
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/spaces",
+            &NewSpace {
+                id: general,
+                sealed: seal(&k1, b"space", b"General").unwrap(),
+                mode: SpaceMode::Standard,
+                wrapped: wrap_key(&lea.account.public(), &k1, general.0.as_bytes()).unwrap(),
+                org_wrapped: Some(wrap_key(&org.public(), &k1, general.0.as_bytes()).unwrap()),
+                recovery_wrapped: None,
+            },
+        )
+        .unwrap();
+    let r: PushReply = lea
+        .client
+        .call(
+            "/v1/push",
+            &Changes {
+                rows: vec![row(general, &k1, "a", "Figma", 1000, 1)],
+                purged: vec![],
+                seq: 0,
+            },
+        )
+        .unwrap();
+    assert!(r.refused.is_empty());
+
+    // Lea invites Hugo as Read only in General.
+    let inv: InviteReply = lea
+        .client
+        .call(
+            "/v1/invites",
+            &NewInvite {
+                name: "Hugo Bernard".into(),
+                email: "hugo@example-studio.com".into(),
+                role: "read_only".into(),
+                spaces: vec![general],
+            },
+        )
+        .unwrap();
+    assert_eq!(lea.state().invites.len(), 1);
+    let mut hugo = join(&srv.addr, &inv.code, "", "").unwrap();
+    hugo.sign_in(None).unwrap();
+    let st = hugo.state();
+    assert_eq!(st.me.name, "Hugo Bernard");
+    assert!(
+        st.spaces[0].wrapped.is_none(),
+        "no key until someone wraps it"
+    );
+    // Hugo cannot manage.
+    let e = hugo
+        .client
+        .call::<_, InviteReply>(
+            "/v1/invites",
+            &NewInvite {
+                name: String::new(),
+                email: "x@example-studio.com".into(),
+                role: "member".into(),
+                spaces: vec![],
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
+
+    // Lea's app wraps the key for the pending member.
+    let st = lea.state();
+    assert_eq!(st.pending.len(), 1);
+    let p = &st.pending[0];
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/grants",
+            &Grants {
+                wraps: vec![Wrap {
+                    space: p.space,
+                    member: p.member,
+                    wrapped: wrap_key(
+                        &cleis_crypto::PublicKey(p.account_public),
+                        &k1,
+                        general.0.as_bytes(),
+                    )
+                    .unwrap(),
+                }],
+            },
+        )
+        .unwrap();
+    let st = hugo.state();
+    let hk = unwrap_key(
+        &hugo.account,
+        st.spaces[0].wrapped.as_ref().unwrap(),
+        general.0.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(hk, k1);
+    let ch: Changes = hugo
+        .client
+        .call(
+            "/v1/pull",
+            &Pull {
+                since: 0,
+                full: vec![],
+            },
+        )
+        .unwrap();
+    assert_eq!(ch.rows.len(), 1);
+    // Read only: writes are refused.
+    let r: PushReply = hugo
+        .client
+        .call(
+            "/v1/push",
+            &Changes {
+                rows: vec![row(general, &k1, "b", "Slack", 2000, 1)],
+                purged: vec![],
+                seq: 0,
+            },
+        )
+        .unwrap();
+    assert_eq!(r.refused.len(), 1);
+
+    // Promoted to Member: Hugo writes; an older copy from Lea is refused, a newer one kept.
+    let _: MemberView = lea
+        .client
+        .call(
+            "/v1/members",
+            &MemberChange {
+                member: hugo.member,
+                role: Some("member".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    hugo.sign_in(None).unwrap();
+    let r: PushReply = hugo
+        .client
+        .call(
+            "/v1/push",
+            &Changes {
+                rows: vec![row(general, &k1, "a", "Figma 2", 3000, 1)],
+                purged: vec![],
+                seq: 0,
+            },
+        )
+        .unwrap();
+    assert!(r.refused.is_empty());
+    let r: PushReply = lea
+        .client
+        .call(
+            "/v1/push",
+            &Changes {
+                rows: vec![row(general, &k1, "a", "Figma old", 2500, 1)],
+                purged: vec![],
+                seq: 0,
+            },
+        )
+        .unwrap();
+    assert_eq!(r.refused.len(), 1);
+    let v: VersionList = lea
+        .client
+        .call(
+            "/v1/versions",
+            &Versions {
+                kind: "entry".into(),
+                id: "a".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(v.rows.len(), 1);
+    let ch: Changes = lea
+        .client
+        .call(
+            "/v1/pull",
+            &Pull {
+                since: 1,
+                full: vec![],
+            },
+        )
+        .unwrap();
+    assert_eq!(ch.rows.len(), 1);
+    assert_eq!(ch.rows[0].changed, 3000);
+
+    // Policy: verification code required. Hugo gets a set-up-only session until he sets it.
+    let mut policy = lea.state().policy;
+    policy.code_required = true;
+    policy.detail = LogDetail::Everything;
+    let _: Policy = lea.client.call("/v1/policy", &policy).unwrap();
+    let s = hugo.sign_in(None).unwrap();
+    assert!(s.setup_code);
+    let e = hugo
+        .client
+        .call::<_, Changes>(
+            "/v1/pull",
+            &Pull {
+                since: 0,
+                full: vec![],
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("setup_code"));
+    let setup: CodeSetup = hugo.client.call("/v1/me/code", &()).unwrap();
+    let totp = cleis_core::totp::Totp::from_base32(&setup.secret).unwrap();
+    let now = cleis_core::now();
+    let _: SessionReply = hugo
+        .client
+        .call(
+            "/v1/me/code/confirm",
+            &CodeCheck {
+                code: totp.code_at(now),
+            },
+        )
+        .unwrap();
+    let _: Changes = hugo
+        .client
+        .call(
+            "/v1/pull",
+            &Pull {
+                since: 0,
+                full: vec![],
+            },
+        )
+        .unwrap();
+    // Next sign-in asks for the code; the code just used is refused (replay).
+    assert_eq!(
+        hugo.sign_in(None).unwrap_err().code(),
+        Some("code_required")
+    );
+    assert_eq!(
+        hugo.sign_in(Some(totp.code_at(now))).unwrap_err().code(),
+        Some("wrong_code")
+    );
+    let ok = hugo.sign_in(Some(totp.code_at(now + 30)));
+    assert!(ok.is_ok(), "{ok:?}");
+    policy.code_required = false;
+    let _: Policy = lea.client.call("/v1/policy", &policy).unwrap();
+
+    // Reported events and exports.
+    let _: PushReply = hugo
+        .client
+        .call(
+            "/v1/log",
+            &Report {
+                action: Action::Copied,
+                space: Some(general),
+                item: Some("entry/a".into()),
+                detail: Some(
+                    cleis_crypto::seal_to(&org.public(), DETAIL_CONTEXT, b"{\"item\":\"Figma\"}")
+                        .unwrap(),
+                ),
+            },
+        )
+        .unwrap();
+    let e = hugo
+        .client
+        .call::<_, PushReply>(
+            "/v1/log",
+            &Report {
+                action: Action::Exported,
+                space: Some(general),
+                item: None,
+                detail: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
+    let page: LogPage = lea
+        .client
+        .call(
+            "/v1/log/query",
+            &LogQuery {
+                action: Some(Action::Copied),
+                limit: 50,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(page.events.len(), 1);
+    let detail = cleis_crypto::open_from(
+        &org,
+        DETAIL_CONTEXT,
+        page.events[0].detail.as_ref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(&detail[..], b"{\"item\":\"Figma\"}");
+    let integrity: Integrity = lea.client.call("/v1/log/verify", &()).unwrap();
+    assert!(integrity.intact, "{integrity:?}");
+    assert!(integrity.checked >= 8);
+
+    // Hugo is revoked: his session ends, General is marked for re-encryption.
+    let _: PushReply = lea
+        .client
+        .call("/v1/members/revoke", &IdOnly { id: hugo.member.0 })
+        .unwrap();
+    assert_eq!(
+        hugo.client.get::<State>("/v1/state").unwrap_err().code(),
+        Some("unauthorized")
+    );
+    assert_eq!(hugo.sign_in(None).unwrap_err().code(), Some("revoked"));
+    let st = lea.state();
+    assert!(st.spaces[0].needs_rekey);
+    assert_eq!(st.members.len(), 1);
+
+    // Re-encryption: every row under a new key, generation 2; old-key writes refused after.
+    let k2 = SymmetricKey::generate().unwrap();
+    let ch: Changes = lea
+        .client
+        .call(
+            "/v1/pull",
+            &Pull {
+                since: 0,
+                full: vec![general],
+            },
+        )
+        .unwrap();
+    let rows: Vec<Row> = ch
+        .rows
+        .iter()
+        .map(|r| row(general, &k2, &r.id, "re-sealed", r.changed, 2))
+        .collect();
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/spaces/rekey",
+            &Rekey {
+                space: general,
+                key_gen: 2,
+                sealed: seal(&k2, b"space", b"General").unwrap(),
+                mode: SpaceMode::EndToEnd,
+                wraps: vec![Wrap {
+                    space: general,
+                    member: lea.member,
+                    wrapped: wrap_key(&lea.account.public(), &k2, general.0.as_bytes()).unwrap(),
+                }],
+                org_wrapped: None,
+                recovery_wrapped: None,
+                rows,
+            },
+        )
+        .unwrap();
+    let st = lea.state();
+    assert!(!st.spaces[0].needs_rekey);
+    assert_eq!(st.spaces[0].key_gen, 2);
+    assert_eq!(st.spaces[0].mode, SpaceMode::EndToEnd);
+    let r: PushReply = lea
+        .client
+        .call(
+            "/v1/push",
+            &Changes {
+                rows: vec![row(general, &k1, "c", "old key", 9000, 1)],
+                purged: vec![],
+                seq: 0,
+            },
+        )
+        .unwrap();
+    assert_eq!(r.refused.len(), 1);
+    // Erase for good.
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/push",
+            &Changes {
+                rows: vec![],
+                purged: vec![("entry".into(), "a".into())],
+                seq: 0,
+            },
+        )
+        .unwrap();
+    let ch: Changes = lea
+        .client
+        .call(
+            "/v1/pull",
+            &Pull {
+                since: st.seq,
+                full: vec![],
+            },
+        )
+        .unwrap();
+    assert_eq!(ch.purged, vec![("entry".to_owned(), "a".to_owned())]);
+
+    // Backup and restore of the server file.
+    let backup = lea.client.send("GET", "/v1/backup", None).unwrap();
+    assert_eq!(backup.status, 200);
+    assert!(backup.body.starts_with(b"SQLite format 3"));
+    let mut admin_rest = lea.client.clone();
+    admin_rest.timeout = std::time::Duration::from_secs(30);
+    let r = admin_rest
+        .send("POST", "/v1/restore", Some(&backup.body))
+        .unwrap();
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    lea.sign_in(None).unwrap();
+    assert_eq!(lea.state().spaces[0].key_gen, 2);
+
+    // Key rotation: announced, then in use after the switch; apps that stored both still connect.
+    let info: OrgInfo = lea.client.call("/v1/rotate", &()).unwrap();
+    let next: [u8; 32] = info.next_cert.unwrap().try_into().unwrap();
+    let dir = srv.stop();
+    {
+        let conn = cleis_server::db::open(&dir.join(cleis_server::DB_FILE)).unwrap();
+        let c = cleis_server::db::meta_get(&conn, "next_cert")
+            .unwrap()
+            .unwrap();
+        let k = cleis_server::db::meta_get(&conn, "next_cert_key")
+            .unwrap()
+            .unwrap();
+        cleis_server::finish_rotation(&conn, &c, &k).unwrap();
+    }
+    let srv = Server::start(dir);
+    let mut lea2 = Client::new(&srv.addr, Trust::Pinned(vec![info.cert]));
+    assert!(matches!(
+        lea2.get::<Hello>("/v1/hello"),
+        Err(NetError::Untrusted)
+    ));
+    lea2.trust = Trust::Pinned(vec![info.cert, next]);
+    lea.client = lea2;
+    lea.sign_in(None).unwrap();
+    assert!(lea.state().org.next_cert.is_none());
+    srv.stop();
+}

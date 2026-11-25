@@ -97,6 +97,16 @@ impl Chain {
         }
     }
 
+    /// Resumes after a record that is no longer kept (log retention): `seq` and `hash` of it.
+    pub fn resume_at(device: DeviceId, key: SigningKeyPair, seq: u64, hash: [u8; 32]) -> Self {
+        Self {
+            device,
+            key,
+            next_seq: seq + 1,
+            head: hash,
+        }
+    }
+
     pub fn append(&mut self, at: i64, payload: Vec<u8>, witnesses: Vec<Witness>) -> Record {
         let mut r = Record {
             device: self.device,
@@ -172,32 +182,9 @@ pub fn verify_all(
             rep.problems.push(Problem::UnknownDevice(*dev));
             continue;
         };
-        let mut prev = [0u8; 32];
-        let mut expected = 1;
-        for r in recs {
-            rep.records += 1;
-            if r.device != *dev || verify(vk, DOMAIN, &r.body(), &r.signature).is_err() {
-                rep.problems.push(Problem::BadSignature {
-                    device: *dev,
-                    seq: r.seq,
-                });
-            }
-            if r.seq != expected {
-                rep.problems.push(Problem::Gap {
-                    device: *dev,
-                    expected,
-                    found: r.seq,
-                });
-            } else if r.prev != prev {
-                rep.problems.push(Problem::BrokenLink {
-                    device: *dev,
-                    seq: r.seq,
-                });
-            }
-            prev = r.hash();
-            expected = r.seq + 1;
-            hashes.insert((*dev, r.seq), prev);
-        }
+        let (n, problems) = verify_chain(*dev, recs, vk, (0, [0; 32]), &mut hashes);
+        rep.records += n;
+        rep.problems.extend(problems);
     }
     for recs in chains.values() {
         for r in recs {
@@ -227,6 +214,44 @@ pub fn verify_all(
         }
     }
     rep
+}
+
+/// Checks one device's chain that starts after `anchor` (`(seq, hash)` of the last record
+/// dropped by retention; `(0, zeros)` for a whole chain). Returns how many records were read and
+/// the problems found; `hashes` collects each record's hash for the witness check.
+pub fn verify_chain(
+    dev: DeviceId,
+    recs: &[Record],
+    vk: &VerifyingKey,
+    anchor: (u64, [u8; 32]),
+    hashes: &mut BTreeMap<(DeviceId, u64), [u8; 32]>,
+) -> (usize, Vec<Problem>) {
+    let mut problems = vec![];
+    let (mut expected, mut prev) = (anchor.0 + 1, anchor.1);
+    for r in recs {
+        if r.device != dev || verify(vk, DOMAIN, &r.body(), &r.signature).is_err() {
+            problems.push(Problem::BadSignature {
+                device: dev,
+                seq: r.seq,
+            });
+        }
+        if r.seq != expected {
+            problems.push(Problem::Gap {
+                device: dev,
+                expected,
+                found: r.seq,
+            });
+        } else if r.prev != prev {
+            problems.push(Problem::BrokenLink {
+                device: dev,
+                seq: r.seq,
+            });
+        }
+        prev = r.hash();
+        expected = r.seq + 1;
+        hashes.insert((dev, r.seq), prev);
+    }
+    (recs.len(), problems)
 }
 
 /// Current heads of every chain, to embed as witnesses in the next record.

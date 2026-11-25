@@ -14,6 +14,7 @@ cleis-crypto = { path = "crates/cleis-crypto" }
 cleis-core = { path = "crates/cleis-core" }
 cleis-store = { path = "crates/cleis-store" }
 cleis-autofill = { path = "crates/cleis-autofill" }
+cleis-net = { path = "crates/cleis-net" }
 aes-gcm = "0.11"
 argon2 = "0.6"
 x25519-dalek = { version = "3", features = ["static_secrets", "zeroize"] }

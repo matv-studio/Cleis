@@ -164,3 +164,72 @@ mod tests {
         );
     }
 }
+
+const SEALED_TO_VERSION: u8 = 1;
+
+/// Seals `plain` so that only the holder of `recipient`'s private key can open it: a fresh
+/// symmetric key is wrapped to `recipient` ([`wrap_key`]) and seals the data ([`aead::seal`]).
+/// Format: `0x01 | len(wrapped) u16 BE | wrapped key | sealed data`. Used for activity-log details
+/// readable by the administrators only, and for the recovery copies of keys.
+pub fn seal_to(
+    recipient: &PublicKey,
+    context: &[u8],
+    plain: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    let key = SymmetricKey::generate()?;
+    let wrapped = wrap_key(recipient, &key, context)?;
+    let sealed = aead::seal(&key, context, plain)?;
+    let len = u16::try_from(wrapped.len()).map_err(|_| CryptoError::Malformed)?;
+    let mut out = Vec::with_capacity(3 + wrapped.len() + sealed.len());
+    out.push(SEALED_TO_VERSION);
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&wrapped);
+    out.extend_from_slice(&sealed);
+    Ok(out)
+}
+
+/// Opens what [`seal_to`] sealed for `own`.
+pub fn open_from(
+    own: &KeyPair,
+    context: &[u8],
+    blob: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+    let (&version, rest) = blob.split_first().ok_or(CryptoError::Malformed)?;
+    if version != SEALED_TO_VERSION {
+        return Err(CryptoError::Version(version));
+    }
+    if rest.len() < 2 {
+        return Err(CryptoError::Malformed);
+    }
+    let len = usize::from(u16::from_be_bytes([rest[0], rest[1]]));
+    let rest = &rest[2..];
+    if rest.len() < len {
+        return Err(CryptoError::Malformed);
+    }
+    let (wrapped, sealed) = rest.split_at(len);
+    let key = unwrap_key(own, wrapped, context)?;
+    Ok(Zeroizing::new(aead::open(&key, context, sealed)?))
+}
+
+#[cfg(test)]
+mod sealed_to_tests {
+    use super::*;
+
+    #[test]
+    fn seal_to_round_trip_and_binding() {
+        let admin = KeyPair::generate().unwrap();
+        let other = KeyPair::generate().unwrap();
+        let blob = seal_to(&admin.public(), b"cleis/log", b"Copied Figma").unwrap();
+        assert_eq!(
+            &open_from(&admin, b"cleis/log", &blob).unwrap()[..],
+            b"Copied Figma"
+        );
+        // Another key, another context, a changed byte: refused.
+        assert!(open_from(&other, b"cleis/log", &blob).is_err());
+        assert!(open_from(&admin, b"cleis/other", &blob).is_err());
+        let mut bad = blob.clone();
+        *bad.last_mut().unwrap() ^= 1;
+        assert!(open_from(&admin, b"cleis/log", &bad).is_err());
+        assert!(open_from(&admin, b"cleis/log", &blob[..10]).is_err());
+    }
+}

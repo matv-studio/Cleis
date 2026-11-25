@@ -9,6 +9,7 @@
 //! - sealed data: `0x01 | nonce(12) | ciphertext | tag(16)` — AES-256-GCM, caller-supplied AAD.
 //! - wrapped key: `0x01 | ephemeral X25519 public(32) | sealed key` — X25519 + HKDF-SHA256 + AES-256-GCM.
 //! - signature: Ed25519 (64 bytes) over a domain-separated message.
+//! - sealed to a public key: `0x01 | len u16 | wrapped key | sealed data` (`seal_to`).
 
 #![forbid(unsafe_code)]
 
@@ -24,7 +25,7 @@ pub use error::CryptoError;
 pub use kdf::{KdfParams, MasterKey, derive_master_key};
 pub use keys::{SymmetricKey, random_bytes};
 pub use sign::{SigningKeyPair, VerifyingKey, verify};
-pub use wrap::{KeyPair, PublicKey, unwrap_key, wrap_key};
+pub use wrap::{KeyPair, PublicKey, open_from, seal_to, unwrap_key, wrap_key};
 
 /// SHA-256 of `data`, used for content hashes and hash chains.
 pub fn sha256(data: &[u8]) -> [u8; 32] {
