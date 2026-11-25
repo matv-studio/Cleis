@@ -394,29 +394,27 @@ impl GitHub {
         url: &str,
         body: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, RemoteError> {
-        let req = |r: ureq::RequestBuilder<ureq::typestate::WithoutBody>| {
-            r.header("Authorization", &format!("Bearer {}", self.token))
+        let auth = format!("Bearer {}", self.token);
+        let res = match method {
+            "GET" => self
+                .agent
+                .get(url)
+                .header("Authorization", &auth)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("User-Agent", "Cleis")
-        };
-        let res = match (method, body) {
-            ("GET", _) => req(self.agent.get(url)).call(),
-            ("POST", Some(b)) => {
-                let r = self.agent.post(url);
-                r.header("Authorization", &format!("Bearer {}", self.token))
+                .call(),
+            m => {
+                let r = if m == "POST" {
+                    self.agent.post(url)
+                } else {
+                    self.agent.patch(url)
+                };
+                r.header("Authorization", &auth)
                     .header("Accept", "application/vnd.github+json")
                     .header("X-GitHub-Api-Version", "2022-11-28")
                     .header("User-Agent", "Cleis")
-                    .send_json(&b)
-            }
-            (_, b) => {
-                let r = self.agent.patch(url);
-                r.header("Authorization", &format!("Bearer {}", self.token))
-                    .header("Accept", "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .header("User-Agent", "Cleis")
-                    .send_json(&b.unwrap_or_default())
+                    .send_json(body.unwrap_or_default())
             }
         };
         let mut r = res.map_err(|e| e.to_string())?;
@@ -552,10 +550,13 @@ mod tests {
     use super::{GitHistory, RemoteError, prune_with};
     use std::cell::RefCell;
 
-    /// A branch in memory: commits `(sha, tree, message, parent)`, the head.
+    /// `(sha, tree, message, parent)`.
+    type Commit = (String, String, String, Option<String>);
+
+    /// A branch in memory: its commits and head.
     #[derive(Default)]
     struct Repo {
-        commits: RefCell<Vec<(String, String, String, Option<String>)>>,
+        commits: RefCell<Vec<Commit>>,
         head: RefCell<String>,
         /// Another device writes after this many `head` reads.
         race_after: Option<usize>,
