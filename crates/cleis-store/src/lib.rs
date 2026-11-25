@@ -682,6 +682,63 @@ impl LockedVault {
     }
 }
 
+impl Vault {
+    /// Deletes a personal folder (D-62): everything in it, trash included, moves to `move_to`,
+    /// sealed again with that space's key; the folder is remembered as erased so a sync does not
+    /// bring it back. The home space and organization spaces cannot be deleted here.
+    pub fn delete_space(&mut self, id: SpaceId, move_to: SpaceId) -> Result<usize> {
+        if id == self.home_space() || id == move_to {
+            return Err(StoreError::UnknownSpace);
+        }
+        let org: Option<bool> = self
+            .conn
+            .query_row(
+                "SELECT org IS NOT NULL FROM spaces WHERE id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if org != Some(false) {
+            return Err(StoreError::UnknownSpace);
+        }
+        let old = self.key(id)?.clone();
+        let new = self.key(move_to)?.clone();
+        let rows: Vec<(String, String, Vec<u8>)> = {
+            let mut st = self
+                .conn
+                .prepare("SELECT kind, id, sealed FROM records WHERE space = ?1")?;
+            st.query_map([id.to_string()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let tx = self.conn.unchecked_transaction()?;
+        let now = now_ms();
+        for (kind, rid, sealed) in &rows {
+            let plain = zeroize::Zeroizing::new(open(&old, &aad(kind, rid, &id), sealed)?);
+            // The space is inside the sealed item too: written again with the new one.
+            let mut v: serde_json::Value = serde_json::from_slice(&plain)?;
+            if let Some(o) = v.as_object_mut() {
+                o.insert("space".into(), serde_json::to_value(move_to)?);
+            }
+            let plain = zeroize::Zeroizing::new(serde_json::to_vec(&v)?);
+            let resealed = seal(&new, &aad(kind, rid, &move_to), &plain)?;
+            self.conn.execute(
+                "UPDATE records SET space = ?3, sealed = ?4, rev = rev + 1, changed = ?5 WHERE kind = ?1 AND id = ?2",
+                params![kind, rid, move_to.to_string(), resealed, now],
+            )?;
+        }
+        self.conn
+            .execute("DELETE FROM spaces WHERE id = ?1", [id.to_string()])?;
+        self.conn.execute(
+            "INSERT INTO purged(kind, id, at) VALUES ('space', ?1, ?2)
+             ON CONFLICT(kind, id) DO UPDATE SET at = excluded.at",
+            params![id.to_string(), now],
+        )?;
+        tx.commit()?;
+        self.space_keys.remove(&id);
+        Ok(rows.len())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

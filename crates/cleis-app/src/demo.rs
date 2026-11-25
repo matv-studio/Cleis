@@ -259,6 +259,13 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
     let mut v = Vault::create(path, PASSWORD, KdfParams::insecure_for_tests())?;
     let home = v.home_space();
     let now = cleis_core::now();
+    // A personal folder (D-62).
+    v.create_space(
+        "Banking",
+        SpaceKind::Personal,
+        EncryptionMode::EndToEnd,
+        false,
+    )?;
     // The organization's spaces of the mockups (01, 09).
     let mut org = std::collections::BTreeMap::new();
     for (name, mode) in [

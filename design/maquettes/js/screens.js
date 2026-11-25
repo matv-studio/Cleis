@@ -962,10 +962,21 @@ function supprimerEspace() {
     <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger">Delete</button></div>`));
 }
 
+function nouveauDossier() {
+  return vaultWith(dlg('New folder', `${fld('Name', 'Banking', true)}
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Create</button></div>`));
+}
+function supprimerDossier() {
+  return vaultWith(dlg('Delete “Banking”?', `<span style="color:var(--text-muted)">Its 4 items move to My vault.</span>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger">Delete</button></div>`));
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
   '01c-nouvel-espace': ['New space', nouvelEspace],
+  '01d-nouveau-dossier': ['New personal folder', nouveauDossier],
+  '01e-supprimer-dossier': ['Delete a personal folder', supprimerDossier],
   '02-colonnes': ['Custom columns', colonnes],
   '03-premier-lancement': ['First launch', premierLancement],
   '04-deverrouiller': ['Unlock', deverrouiller],

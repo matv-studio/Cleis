@@ -47,6 +47,9 @@ for theme in ${THEMES:-dark}; do
   shot "devices-$theme" --demo --unlocked --tab settings --page devices --theme $theme
   shot "spaces-$theme" --demo --unlocked --tab settings --page spaces --theme $theme
   shot "rename-space-$theme" --demo --unlocked --tab settings --page spaces --menu rename-space --theme $theme
+  shot "new-folder-$theme" --demo --unlocked --menu new-folder --theme $theme
+  shot "folder-menu-$theme" --demo --unlocked --menu folder-menu --theme $theme
+  shot "delete-folder-$theme" --demo --unlocked --menu delete-folder --theme $theme
   shot "delete-space-$theme" --demo --unlocked --tab settings --page spaces --menu delete-space --theme $theme
 done
 echo "captures in $out"

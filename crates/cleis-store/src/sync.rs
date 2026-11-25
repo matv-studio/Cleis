@@ -122,7 +122,8 @@ impl Vault {
                       LEFT JOIN main.purged p USING (kind, id)
                       WHERE (m.id IS NULL OR t.changed > m.changed) AND (p.id IS NULL OR t.changed > p.at))
                  + (SELECT count(*) FROM o.spaces t LEFT JOIN main.spaces m USING (id)
-                      WHERE t.org IS NULL AND (m.id IS NULL OR t.changed > m.changed))
+                      WHERE t.org IS NULL AND (m.id IS NULL OR t.changed > m.changed)
+                        AND t.id NOT IN (SELECT id FROM main.purged WHERE kind = 'space'))
                  + (SELECT count(*) FROM o.settings t LEFT JOIN main.settings m USING (key)
                       WHERE m.key IS NULL OR t.changed > m.changed)",
             )?;
@@ -130,6 +131,7 @@ impl Vault {
             c.execute_batch(
                 "INSERT INTO main.spaces(id, wrapped_key, sealed, rev, changed)
                    SELECT id, wrapped_key, sealed, rev, changed FROM o.spaces t WHERE t.org IS NULL
+                     AND t.id NOT IN (SELECT id FROM main.purged WHERE kind = 'space')
                    ON CONFLICT(id) DO UPDATE SET wrapped_key = excluded.wrapped_key,
                      sealed = excluded.sealed, rev = excluded.rev, changed = excluded.changed
                    WHERE excluded.changed > main.spaces.changed AND main.spaces.org IS NULL;
@@ -147,6 +149,9 @@ impl Vault {
                  DELETE FROM main.records WHERE EXISTS (
                    SELECT 1 FROM main.purged p WHERE p.kind = records.kind AND p.id = records.id
                      AND p.at >= records.changed);
+                 DELETE FROM main.spaces WHERE org IS NULL
+                   AND id IN (SELECT id FROM main.purged WHERE kind = 'space')
+                   AND NOT EXISTS (SELECT 1 FROM main.records r WHERE r.space = spaces.id);
                  INSERT INTO main.settings(key, sealed, changed)
                    SELECT key, sealed, changed FROM o.settings WHERE true
                    ON CONFLICT(key) DO UPDATE SET sealed = excluded.sealed,
@@ -284,5 +289,45 @@ mod tests {
             a.sync_with(&d.path().join("b")),
             Err(crate::StoreError::OtherVault)
         ));
+    }
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use crate::{EncryptionMode, SpaceKind, Vault};
+    use cleis_core::Entry;
+    use cleis_crypto::KdfParams;
+
+    #[test]
+    fn deleted_folder_moves_items_and_stays_deleted() {
+        let d = tempfile::tempdir().unwrap();
+        let place = d.path().join("place.cleis");
+        let mut a =
+            Vault::create(&d.path().join("a"), "pw", KdfParams::insecure_for_tests()).unwrap();
+        let bank = a
+            .create_space(
+                "Banking",
+                SpaceKind::Personal,
+                EncryptionMode::EndToEnd,
+                false,
+            )
+            .unwrap();
+        let e = Entry::new(bank, "Bank");
+        a.put_entry(&e).unwrap();
+        let old = Entry::new(bank, "Old card");
+        a.put_entry(&old).unwrap();
+        a.delete_entry(old.id).unwrap();
+        a.sync_with(&place).unwrap();
+        // The place's copy still has the folder; deleting here wins at the next sync.
+        let home = a.home_space();
+        assert_eq!(a.delete_space(bank, home).unwrap(), 2);
+        assert!(a.delete_space(home, bank).is_err(), "home stays");
+        let moved = a.entries().unwrap();
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].space, home);
+        assert_eq!(a.trashed_entries().unwrap()[0].space, home);
+        a.sync_with(&place).unwrap();
+        assert!(a.spaces().unwrap().iter().all(|s| s.id != bank));
+        assert_eq!(a.entries().unwrap()[0].space, home);
     }
 }

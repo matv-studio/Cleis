@@ -13,6 +13,13 @@ use gpui_kit::{App, ClipboardItem, Context, Entity, SharedString, Subscription, 
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Dialogs of the personal folders (D-62).
+pub enum FolderDialog {
+    New(Entity<InputState>),
+    Rename(cleis_core::SpaceId, Entity<InputState>),
+    Delete(cleis_core::SpaceId),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Vault,
@@ -123,6 +130,9 @@ pub struct Session {
     pub vault_cards: bool,
     /// The organization this vault belongs to, if any (D-59).
     pub org: Option<crate::org::OrgSession>,
+    /// Personal folders (D-62): the dialog open, the folder whose menu is open.
+    pub folder: Option<FolderDialog>,
+    pub folder_menu: Option<cleis_core::SpaceId>,
     /// Settings › Organization: joining one from an open vault.
     pub join: crate::screens::org::JoinForm,
     pub join_subs: Vec<Subscription>,
@@ -229,7 +239,7 @@ pub struct CleisApp {
     /// Demo vault (`--demo`, `--try-autofill`): nothing is registered on the computer.
     pub demo: bool,
     _ticker: Task<()>,
-    _subs: Vec<Subscription>,
+    pub(crate) _subs: Vec<Subscription>,
 }
 
 fn password_input(
@@ -581,6 +591,8 @@ impl CleisApp {
             filter_menu: false,
             vault_cards: false,
             org: None,
+            folder: None,
+            folder_menu: None,
             join: Default::default(),
             join_subs: vec![],
         };

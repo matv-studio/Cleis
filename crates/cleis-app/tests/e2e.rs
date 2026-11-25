@@ -1038,3 +1038,91 @@ Yann,Sample,yann@example-legal.com,,Example Legal\n",
         );
     });
 }
+
+/// Personal folders (D-62): a folder is made from the sidebar, an item moved into it from the
+/// inspector menu, the folder renamed, then deleted: its item goes back to My vault.
+#[gpui_kit::test]
+fn personal_folders(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("new-folder-v", cx));
+    act(cx, h, |w, cx| {
+        w.click("folder-name", cx);
+        w.input("Savings", cx);
+        w.click("folder-ok", cx);
+    });
+    let (bank, home, dropbox) = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => {
+            let b = s
+                .spaces
+                .iter()
+                .find(|x| x.name == "Savings")
+                .expect("folder")
+                .id;
+            assert_eq!(
+                s.filter,
+                cleis_app::app::Filter::Space(b),
+                "the new folder is shown"
+            );
+            let d = s.entries.iter().find(|e| e.name == "Dropbox").unwrap().id;
+            (b, s.vault.home_space(), d)
+        }
+        _ => panic!(),
+    });
+    // Move Dropbox (in My vault) to Banking from the inspector's menu.
+    act(cx, h, |w, cx| w.click(format!("sp-{home}"), cx));
+    app.update(cx, |a, cx| {
+        if let Phase::Main(s) = &mut a.phase {
+            s.selected = Some(dropbox);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("more", cx));
+    act(cx, h, |w, cx| w.click(format!("menu-move-{bank}"), cx));
+    app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => {
+            assert_eq!(
+                s.entries.iter().find(|e| e.id == dropbox).unwrap().space,
+                bank
+            )
+        }
+        _ => panic!(),
+    });
+    // Rename, then delete: the item goes back to My vault.
+    act(cx, h, |w, cx| w.hover(format!("sp-{bank}"), cx));
+    act(cx, h, |w, cx| w.click(format!("fmore-{bank}"), cx));
+    act(cx, h, |w, cx| w.click(format!("frename-{bank}"), cx));
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input("Home", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => assert!(s.spaces.iter().any(|x| x.id == bank && x.name == "Home")),
+        _ => panic!(),
+    });
+    act(cx, h, |w, cx| w.hover(format!("sp-{bank}"), cx));
+    act(cx, h, |w, cx| w.click(format!("fmore-{bank}"), cx));
+    act(cx, h, |w, cx| w.click(format!("fdelete-{bank}"), cx));
+    act(cx, h, |w, cx| w.click("folder-ok", cx));
+    app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => {
+            assert!(s.spaces.iter().all(|x| x.id != bank));
+            assert_eq!(
+                s.entries.iter().find(|e| e.id == dropbox).unwrap().space,
+                home
+            );
+            assert_eq!(s.entries.len(), 14, "nothing lost");
+        }
+        _ => panic!(),
+    });
+}

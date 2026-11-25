@@ -124,6 +124,7 @@ pub fn render(
             d.child(super::security::dialog(s, dlg, &t, cx))
         })
         .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(super::folders::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
@@ -441,19 +442,59 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .iter()
         .filter(|sp| !sp.for_contacts && sp.kind == cleis_store::SpaceKind::Organization)
         .collect();
-    if !personal.is_empty() {
-        d = d.child(group("Personal"));
-        for sp in personal {
-            let n = s.entries.iter().filter(|e| e.space == sp.id).count();
-            d = d.child(item(
-                &format!("sp-{}", sp.id),
-                "user",
-                sp.name.clone(),
-                Some(n),
-                Filter::Space(sp.id),
-                cx,
-            ));
-        }
+    // Personal folders (D-62): "+" to add one, "⋯" on hover to rename or delete.
+    d = d.child(
+        div()
+            .flex()
+            .items_center()
+            .child(div().flex_1().child(group("Personal")))
+            .child(
+                div().pt(px(8.)).child(
+                    icon_button("new-folder-v", t, "plus", true)
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("New folder")
+                                .build(window, cx)
+                        })
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.open_new_folder(window, cx)),
+                        )
+                        .test_support(),
+                ),
+            ),
+    );
+    let home = s.vault.home_space();
+    for sp in personal {
+        let n = s.entries.iter().filter(|e| e.space == sp.id).count();
+        let gname = SharedString::from(format!("pf-{}", sp.id));
+        let menu_open = s.folder_menu == Some(sp.id);
+        d = d.child(
+            div()
+                .relative()
+                .group(gname.clone())
+                .child(item(
+                    &format!("sp-{}", sp.id),
+                    if sp.id == home { "user" } else { "folder" },
+                    sp.name.clone(),
+                    Some(n),
+                    Filter::Space(sp.id),
+                    cx,
+                ))
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(4.))
+                        .right(px(4.))
+                        .rounded(RADIUS_SM)
+                        .bg(t.surface)
+                        .when(!menu_open, |d| {
+                            d.invisible().group_hover(gname.clone(), |s| s.visible())
+                        })
+                        .child(super::folders::more_button(sp.id, t, cx)),
+                )
+                .when(menu_open, |d| {
+                    d.child(gpui_kit::deferred(super::folders::menu(s, sp.id, t, cx)))
+                }),
+        );
     }
     if let Some(o) = &s.org {
         let manage = o.can(cleis_core::org::Perm::Manage);

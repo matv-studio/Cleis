@@ -2929,6 +2929,19 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
         }
         "new-role" => app.open_new_role(window, cx),
+        "new-folder" => app.open_new_folder(window, cx),
+        "delete-folder" | "folder-menu" => {
+            if let Some(s) = app.session() {
+                let id = s.spaces.iter().find(|x| x.name == "Banking").map(|x| x.id);
+                if let Some(id) = id {
+                    if m == "folder-menu" {
+                        s.folder_menu = Some(id);
+                    } else {
+                        s.folder = Some(crate::app::FolderDialog::Delete(id));
+                    }
+                }
+            }
+        }
         "super-admin" | "rename-space" | "delete-space" => {
             let (member, space) = org_mut(app)
                 .and_then(|o| o.state.as_ref())

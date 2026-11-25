@@ -310,6 +310,12 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     (lisible des Super Admins seuls).
   - Corrige le trou relevé le 25/11 : un Admin pouvait s'ajouter à un espace End-to-end et recevoir
     sa clé de l'app d'un membre.
+- **D-62 Dossiers personnels** (25/11/2026, demande de l'utilisateur) : un dossier est un espace
+  du coffre personnel (sa propre clé). « + » du groupe Personal, « ⋯ » au survol : renommer,
+  supprimer (My vault ne se supprime pas ; le contenu, corbeille comprise, revient dans My vault,
+  rescellé avec sa clé). Déplacement d'un élément par le menu de l'inspecteur (« Move to … »).
+  « All items » regroupe tous les dossiers. Un dossier supprimé est noté effacé : une
+  synchronisation ne le ramène pas. Maquettes 01d, 01e.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
