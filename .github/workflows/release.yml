@@ -1,0 +1,88 @@
+name: Build
+
+# Release builds of the desktop app.
+# - Push to a `build/**` branch or run by hand: Windows portable zip as a workflow artifact.
+# - Push a `v*` tag: same, attached to a DRAFT release that a person reviews and publishes.
+# macOS only on demand (macOS runners cost 10× the minutes; no Apple signing yet).
+
+on:
+  push:
+    branches: ["build/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Also build for macOS (consumes 10× minutes, unsigned)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release -p cleis-app --locked
+      - name: Package (portable)
+        shell: pwsh
+        run: |
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $name = "Cleis-0.1.0-$sha-windows-x64-portable"
+          New-Item -ItemType Directory -Path "dist/$name" | Out-Null
+          Copy-Item target/release/cleis.exe "dist/$name/Cleis.exe"
+          Copy-Item README.md, THIRD_PARTY.md "dist/$name/"
+          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+          Get-FileHash "dist/$name.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $name.zip" } | Out-File -Encoding ascii "dist/$name.zip.sha256"
+          "NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.zip
+            dist/${{ env.NAME }}.zip.sha256
+          retention-days: 30
+
+  macos:
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p cleis-app --locked
+      - run: |
+          mkdir -p dist && cp target/release/cleis dist/Cleis
+          cd dist && zip Cleis-macos-arm64-unsigned.zip Cleis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cleis-macos-arm64-unsigned
+          path: dist/Cleis-macos-arm64-unsigned.zip
+          retention-days: 30
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Draft release (published by a person)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --draft \
+            --title "Cleis ${GITHUB_REF_NAME}" --notes "Draft: review, write the notes (EN + FR), then publish."

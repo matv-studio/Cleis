@@ -11,16 +11,17 @@ pub enum Theme {
     System,
 }
 
-/// Default accent colour (D-48).
-pub const DEFAULT_ACCENT: &str = "#a57118";
+/// Default accent colour (D-51): ochre of the classic folder. The light theme uses a deeper
+/// shade of it, derived so every accent keeps 3.6:1 against the page (WCAG 1.4.11 ≥ 3:1).
+pub const DEFAULT_ACCENT: &str = "#e0a93b";
 
 /// Accent colours offered in Preferences, after "None".
 pub const ACCENTS: [(&str, &str); 6] = [
-    ("#a57118", "Bronze"),
+    ("#e0a93b", "Ochre"),
     ("#3b82f6", "Blue"),
     ("#8b5cf6", "Violet"),
     ("#10b981", "Green"),
-    ("#f59e0b", "Amber"),
+    ("#14b8a6", "Teal"),
     ("#ef4444", "Red"),
 ];
 
@@ -118,7 +119,7 @@ impl Default for Autofill {
 #[serde(default)]
 pub struct Preferences {
     pub theme: Theme,
-    /// `None` = no accent, or a `#rrggbb` colour. Cleis default: bronze `#a57118` (D-48).
+    /// `None` = no accent, or a `#rrggbb` colour. Cleis default: ochre `#e0a93b` (D-51).
     pub accent: Option<String>,
     pub accent_scope: AccentScope,
     /// BCP 47 tag: `en`, `fr`.

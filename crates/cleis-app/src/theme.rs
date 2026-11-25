@@ -144,6 +144,7 @@ impl Tokens {
     /// rows; Minimal keeps the primary action in inverse contrast.
     pub fn with_accent(mut self, accent: Option<Rgba>, scope: AccentScope) -> Self {
         let Some(a) = accent else { return self };
+        let a = fit_contrast(a, self.bg.into(), MIN_ACCENT_CONTRAST);
         let ah: Hsla = a.into();
         let text: Rgba = self.text.into();
         self.focus = ah;
@@ -194,6 +195,34 @@ pub fn ink_for(c: Rgba) -> Hsla {
     } else {
         gpui_kit::black()
     }
+}
+
+/// Contrast an accent keeps against the page in both themes: above the 3:1 floor of
+/// WCAG 1.4.11 so the 72 % text mix and focus rings on raised surfaces still pass (D-51).
+pub const MIN_ACCENT_CONTRAST: f32 = 3.6;
+
+/// WCAG contrast ratio.
+pub fn contrast(a: Rgba, b: Rgba) -> f32 {
+    let (x, y) = (luminance(a), luminance(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// Same hue and saturation, lightness moved away from `bg` until the contrast reaches `min`:
+/// a pale folder ochre stays as is on the dark page and deepens on the light one.
+pub fn fit_contrast(c: Rgba, bg: Rgba, min: f32) -> Rgba {
+    if contrast(c, bg) >= min {
+        return c;
+    }
+    let darker = luminance(bg) > 0.18;
+    let mut h: Hsla = c.into();
+    for _ in 0..200 {
+        h.l = (h.l + if darker { -0.005 } else { 0.005 }).clamp(0., 1.);
+        let r: Rgba = h.into();
+        if contrast(r, bg) >= min || h.l <= 0. || h.l >= 1. {
+            return r;
+        }
+    }
+    h.into()
 }
 
 /// `#rrggbb` → colour.
@@ -311,9 +340,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ochre_deepens_on_light_only() {
+        let a = parse_hex(cleis_core::settings::DEFAULT_ACCENT).unwrap();
+        let dark: Rgba = Tokens::for_mode(Mode::Dark).bg.into();
+        let light: Rgba = Tokens::for_mode(Mode::Light).bg.into();
+        assert_eq!(fit_contrast(a, dark, MIN_ACCENT_CONTRAST), a);
+        let deep = fit_contrast(a, light, MIN_ACCENT_CONTRAST);
+        assert!(contrast(deep, light) >= MIN_ACCENT_CONTRAST);
+        assert!(contrast(deep, light) < MIN_ACCENT_CONTRAST + 0.2);
+        // Close to the #a17419 shown in the comparison sent on 25/11/2026.
+        let want = parse_hex("#a17419").unwrap();
+        assert!((deep.r - want.r).abs() < 0.03 && (deep.g - want.g).abs() < 0.03);
+        assert_eq!(ink_for(a), gpui_kit::black());
+        assert_eq!(ink_for(deep), gpui_kit::black());
+    }
+
+    #[test]
     fn bronze_accent() {
         let a = parse_hex("#a57118").unwrap();
-        // Bright bronze: black ink contrasts more than white (charter: ink by luminance).
+        // Former default bronze: black ink contrasts more than white (charter: ink by luminance).
         assert_eq!(ink_for(a), gpui_kit::black());
         assert_eq!(ink_for(parse_hex("#3b82f6").unwrap()), gpui_kit::black());
         assert_eq!(ink_for(parse_hex("#84580b").unwrap()), gpui_kit::white());

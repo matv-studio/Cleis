@@ -155,8 +155,42 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   Suspens : enregistrement des applications OAuth (GitHub, Microsoft Entra, Google Cloud) au nom de
   l'entreprise ; ouverture sans mot de passe (appareil de confiance) reportée au serveur d'organisation.
 
+- **D-51 Accent « Ochre »** (25/11/2026, remplace l'accent de D-48 ; le reste de D-48 tient) : piste C choisie
+  par l'utilisateur, ocre du dossier classique `#e0a93b` (encre noire). Les teintes pâles tombent sous
+  3:1 sur le thème clair (WCAG 1.4.11 : focus, états actifs) ; l'appli ajuste donc la luminosité de tout
+  accent pour garder 3,6:1 sur la page (`fit_contrast`) : `#e0a93b` reste tel quel en sombre et devient
+  ≈ `#a17419` en clair. Pastille « Amber » remplacée par « Teal » (trop proche de l'ocre).
+- **D-52 Code `unsafe`** (25/11/2026) : `unsafe_code = "deny"` dans l'espace de travail (au lieu de
+  `forbid`), et `#![forbid(unsafe_code)]` à la racine de chaque crate sauf `cleis-autofill`, dont seuls les
+  modules `platform/windows.rs` et `platform/macos.rs` l'autorisent (appels Win32 et AppKit, chacun
+  commenté). Le reste passe par des bibliothèques : `global-hotkey`, `enigo`, `arboard`, `uiautomation`.
+- **D-53 Remplissage, règles retenues** (25/11/2026, applique D-31 ; écrans 16, 17) :
+  - Ordre des propositions : appli liée, puis site enregistré (adresse de l'onglet), puis nom dans le titre.
+    Dans un navigateur dont l'adresse est connue, le titre seul ne compte pas (une page peut afficher
+    n'importe quelle marque). « Fill best match » ne remplit seul qu'un unique lien ou site ; sinon
+    Quick Access s'ouvre (et toujours pour un simple nom si « Ask before filling » est actif).
+  - Séquence : identifiant, Tab, mot de passe, Entrée si demandé. Si le champ suivant n'est pas un mot de
+    passe (connexion en deux pages), Cleis s'arrête : la suite (mot de passe, puis code 2FA) attend le
+    prochain « Fill best match » sur la même fenêtre, 2 minutes au plus. Focus déjà dans le mot de passe :
+    l'identifiant n'est écrit que si le champ précédent est vide.
+  - Avant chaque étape, la fenêtre au premier plan doit être celle demandée, sinon arrêt : un secret n'est
+    jamais tapé ailleurs. Raccourcis relâchés avant de taper (Windows).
+  - « Automatic » : écriture par UI Automation seulement dans les champs natifs (Win32, WinForms, WPF,
+    XAML) ; pages web et contrôles maison : frappe (un changement de valeur par UIA n'y est pas toujours
+    vu par la page). « Paste » vide le presse-papiers après 0,4 s.
+  - Liens appris : le premier élément choisi dans Quick Access pour une appli (hors navigateurs) ; un
+    second choix ne crée pas de lien. Retrait dans *Settings › Autofill › Linked apps*.
+  - Raccourcis réglables (bouton « Change », enregistrement de la combinaison ; une touche seule ou
+    Shift seul refusés) ; un raccourci pris par une autre appli est signalé « Unavailable ».
+  - Limites de cette version : macOS sans lecture du champ ni de l'adresse (auto-type classique, non
+    essayé faute de Mac) ; pas d'icône de zone de notification : Cleis doit rester ouvert ; Linux sans
+    détection (développement seulement).
+
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Validation de la restauration et de la synchronisation (D-50, écrans 22, 23).
+5. Verrouillage après inactivité pour un coffre personnel (le réglage n'existe que dans la politique
+   d'organisation, défaut « jamais », D-02) : maquette à faire si souhaité.
+6. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.

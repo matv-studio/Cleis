@@ -303,7 +303,7 @@ function preferences() {
     <div class="page-head"><h1>Preferences</h1></div>
     <div class="section">${sectionTitle('Appearance')}
       <div class="row"><span class="row-label">Theme</span><div class="segmented" role="radiogroup" aria-label="Theme"><button role="radio" aria-checked="true">Dark</button><button role="radio" aria-checked="false">Light</button><button role="radio" aria-checked="false" title="Follow Windows or macOS">System</button></div></div>
-      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('#a57118', true, 'Bronze (default)')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#f59e0b', false, 'Amber')}${sw('#ef4444', false, 'Red')}</div></div>
+      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', true, 'Ochre (default)')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#14b8a6', false, 'Teal')}${sw('#ef4444', false, 'Red')}</div></div>
       <div class="row"><span class="row-label" title="Where the accent color is used">Accent scope</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="false" title="Focus and window outline">Minimal</button><button role="radio" aria-checked="false" title="Also the main button, switches and selection">Standard</button><button role="radio" aria-checked="true" title="Also tabs, choices and active rows">Extended</button></div></div>
     </div>
     <div class="section">${sectionTitle('Tabs', 'Hidden tabs keep their data.')}

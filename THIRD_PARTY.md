@@ -17,4 +17,13 @@ with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bund
 | `directories` | standard data folder | MIT OR Apache-2.0 |
 | Lucide (`settings` icon path, `design/maquettes/js/icons.js`, `crates/cleis-app/assets/icons/gear.svg`) | preferences cog icon | ISC |
 
-Planned: tauri-apps `tray-icon` and `global-hotkey` (MIT OR Apache-2.0).
+| tauri-apps `global-hotkey` | system-wide shortcuts (Quick Access, Fill best match) | MIT OR Apache-2.0 |
+| `enigo` | typing into other apps (autofill) | MIT |
+| 1Password `arboard` | clipboard for the "Paste" fill method | MIT OR Apache-2.0 |
+| `uiautomation` (Windows) | focused field kind, browser address, writing into native fields | Apache-2.0 |
+| Microsoft `windows` (Windows) | window in front, bringing it back | MIT OR Apache-2.0 |
+| `objc2` (MIT), `objc2-app-kit`, `objc2-foundation` (Zlib OR Apache-2.0 OR MIT) (macOS) | app in front, activation | see column 1 |
+| `unicode-normalization` (includes Unicode data) | NFC form of the master password | (MIT OR Apache-2.0) AND Unicode-3.0 |
+| `async-channel` | shortcut events to the interface thread | MIT OR Apache-2.0 |
+
+Planned: tauri-apps `tray-icon` (MIT OR Apache-2.0).

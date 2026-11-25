@@ -1,5 +1,24 @@
 # Cleis — état
 
+## 25/11/2026
+- Apparence : sombre, accent Ochre `#e0a93b` (D-51 ; teinte approfondie calculée en clair), étendue
+  « Étendue » ; pastilles et étendue réglables dans *Preferences* ; menu « Sync & backups » unique.
+- Audit avant build : `docs/AUDIT-2026-11-25.md` (corrections : NFC du mot de passe maître, création
+  atomique, effacement des clés, générateur, formules bornées, imports Excel/Notion/Outlook).
+- Remplissage (D-53) : crate `cleis-autofill` (raccourcis globaux, fenêtre au premier plan, adresse de
+  l'onglet par UIA, remplissage UIA ou frappe, collage), Quick Access (écran 17), réglages Autofill
+  complets (méthode, vitesse, raccourcis enregistrables, applis liées), Ctrl+L / Ctrl+F.
+- 77 essais. Premier build Windows : workflow `release.yml` (portable zip, brouillon de version).
+
+## Prochaines étapes
+1. Essai du build Windows en pilotage d'écran : Quick Access, Fill best match (Chrome, Edge, appli de
+   bureau), formulaire en deux pages, 2FA ; corriger ce qui en sort.
+2. Icône de zone de notification (tray-icon) : Cleis en arrière-plan, raccourcis actifs fenêtre fermée.
+3. Import CSV / vCard branché (écran 14), export chiffré.
+4. Édition dans l'inspecteur, menu Colonnes, corbeille, anneau TOTP dessiné.
+5. Synchronisation et restauration (D-50, écrans 22, 23, après validation).
+6. `cleis-server`.
+
 ## 24/11/2026
 - Maquettes : 21 écrans × 2 thèmes (coffre, colonnes, premier lancement, déverrouillage, 2FA, sécurité,
   membres, politique, chiffrement, rechiffrement, journal, santé, sauvegardes, import, préférences,

@@ -86,8 +86,10 @@
   --shadow-dialog: 0 16px 40px rgb(0 0 0 / .18), 0 0 0 1px var(--line);
 }
 
-/* Accent par défaut de Cleis (D-48) : #a57118, étendue « Étendue ». Le réglage « Aucune » retire --accent. */
-:root, .theme-dark, .theme-light { --accent: #a57118; --accent-ink: #000000; }
+/* Accent par défaut de Cleis (D-51) : ocre du dossier classique #e0a93b en sombre, teinte approfondie
+   #a17419 en clair (3,6:1 sur la page, l'appli la calcule) ; étendue « Étendue ». « Aucune » retire --accent. */
+:root, .theme-dark { --accent: #e0a93b; --accent-ink: #000000; }
+.theme-light { --accent: #a17419; --accent-ink: #000000; }
 
 /* Jetons dérivés, recalculés dans chaque thème (les classes de thème du canevas comprises). */
 :root, .theme-dark, .theme-light {
