@@ -108,6 +108,8 @@ pub struct Session {
     /// This device's sync place and backups (Settings › Sync & backups).
     pub sync: crate::sync::SyncConfig,
     pub sync_menu: bool,
+    /// Health tab: space shown and issue filter.
+    pub health: crate::screens::health::HealthUi,
 }
 
 impl Session {
@@ -443,6 +445,7 @@ impl CleisApp {
             last_activity: std::time::Instant::now(),
             sync: crate::sync::load_config(&self.path),
             sync_menu: false,
+            health: Default::default(),
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);

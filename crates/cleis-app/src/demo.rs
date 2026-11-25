@@ -273,6 +273,13 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
         e.price = price.map(|(c, p)| Money::new(c, "EUR", Some(p)));
         e.licenses = *lic;
         e.urls = vec![(*url).into()];
+        // Health report (screen 12): a weak and reused password, an old weak one.
+        match *name {
+            "Notion" | "Slack" | "Dropbox" => e.password = "Studio2024".into(),
+            "Office router" => e.password = "admin1234".into(),
+            "Microsoft 365" => e.password = "Compta2025".into(),
+            _ => {}
+        }
         e.favorite = matches!(*name, "Figma" | "GitHub" | "OVHcloud");
         e.password_changed = now - (i as i64 * 41 + 3) * 86_400;
         if *name == "Figma" {

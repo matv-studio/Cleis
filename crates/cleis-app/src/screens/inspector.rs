@@ -293,10 +293,7 @@ fn details(
                 icon_button("gen", t, "refresh", true)
                     .tooltip(tip("Generate a password"))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Ok(p) = cleis_core::generator::generate(&Default::default()) {
-                            this.update_entry(id, |e| e.set_password(p, None), cx);
-                            this.refresh_field(Field::Password, window, cx);
-                        }
+                        this.generate_password(id, window, cx)
                     }))
                     .test_support(),
             );
@@ -561,4 +558,19 @@ fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
             ))
             .child(format!("Edited {}", crate::format::date(e.updated))),
     )
+}
+
+impl CleisApp {
+    /// New generated password for an item; the old one goes to its history.
+    pub fn generate_password(
+        &mut self,
+        id: cleis_core::EntryId,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<CleisApp>,
+    ) {
+        if let Ok(p) = cleis_core::generator::generate(&Default::default()) {
+            self.update_entry(id, |e| e.set_password(p, None), cx);
+            self.refresh_field(Field::Password, window, cx);
+        }
+    }
 }

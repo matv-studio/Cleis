@@ -833,3 +833,51 @@ fn restore_from_folder(cx: &mut TestAppContext) {
         _ => panic!("restored"),
     });
 }
+
+/// Scenario (screen 12): filter the report on reused passwords, then "Change" one: the vault opens
+/// on it with a new password, the old one kept in its history.
+#[gpui_kit::test]
+fn health_change_weak_password(cx: &mut TestAppContext) {
+    use cleis_app::screens::health::IssueKind;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Health", cx));
+    act(cx, h, |w, cx| w.click("st-reused", cx));
+    let (id, old) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.health.only, IssueKind::Reused);
+        let (findings, _) = cleis_core::health::scan(
+            &s.entries,
+            &cleis_core::health::Policy::default(),
+            cleis_core::now(),
+        );
+        let f = findings
+            .iter()
+            .find(|f| {
+                f.issues
+                    .iter()
+                    .any(|i| matches!(i, cleis_core::health::Issue::Reused { .. }))
+            })
+            .expect("the demo reuses a password");
+        let e = s.entries.iter().find(|e| e.id == f.entry).unwrap();
+        (e.id, e.password.clone())
+    });
+    let fix: &'static str = format!("fix-{id}").leak();
+    act(cx, h, |w, cx| w.click(fix, cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.tab, Tab::Vault);
+        assert_eq!(s.selected, Some(id));
+        let e = s.entries.iter().find(|e| e.id == id).unwrap();
+        assert_ne!(e.password, old);
+        assert_eq!(e.password_history.last().unwrap().password, old);
+    });
+}
