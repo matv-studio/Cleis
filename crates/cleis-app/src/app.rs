@@ -389,6 +389,11 @@ impl CleisApp {
 
     /// Short message at the bottom of the main window.
     pub fn toast(&mut self, msg: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.toast_for(msg, 4, cx);
+    }
+
+    /// [`Self::toast`] kept on screen `secs` seconds (errors stay longer).
+    pub fn toast_for(&mut self, msg: impl Into<SharedString>, secs: u64, cx: &mut Context<Self>) {
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
@@ -396,7 +401,9 @@ impl CleisApp {
         s.toast = Some(msg.clone());
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_secs(4)).await;
+            cx.background_executor()
+                .timer(Duration::from_secs(secs))
+                .await;
             this.update(cx, |this, cx| {
                 if let Phase::Main(s) = &mut this.phase
                     && s.toast.as_ref() == Some(&msg)

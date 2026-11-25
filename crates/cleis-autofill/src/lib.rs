@@ -28,6 +28,8 @@ pub enum FillError {
     WindowChanged,
     #[error("the window to fill is gone")]
     WindowGone,
+    #[error("the system did not let Cleis bring the window back in front")]
+    CannotActivate,
     #[error("keyboard simulation failed: {0}")]
     Input(String),
     #[error("clipboard unavailable: {0}")]
@@ -45,6 +47,9 @@ pub struct WindowRef(pub u64);
 pub struct Foreground {
     pub window: WindowRef,
     pub context: Context,
+    /// Monitor showing the window (Windows `HMONITOR`, the id GPUI gives that display), so
+    /// Quick Access opens on the same screen.
+    pub monitor: Option<u64>,
 }
 
 /// Window in front, read when a shortcut is pressed (before Quick Access takes the focus).
@@ -60,8 +65,34 @@ pub fn browser_url(window: WindowRef) -> Option<String> {
 }
 
 /// Brings a window back in front (after Quick Access closes).
-pub fn activate(window: WindowRef) -> bool {
+pub fn activate(window: WindowRef) -> Result<(), FillError> {
     platform::activate(window)
+}
+
+static LOG: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+/// Diagnostic log of fills (`--try-autofill`): steps, field kinds and outcomes, never values.
+pub fn set_log_file(path: Option<std::path::PathBuf>) {
+    if let Ok(mut l) = LOG.lock() {
+        *l = path;
+    }
+}
+
+pub(crate) fn log(line: &str) {
+    use std::io::Write;
+    let Ok(l) = LOG.lock() else { return };
+    let Some(path) = l.as_ref() else { return };
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "{t} {line}");
+    }
 }
 
 /// Values a plan can put into fields. Wiped when dropped.
@@ -136,9 +167,15 @@ pub fn run<D: Driver>(
                 }
             }
             Action::Press(k) => driver.press(*k)?,
-            Action::ExpectPassword => match driver.focus() {
+            Action::ExpectPassword { submit } => match driver.focus() {
                 Focus::Password | Focus::Unknown => {}
-                _ => return Ok(Outcome::Waiting(actions[i + 1..].to_vec())),
+                other => {
+                    log(&format!("run: expected a password field, found {other:?}"));
+                    if *submit {
+                        driver.press(Key::Enter)?;
+                    }
+                    return Ok(Outcome::Waiting(actions[i + 1..].to_vec()));
+                }
             },
             Action::IfEmptyText { then, otherwise } => {
                 let branch = if driver.focus() == Focus::EmptyText {
@@ -172,15 +209,23 @@ pub fn fill(
     if !platform::accessibility_allowed() {
         return Err(FillError::NotAllowed);
     }
-    if !platform::activate(window) {
-        return Err(FillError::WindowGone);
+    log(&format!("fill: window {:x}, method {method:?}", window.0));
+    if let Err(e) = platform::activate(window) {
+        log(&format!("fill: {e}"));
+        return Err(e);
     }
     std::thread::sleep(Duration::from_millis(150));
     platform::wait_modifiers_released(Duration::from_secs(2));
     let mut d = platform::SystemDriver::new(window)?;
-    let plan = make(d.focus());
-    let outcome = run(&mut d, &plan.now, values, method, speed)?;
-    Ok((outcome, plan.later))
+    let focus = d.focus();
+    let plan = make(focus);
+    log(&format!(
+        "fill: focus {focus:?}, plan {:?}, later {:?}",
+        plan.now, plan.later
+    ));
+    let outcome = run(&mut d, &plan.now, values, method, speed);
+    log(&format!("fill: outcome {outcome:?}"));
+    Ok((outcome?, plan.later))
 }
 
 /// Delay between typed characters.
@@ -358,7 +403,7 @@ mod tests {
             TypingSpeed::Fast,
         )
         .unwrap();
-        assert_eq!(f.log, ["type:ines@example-studio.com", "Tab"]);
+        assert_eq!(f.log, ["type:ines@example-studio.com", "Tab", "Enter"]);
         let Outcome::Waiting(rest) = r else { panic!() };
         assert_eq!(
             rest,

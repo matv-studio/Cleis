@@ -19,7 +19,10 @@ use zeroize::Zeroizing;
 pub struct Pending {
     pub window: WindowRef,
     pub entry: EntryId,
+    /// Steps for the next press (the password page).
     pub actions: Vec<Action>,
+    /// Steps for the press after that (the 2FA page).
+    pub later: Vec<Action>,
     pub until: Instant,
 }
 
@@ -156,11 +159,8 @@ impl CleisApp {
             && p.window == fg.window
             && p.until > Instant::now()
         {
-            let actions = p.actions;
-            let next = move |_| Plan {
-                now: actions,
-                later: vec![],
-            };
+            let (now, later) = (p.actions, p.later);
+            let next = move |_| Plan { now, later };
             self.start_fill(p.entry, fg, false, next, cx);
             return;
         }
@@ -252,21 +252,19 @@ impl CleisApp {
         r: Result<(Outcome, Vec<Action>), FillError>,
         cx: &mut Context<Self>,
     ) {
-        let o = self.plan_options();
         match r {
             Ok((outcome, later)) => {
-                let mut rest = match outcome {
-                    Outcome::Done => vec![],
-                    Outcome::Waiting(rest) => {
-                        let (_, rest) = logic::after_stop(rest, o);
-                        rest
-                    }
+                // Stopped before the password (two-page sign-in): the password waits for the
+                // next press, the 2FA code for the one after. Done: the 2FA code waits.
+                let (actions, later) = match outcome {
+                    Outcome::Done => (later, vec![]),
+                    Outcome::Waiting(rest) => (rest, later),
                 };
-                rest.extend(later);
-                self.autofill.pending = (!rest.is_empty()).then(|| Pending {
+                self.autofill.pending = (!actions.is_empty()).then(|| Pending {
                     window: fg.window,
                     entry,
-                    actions: rest,
+                    actions,
+                    later,
                     until: Instant::now() + PENDING_FOR,
                 });
                 if from_quick_access {
@@ -275,7 +273,7 @@ impl CleisApp {
             }
             Err(e) => {
                 self.autofill.pending = None;
-                self.toast(format!("Not filled: {e}"), cx);
+                self.toast_for(format!("Not filled: {e}"), 10, cx);
             }
         }
     }
@@ -325,9 +323,17 @@ impl CleisApp {
             w.update(cx, |_, window, _| window.remove_window()).ok();
         }
         let me = cx.entity().downgrade();
-        let bounds = Bounds::centered(None, size(px(600.), px(420.)), cx);
+        // On the screen of the window being filled, not always the main one.
+        let display = fg.monitor.and_then(|m| {
+            cx.displays()
+                .into_iter()
+                .map(|d| d.id())
+                .find(|id| u64::from(*id) == m)
+        });
+        let bounds = Bounds::centered(display, size(px(600.), px(420.)), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            display_id: display,
             titlebar: None,
             kind: WindowKind::PopUp,
             focus: true,

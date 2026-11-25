@@ -15,8 +15,8 @@ pub fn browser_url(_: WindowRef) -> Option<String> {
     None
 }
 
-pub fn activate(_: WindowRef) -> bool {
-    true
+pub fn activate(_: WindowRef) -> Result<(), FillError> {
+    Ok(())
 }
 
 pub fn accessibility_allowed() -> bool {

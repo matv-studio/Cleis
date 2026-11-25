@@ -111,6 +111,9 @@ impl QuickAccess {
             }),
         ];
         search.update(cx, |s, cx| s.focus(window, cx));
+        // Opened from a shortcut pressed in another app: take the foreground explicitly, or the
+        // keys typed next would still go to that app (seen on Windows, 25/11/2026).
+        window.activate_window();
         let ticker = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;

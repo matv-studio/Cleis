@@ -216,8 +216,11 @@ pub enum Action {
     /// Go on only if the focused field is a password field. When the system says it is not
     /// (a sign-in that asks for the password on a next page), stop: the rest waits for the
     /// next press of "Fill best match" on the same window. Unknown focus goes on, like the
-    /// classic auto-type sequence.
-    ExpectPassword,
+    /// classic auto-type sequence. `submit`: press Enter before stopping, so the username page
+    /// moves on to the password page ("Press Enter after filling").
+    ExpectPassword {
+        submit: bool,
+    },
     /// Branch on whether the focused field is an empty text field (unknown counts as no).
     IfEmptyText {
         then: Vec<Action>,
@@ -261,7 +264,9 @@ pub fn plan(has_username: bool, has_totp: bool, focus: Focus, o: PlanOptions) ->
         (_, true) => {
             now.push(Fill(Field::Username));
             now.push(Press(Key::Tab));
-            now.push(ExpectPassword);
+            now.push(ExpectPassword {
+                submit: o.press_enter,
+            });
             now.push(Fill(Field::Password));
         }
         (_, false) => now.push(Fill(Field::Password)),
@@ -282,17 +287,6 @@ pub fn plan_totp(o: PlanOptions) -> Vec<Action> {
         v.push(Action::Press(Key::Enter));
     }
     v
-}
-
-/// What is left after `ExpectPassword` stopped a run: when "Press Enter" is on, the username
-/// page is submitted so the next page (password) can load.
-pub fn after_stop(rest: Vec<Action>, o: PlanOptions) -> (Vec<Action>, Vec<Action>) {
-    let now = if o.press_enter {
-        vec![Action::Press(Key::Enter)]
-    } else {
-        vec![]
-    };
-    (now, rest)
 }
 
 #[cfg(test)]
@@ -424,7 +418,7 @@ mod tests {
             vec![
                 Fill(Field::Username),
                 Press(Key::Tab),
-                ExpectPassword,
+                ExpectPassword { submit: true },
                 Fill(Field::Password),
                 Press(Key::Enter)
             ]

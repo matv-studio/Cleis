@@ -36,6 +36,7 @@ pub fn foreground() -> Option<Foreground> {
         .unwrap_or_default();
     Some(Foreground {
         window: WindowRef(pid as u64),
+        monitor: None,
         context: Context {
             program,
             title: app_name.clone(),
@@ -49,20 +50,24 @@ pub fn browser_url(_: WindowRef) -> Option<String> {
     None
 }
 
-pub fn activate(w: WindowRef) -> bool {
+pub fn activate(w: WindowRef) -> Result<(), FillError> {
     let pid = w.0 as i32;
     let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) else {
-        return false;
+        return Err(FillError::WindowGone);
     };
     app.activateWithOptions(NSApplicationActivationOptions::empty());
     let start = Instant::now();
     while start.elapsed() < Duration::from_millis(800) {
         if front_pid() == Some(pid) {
-            return true;
+            return Ok(());
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    front_pid() == Some(pid)
+    if front_pid() == Some(pid) {
+        Ok(())
+    } else {
+        Err(FillError::CannotActivate)
+    }
 }
 
 pub fn accessibility_allowed() -> bool {

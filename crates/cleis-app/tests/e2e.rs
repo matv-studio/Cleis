@@ -201,6 +201,7 @@ fn autofill_settings_and_quick_access(cx: &mut TestAppContext) {
 
     let fg = Foreground {
         window: WindowRef(42),
+        monitor: None,
         context: Context {
             program: "figma.exe".into(),
             app_name: "Figma".into(),

@@ -13,14 +13,16 @@ use uiautomation::patterns::UIValuePattern;
 use uiautomation::types::{ControlType, Handle};
 use uiautomation::{UIAutomation, UIElement};
 use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, SW_RESTORE,
+    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SW_RESTORE,
     SetForegroundWindow, ShowWindow,
 };
 use windows::core::PWSTR;
@@ -77,8 +79,11 @@ pub fn foreground() -> Option<Foreground> {
         .rsplit_once('.')
         .map_or(file.as_str(), |(stem, _)| stem)
         .to_owned();
+    // SAFETY: plain call on a window handle; returns a monitor handle value.
+    let monitor = unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) };
     Some(Foreground {
         window: WindowRef(h.0 as usize as u64),
+        monitor: (!monitor.is_invalid()).then_some(monitor.0 as usize as u64),
         context: Context {
             program: file.to_ascii_lowercase(),
             app_name,
@@ -111,23 +116,57 @@ pub fn browser_url(w: WindowRef) -> Option<String> {
     (!v.is_empty()).then_some(v)
 }
 
-pub fn activate(w: WindowRef) -> bool {
+fn wait_front(h: HWND, max: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < max {
+        if front() == h {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    front() == h
+}
+
+/// Brings `w` in front. Windows only lets the process that has the foreground hand it over;
+/// when the first request is refused, a simulated Alt press (the method GPUI itself uses)
+/// counts as input and the second one goes through.
+pub fn activate(w: WindowRef) -> Result<(), FillError> {
     let h = hwnd(w);
     // SAFETY: plain calls on a window handle; Windows checks it and fails on a stale one.
     unsafe {
+        if !IsWindow(Some(h)).as_bool() {
+            return Err(FillError::WindowGone);
+        }
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE);
         }
         let _ = SetForegroundWindow(h);
     }
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_millis(800) {
-        if front() == h {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
+    if wait_front(h, Duration::from_millis(300)) {
+        return Ok(());
     }
-    front() == h
+    crate::log("activate: refused, retrying after a simulated Alt press");
+    let alt = |flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VK_MENU,
+                dwFlags: flags,
+                ..Default::default()
+            },
+        },
+    };
+    let inputs = [alt(KEYBD_EVENT_FLAGS(0)), alt(KEYEVENTF_KEYUP)];
+    // SAFETY: `inputs` is a valid array of INPUT structures for the duration of the call.
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        let _ = SetForegroundWindow(h);
+    }
+    if wait_front(h, Duration::from_millis(800)) {
+        Ok(())
+    } else {
+        Err(FillError::CannotActivate)
+    }
 }
 
 pub fn accessibility_allowed() -> bool {
@@ -212,9 +251,11 @@ impl Driver for SystemDriver {
         let Some(e) = self.focused() else {
             return false;
         };
-        let native = e
-            .get_framework_id()
-            .is_ok_and(|f| NATIVE.iter().any(|n| f.eq_ignore_ascii_case(n)));
+        let framework = e.get_framework_id().unwrap_or_default();
+        let native = NATIVE.iter().any(|n| framework.eq_ignore_ascii_case(n));
+        crate::log(&format!(
+            "set_value: framework {framework:?}, native {native}"
+        ));
         if !native {
             return false;
         }

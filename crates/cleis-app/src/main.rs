@@ -51,6 +51,13 @@ fn main() {
             std::process::exit(1);
         }
     }
+    if try_autofill {
+        // Steps and field kinds of each fill, never values, next to the program.
+        let log = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("cleis-autofill.log")));
+        cleis_autofill::set_log_file(log);
+    }
     let unlocked = flag("--unlocked") && demo;
     let tab = value("--tab");
     let page = value("--page");
@@ -116,6 +123,7 @@ fn main() {
                         app.open_quick_access(
                             cleis_autofill::Foreground {
                                 window: cleis_autofill::WindowRef(0),
+                                monitor: None,
                                 context: cleis_core::autofill::Context {
                                     program: "figma.exe".into(),
                                     app_name: "Figma".into(),
