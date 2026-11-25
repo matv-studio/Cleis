@@ -232,4 +232,4 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Validation de la restauration et de la synchronisation (D-50, écrans 22, 23).
-6. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.
+5. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.
