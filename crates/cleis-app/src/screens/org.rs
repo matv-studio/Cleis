@@ -510,11 +510,11 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     role_sel
                 }))
                 .child(spaces_cell)
-                .child(div().w(px(80.)).child(two_fa))
+                .child(div().w(px(80.)).flex().child(two_fa))
                 .child(div().w(px(56.)).child(export))
                 .child(div().w(px(140.)).text_color(t.text_muted).child(
                     m.last_sign_in.map_or("—".into(), |ts| {
-                        crate::format::when(ts, cleis_core::now())
+                        crate::format::when_short(ts, cleis_core::now())
                     }),
                 ))
                 .child(
@@ -1141,6 +1141,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 div()
                     .id("personal-mode")
                     .w(px(320.))
+                    .flex()
                     .tooltip(tip(
                         "Always end-to-end: personal vaults never reach the server",
                     ))
@@ -1924,6 +1925,7 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(
                     div()
                         .w(px(130.))
+                        .flex()
                         .child(chip(t, tone, e.action.label(), false)),
                 )
                 .child(
@@ -2526,6 +2528,9 @@ impl CleisApp {
 
     /// Looks the invitation code up as soon as it is complete.
     pub fn check_join_code(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
         let Some(j) = self.join_form_mut() else {
             return;
         };
@@ -2698,5 +2703,99 @@ impl CleisApp {
             self.org_backup_now(cx);
         }
         self.org_rekey(r.space, r.to, cx);
+    }
+}
+
+/// Dialogs opened for screenshots (`--menu`).
+pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Context<CleisApp>) {
+    match m {
+        "invite" => {
+            app.open_invite(window, cx);
+            if let Some(f) = org_mut(app).and_then(|o| o.ui.invite.as_mut()) {
+                let (e, n) = (f.email.clone(), f.name.clone());
+                e.update(cx, |i, cx| {
+                    i.set_value("noa@example-studio.com", window, cx)
+                });
+                n.update(cx, |i, cx| i.set_value("Noa Lambert", window, cx));
+            }
+            if let Some(o) = org_mut(app) {
+                let first = o
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.spaces.first())
+                    .map(|s| s.id);
+                if let (Some(f), Some(id)) = (o.ui.invite.as_mut(), first) {
+                    f.spaces.insert(id);
+                }
+            }
+        }
+        "invite-code" => {
+            if let Some(o) = org_mut(app) {
+                o.ui.invite_code = Some("K7Q2-9MXA-4TRE-LB2C-WQ7N-3HJD-PXYV-6FKA".into());
+            }
+        }
+        "new-space" => {
+            app.open_new_space(window, cx);
+            if let Some(f) = org_mut(app).and_then(|o| o.ui.new_space.as_ref()) {
+                let n = f.name.clone();
+                n.update(cx, |i, cx| i.set_value("Marketing", window, cx));
+            }
+        }
+        "new-role" => app.open_new_role(window, cx),
+        "rekey" => {
+            if let Some(o) = org_mut(app) {
+                let acc = o
+                    .state
+                    .as_ref()
+                    .and_then(|s| {
+                        s.spaces
+                            .iter()
+                            .find(|x| o.names.get(&x.id).is_some_and(|n| n == "Accounting"))
+                    })
+                    .map(|x| x.id);
+                if let Some(id) = acc {
+                    o.ui.changes = vec![(id, SpaceMode::Standard)];
+                    o.ui.rekey = Some(RekeyForm {
+                        space: id,
+                        to: SpaceMode::Standard,
+                        backup_first: true,
+                    });
+                }
+            }
+        }
+        "server-code" => {
+            if let Some(o) = org_mut(app) {
+                o.code = Some(crate::org::CodePrompt {
+                    input: None,
+                    error: None,
+                    secret: Some("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP".into()),
+                    busy: false,
+                });
+            }
+        }
+        _ => {}
+    }
+}
+
+/// First launch with the server option chosen and filled (screen 03), for screenshots.
+pub fn demo_welcome(app: &mut CleisApp, window: &mut Window, cx: &mut Context<CleisApp>) {
+    if let crate::app::Phase::Welcome(w) = &mut app.phase {
+        w.org = true;
+        w.join.info = Some(InviteInfo {
+            org: "Example Studio".into(),
+            name: "Lea Martin".into(),
+            email: "lea@example-studio.com".into(),
+        });
+        let (a, c) = (w.join.address.clone(), w.join.code.clone());
+        if let Some(a) = a {
+            a.update(cx, |i, cx| {
+                i.set_value("vault.example-studio.lan", window, cx)
+            });
+        }
+        if let Some(c) = c {
+            c.update(cx, |i, cx| {
+                i.set_value("K7Q2-9MXA-4TRE-LB2C-WQ7N-3HJD-PXYV-6FKA", window, cx)
+            });
+        }
     }
 }

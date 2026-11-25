@@ -853,15 +853,80 @@ function synchro() {
     </div>`);
 }
 
+
+// ---------- Organization dialogs and pages (added with the server, 25/11/2026) ----------
+const dlg = (label, body) => `<div class="overlay"><div class="dialog" role="dialog" aria-label="${label}"><h2>${label}</h2>${body}</div></div>`;
+const fld = (label, value, focus = false) => `<div class="field"><span class="label">${label}</span><div class="input ${focus ? 'is-focus' : ''}"><span class="grow">${value}</span></div></div>`;
+const vaultWith = (overlay) => shell('Vault', `
+    <div class="work">${sidebar()}
+      <section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable()}</div></section>
+      ${inspector()}
+    </div>${statusbar()}`, { overlay });
+function inviter() {
+  return settings('Members', membres().match(/<div class="settings-body"><div class="page"[^>]*>([\s\S]*)<\/div><\/div><\/div>/)?.[1] ?? '', dlg('Invite', `
+    ${fld('E-mail', 'noa@example-studio.com', true)}${fld('Name', 'Noa Lambert')}
+    <div class="field"><span class="label">Role</span><div class="input select" style="width:200px"><span class="grow">Member</span></div></div>
+    <div class="field"><span class="label">Spaces</span><div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip chip--set"><span class="dot"></span>General</span><span class="chip">Design</span><span class="chip">Accounting</span><span class="chip">Dev</span><span class="chip">Interns</span></div></div>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Create code</button></div>`));
+}
+function codeInvitation() {
+  return settings('Members', '', dlg('Invitation', `
+    <span style="color:var(--text-muted)">Send this code with the server address. Valid 7 days, once.</span>
+    <div class="input"><span class="grow code">K7Q2-9MXA-4TRE-LB2C-WQ7N-3HJD-PXYV-6FKA</span><button class="icon-btn icon-btn--sm" title="Copy">${i('copy')}</button></div>
+    <div class="dialog-actions"><button class="btn btn--primary">Done</button></div>`));
+}
+function nouveauRole() {
+  return settings('Members', '', dlg('New role', `${fld('Name', 'Contractor', true)}
+    <span style="color:var(--text-muted);font-size:var(--text-sm)">Starts with Copy, fill; tick the rest in the table.</span>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Create</button></div>`));
+}
+function nouvelEspace() {
+  return vaultWith(dlg('New space', `${fld('Name', 'Marketing', true)}
+    <div class="field"><span class="label">Encryption</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">Standard</button><button role="radio" aria-checked="false">End-to-end</button></div></div>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Create</button></div>`));
+}
+function codeServeur() {
+  return vaultWith(dlg('Example Studio · verification code', `
+    <span style="color:var(--text-muted)">Required by your organization. Scan, then type the code.</span>
+    <div style="display:flex;justify-content:center"><div style="width:140px;height:140px;background:#fff;border-radius:6px;display:grid;place-items:center;color:#000">${i('qr')}</div></div>
+    <div class="input"><span class="grow code">JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP</span><button class="icon-btn icon-btn--sm" title="Copy the key">${i('copy')}</button></div>
+    ${fld('Code', '123 456', true)}
+    <div class="dialog-actions"><button class="btn">Later</button><button class="btn btn--primary">Continue</button></div>`));
+}
+function serveur() {
+  return settings('Server', `
+    <div class="page-head"><h1>Server</h1></div>
+    <div class="section">${sectionTitle('Example Studio')}
+      <div class="row"><span class="row-label">Address</span><span class="code" style="color:var(--text-muted)">vault.example-studio.lan:8443</span><span class="chip chip--ok"><span class="dot"></span>Synced Today, 11:34 AM</span></div>
+      <div class="row"><span class="row-label">Certificate</span><span class="code" style="color:var(--text-muted)">SHA256:4f1c·9a2e·77b0·d31f</span></div>
+      <div class="row"><span class="row-label">Signed in as</span><span class="avatar">LM</span><span>Lea Martin · Admin</span></div>
+      <div class="row"><span class="row-label"></span><button class="btn">${i('sync')}Sync now</button><button class="btn btn--danger-ghost" title="Forgets the organization's spaces on this vault">Leave</button></div>
+    </div>`);
+}
+function rejoindre() {
+  return settings('Organization', `
+    <div class="page-head"><h1>Organization</h1></div>
+    <div class="section">${sectionTitle('Add an organization server', 'Shared spaces, on top of your personal vault')}
+      <div class="field"><span class="label" title="Cleis server, reached through your VPN">Server address</span><div class="input"><span class="grow">vault.example-studio.lan</span><span class="chip chip--ok"><span class="dot"></span>Example Studio</span></div></div>
+      ${fld('Invitation code', 'K7Q2-9MXA-4TRE-LB2C-WQ7N-3HJD-PXYV-6FKA', true)}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Join</button></div>
+    </div>`);
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
+  '01c-nouvel-espace': ['New space', nouvelEspace],
   '02-colonnes': ['Custom columns', colonnes],
   '03-premier-lancement': ['First launch', premierLancement],
   '04-deverrouiller': ['Unlock', deverrouiller],
   '05-code-2fa': ['Verification code', codeVerif],
+  '05b-code-serveur': ['Verification code asked by the server', codeServeur],
   '06-securite-compte': ['Account security', securite],
   '07-membres': ['Members and roles', membres],
+  '07b-inviter': ['Invite', inviter],
+  '07c-code-invitation': ['Invitation code', codeInvitation],
+  '07d-nouveau-role': ['New role', nouveauRole],
   '08-politique': ['Security policy', politique],
   '09-chiffrement': ['Encryption', chiffrement],
   '10-rechiffrer': ['Re-encrypt a space', rechiffrer],
@@ -880,4 +945,6 @@ export const SCREENS = {
   '21-fusion': ['Contacts — merge & fix', fusion],
   '22-restaurer': ['Restore my vault', restaurer],
   '23-synchro': ['Sync & backups', synchro],
+  '24-serveur': ['Server', serveur],
+  '25-rejoindre': ['Join an organization', rejoindre],
 };

@@ -241,10 +241,52 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   au premier lancement (écran 22). Code de configuration : avec les comptes GitHub / Microsoft / Google.
   Contacts supprimés : effacés définitivement (remplace la suppression douce).
 
+- **D-59 Serveur d'organisation** (25/11/2026, applique D-21, D-26, D-30, D-32 ; écrans 03, 05b, 07–11,
+  13, 18, 24, 25) :
+  - `cleis-server` : un binaire, un fichier SQLite (WAL, `secure_delete`), HTTPS par rustls avec un
+    certificat Ed25519 auto-signé fait à `init` ; commandes `init`, `run --listen ADRESSE_VPN:PORT`,
+    `invite`, `rotate --finish`, `status`. Il ne détient aucune clé qui ouvre un élément.
+  - Confiance : le code d'invitation porte un jeton à usage unique (10 octets) et les 10 premiers
+    octets du SHA-256 du certificat ; l'app n'accepte que ce serveur dès la première connexion puis
+    garde l'empreinte entière. Code de 32 caractères (8 groupes) au lieu des 8 de la maquette :
+    un code court exigerait un échange PAKE (SPAKE2, CPace) pour ne pas être devinable hors ligne ;
+    à reconsidérer si la longueur gêne. Rotation : nouveau certificat annoncé par la connexion
+    épinglée, mis en service au redémarrage 7 jours après (ou `rotate --finish`).
+  - Connexion : signature Ed25519 de la clé du compte sur un défi du serveur lié au certificat ; code
+    d'appli d'authentification si le membre en a un (rejeu refusé, appareil mémorisé N jours selon la
+    politique) ; si la politique l'exige et qu'il n'en a pas, session limitée à sa mise en place.
+    E-mail, SMS, comptes Google / Microsoft, clés de sécurité : grisés (service extérieur ou dépense).
+  - Clés : chaque clé d'espace est enveloppée pour chaque membre ; un membre ajouté attend qu'une app
+    qui tient la clé l'enveloppe pour lui (membre de l'espace, ou admin par la clé d'organisation).
+    Clé d'organisation (X25519) faite par le premier admin, enveloppée pour chaque admin ; espaces
+    Standard = copie enveloppée pour elle. Clé de secours facultative, hors ligne (fichier texte), pour
+    tous les espaces ; « Use » redonne leurs espaces aux membres en attente.
+  - Droits vérifiés par le serveur : Edit / Delete (lignes envoyées), Manage, Audit ; See est appliqué
+    par l'app (le poste tient la clé). Rôles par défaut Admin, Member, Read only, Intern ; rôles créés
+    par les admins. Le dernier admin ne peut être rétrogradé ni retiré.
+  - Synchronisation : lignes scellées, la plus récente gagne (`changed`), versions gardées (20 par
+    élément), suppressions définitives propagées ; espaces d'organisation hors des copies personnelles
+    et des sauvegardes personnelles. Retrait d'un membre ou d'un espace : l'espace est marqué
+    « Re-encrypt advised » ; le rechiffrement (nouvelle clé, tout rescellé, génération +1) se fait
+    depuis Encryption, avec changement de mode Standard ↔ End-to-end.
+  - Journal écrit et signé par le serveur, chaîné, rétention par ancre (le reste se vérifie) ; vues,
+    copies, remplissages, exports signalés par l'app avec le nom de l'élément scellé pour la clé
+    d'organisation (lisible des admins seuls). Export refusé par le serveur sans l'autorisation
+    « Export ».
+  - Sauvegardes de l'organisation : copie du fichier du serveur scellée avec une clé de sauvegarde
+    (gardée dans le coffre de l'admin, téléchargeable), vérification, restauration (même organisation,
+    même certificat ; sinon par la ligne de commande).
+  - Politique appliquée par l'app : délai de verrouillage plafonné, accès hors ligne (espaces masqués
+    au-delà), seuils du rapport de santé, méthodes de remplissage. Heures affichées à l'heure locale.
+
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Enregistrement des applications OAuth (GitHub, Microsoft, Google) pour les places sans appli de
    bureau (D-50, D-58).
-5. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.
+5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
+6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
+7. Méthodes de connexion par e-mail, SMS, Google, Microsoft, clés de sécurité (service ou dépense).
+8. Pages Profile, Devices et Spaces des maquettes (non dessinées en détail) ; renommer / supprimer un
+   espace d'organisation.

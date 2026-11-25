@@ -188,6 +188,16 @@ pub fn when(ts: i64, now: i64) -> String {
     }
 }
 
+/// `Today, 9:12 AM`, `Yesterday, 5:30 PM`, else the date alone.
+pub fn when_short(ts: i64, now: i64) -> String {
+    let w = when(ts, now);
+    if w.starts_with("Today") || w.starts_with("Yesterday") {
+        w
+    } else {
+        date(ts + local_offset(ts))
+    }
+}
+
 /// `184 KB`, `2.4 MB`.
 pub fn size(bytes: u64) -> String {
     if bytes < 1024 * 1024 {

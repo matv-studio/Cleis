@@ -26,4 +26,10 @@ with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bund
 | `unicode-normalization` (includes Unicode data) | NFC form of the master password | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | `async-channel` | shortcut events to the interface thread | MIT OR Apache-2.0 |
 
-Planned: tauri-apps `tray-icon` (MIT OR Apache-2.0).
+| tauri-apps `tray-icon`, `muda` | notification-area icon and its menu | MIT OR Apache-2.0 |
+| `qrcode` | QR code of verification-code keys | MIT OR Apache-2.0 |
+| `windows-registry` (Windows) | open at login | MIT OR Apache-2.0 |
+| `rustls`, `tokio-rustls`, `ring` (organization server and its client) | TLS with a pinned certificate | Apache-2.0 OR ISC OR MIT / ISC-style + OpenSSL notices (ring) |
+| `rcgen` | the server's self-signed certificate | MIT OR Apache-2.0 |
+| `axum`, `hyper`, `hyper-util`, `tower`, `tokio` | organization server | MIT |
+| `chrono` | local time of the activity log | MIT OR Apache-2.0 |

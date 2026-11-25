@@ -1,5 +1,24 @@
 # Cleis — état
 
+## 25/11/2026 (organisation, branche `feat/full-app`)
+- `cleis-server` (D-59) et `cleis-net` (client HTTPS épinglé) : invitation, connexion par clé de compte
+  et code, droits par rôle, versions, journal signé et chaîné, révocation, rechiffrement, sauvegarde /
+  restauration, rotation du certificat.
+- Coffre : espaces d'organisation dans le fichier, hors des copies personnelles ; envoi / réception des
+  lignes scellées, rechiffrement préparé puis appliqué.
+- Appli : rejoindre au premier lancement ou par Settings › Organization ; pages Members, Security
+  policy, Encryption, Server, sauvegardes de l'organisation ; onglet Activity ; dialogues invitation,
+  code, nouveau rôle, nouvel espace, rechiffrement, code demandé par le serveur. Maquettes ajoutées :
+  01c, 05b, 07b–d, 24, 25. Démo : organisation fictive (`--demo`, `--no-org` pour la page de jonction).
+- Essais : protocole complet sur TLS réel (`crates/cleis-server/tests/flow.rs`) ; scénario à deux
+  fenêtres admin / membre contre un vrai serveur (`crates/cleis-app/tests/org.rs`).
+
+## Prochaines étapes
+1. Restes de D-59 (« En suspens » 6–8) : pages Profile, Devices, Spaces ; renommer / supprimer un
+   espace d'organisation.
+2. Audit complet demandé par l'utilisateur.
+3. Installation du serveur sur la machine de l'entreprise (système en suspens) : service, sauvegardes.
+
 ## 25/11/2026 (suite, branche `feat/full-app`)
 - Essais Windows en pilotage d'écran (builds `651fe04` → `3558b4d`) : Quick Access sur le bon écran et
   au clavier (plus d'Alt simulé : touche F22 factice comme Chromium), remplissage identifiant + mot de

@@ -259,9 +259,31 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
     let mut v = Vault::create(path, PASSWORD, KdfParams::insecure_for_tests())?;
     let home = v.home_space();
     let now = cleis_core::now();
+    // The organization's spaces of the mockups (01, 09).
+    let mut org = std::collections::BTreeMap::new();
+    for (name, mode) in [
+        ("General", EncryptionMode::Standard),
+        ("Design", EncryptionMode::Standard),
+        ("Accounting", EncryptionMode::EndToEnd),
+        ("Dev", EncryptionMode::Standard),
+        ("Interns", EncryptionMode::Standard),
+    ] {
+        org.insert(
+            name,
+            v.create_space(name, SpaceKind::Organization, mode, false)?,
+        );
+    }
+    let space_of = |name: &str| match name {
+        "Figma" | "Adobe Creative Cloud" | "Webflow" => org["Design"],
+        "Microsoft 365" | "Bank — business portal" => org["Accounting"],
+        "GitHub" | "Cloudflare" | "OVHcloud" => org["Dev"],
+        "Canva" => org["Interns"],
+        "Dropbox" => home,
+        _ => org["General"],
+    };
     let mut entries = vec![];
     for (i, (name, user, totp, sub, price, lic, url)) in ROWS.iter().enumerate() {
-        let mut e = Entry::new(home, *name);
+        let mut e = Entry::new(space_of(name), *name);
         e.username = (*user).into();
         e.password = format!(
             "Demo-{}-{:04}!x",
@@ -289,12 +311,6 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
         entries.push(e);
     }
     v.put_entries(&entries)?;
-    v.create_space(
-        "Example Studio — General",
-        SpaceKind::Organization,
-        EncryptionMode::Standard,
-        false,
-    )?;
     let contacts_space = v
         .spaces()?
         .into_iter()
@@ -380,4 +396,343 @@ pub fn add_autofill_sample(path: &Path) -> anyhow::Result<()> {
     e.urls = vec!["https://login.example-studio.com".into()];
     v.put_entry(&e)?;
     Ok(())
+}
+
+/// The organization of the mockups (07–11, 13, 18) shown without a server: members, roles,
+/// policy, spaces and an activity log, for `--demo` and screenshots.
+pub fn org(s: &mut crate::app::Session) {
+    use cleis_core::org::*;
+    use cleis_core::{MemberId, SpaceId};
+    let now = cleis_core::now();
+    let org_kp = cleis_crypto::KeyPair::generate().expect("random");
+    let cert = cleis_crypto::sha256(b"Example Studio demo certificate");
+    let spaces: Vec<(SpaceId, String, bool)> = s
+        .spaces
+        .iter()
+        .filter(|x| x.kind == SpaceKind::Organization && !x.for_contacts)
+        .map(|x| (x.id, x.name.clone(), x.mode == EncryptionMode::EndToEnd))
+        .collect();
+    let sp = |n: &str| {
+        spaces
+            .iter()
+            .find(|x| x.1 == n)
+            .map(|x| x.0)
+            .unwrap_or_default()
+    };
+    let key = || {
+        cleis_crypto::KeyPair::generate()
+            .expect("random")
+            .public()
+            .0
+    };
+    let member = |name: &str,
+                  email: &str,
+                  role: &str,
+                  sps: Vec<SpaceId>,
+                  two_fa: bool,
+                  export: bool,
+                  last: i64| MemberView {
+        id: MemberId::new(),
+        name: name.into(),
+        email: email.into(),
+        role: role.into(),
+        spaces: sps,
+        two_fa,
+        export,
+        last_sign_in: Some(last),
+        last_device: String::new(),
+        revoked: false,
+        account_public: key(),
+        verify_key: key(),
+    };
+    let all: Vec<SpaceId> = spaces.iter().map(|x| x.0).collect();
+    let today = now - now.rem_euclid(86_400);
+    let members = vec![
+        member(
+            "Lea Martin",
+            "lea@example-studio.com",
+            ADMIN,
+            all.clone(),
+            true,
+            true,
+            today + 9 * 3600 + 12 * 60,
+        ),
+        member(
+            "Hugo Bernard",
+            "hugo@example-studio.com",
+            "member",
+            vec![sp("General"), sp("Design"), sp("Dev")],
+            true,
+            false,
+            today + 10 * 3600 + 47 * 60,
+        ),
+        member(
+            "Ines Petit",
+            "ines@example-studio.com",
+            "member",
+            vec![sp("General"), sp("Accounting")],
+            true,
+            true,
+            today - 86_400 + 17 * 3600 + 30 * 60,
+        ),
+        member(
+            "Sarah Roux",
+            "sarah@example-studio.com",
+            "read_only",
+            vec![sp("General")],
+            false,
+            false,
+            today - 5 * 86_400 + 9 * 3600,
+        ),
+        member(
+            "Tom Durand",
+            "tom@example-studio.com",
+            "intern",
+            vec![sp("Interns")],
+            true,
+            false,
+            today - 4 * 86_400 + 9 * 3600 + 3 * 60,
+        ),
+    ];
+    let lea = members[0].id;
+    let space_views = spaces
+        .iter()
+        .map(|(id, _, e2e)| SpaceView {
+            id: *id,
+            sealed: vec![],
+            mode: if *e2e {
+                SpaceMode::EndToEnd
+            } else {
+                SpaceMode::Standard
+            },
+            key_gen: 1,
+            wrapped: None,
+            org_wrapped: None,
+            recovery_wrapped: None,
+            members: members
+                .iter()
+                .filter(|m| m.spaces.contains(id))
+                .map(|m| m.id)
+                .collect(),
+            items: s.entries.iter().filter(|e| e.space == *id).count() as u32,
+            needs_rekey: false,
+        })
+        .collect();
+    let policy = Policy {
+        code_required: true,
+        detail: LogDetail::Everything,
+        ..Default::default()
+    };
+    let mut events = vec![];
+    let ev =
+        |seq: u64, at: i64, who: usize, action: Action, item: &str, space: &str, device: &str| {
+            Event {
+                seq,
+                at,
+                member: Some(members[who].id),
+                device: device.into(),
+                action,
+                space: (!space.is_empty()).then(|| sp(space)),
+                item: None,
+                detail: (!item.is_empty())
+                    .then(|| {
+                        let (i, f) = item.split_once(" · ").unwrap_or((item, ""));
+                        serde_json::to_vec(&EventDetail {
+                            item: i.into(),
+                            field: f.into(),
+                        })
+                        .ok()
+                    })
+                    .flatten()
+                    .and_then(|d| cleis_crypto::seal_to(&org_kp.public(), DETAIL_CONTEXT, &d).ok()),
+                note: String::new(),
+            }
+        };
+    let h = |hh: i64, mm: i64| today + hh * 3600 + mm * 60;
+    let y = |hh: i64, mm: i64| today - 86_400 + hh * 3600 + mm * 60;
+    events.push(ev(
+        214,
+        h(11, 31),
+        1,
+        Action::Copied,
+        "Figma · password",
+        "Design",
+        "PC-HUGO · Windows 11",
+    ));
+    events.push(ev(
+        213,
+        h(11, 29),
+        4,
+        Action::Filled,
+        "Canva",
+        "Interns",
+        "MAC-TOM · macOS 14",
+    ));
+    events.push(ev(
+        212,
+        h(10, 58),
+        2,
+        Action::Viewed,
+        "Bank — business portal",
+        "Accounting",
+        "PC-INES · Windows 11",
+    ));
+    events.push(ev(
+        211,
+        h(10, 47),
+        1,
+        Action::SignedIn,
+        "",
+        "",
+        "PC-HUGO · Windows 11",
+    ));
+    events.push(ev(
+        210,
+        h(9, 40),
+        0,
+        Action::Edited,
+        "OVHcloud · password",
+        "Dev",
+        "MAC-LEA · macOS 15",
+    ));
+    events.push(ev(
+        209,
+        h(9, 38),
+        0,
+        Action::Created,
+        "Webflow",
+        "Design",
+        "MAC-LEA · macOS 15",
+    ));
+    events.push(ev(
+        208,
+        y(18, 2),
+        0,
+        Action::Exported,
+        "General (5 items)",
+        "General",
+        "MAC-LEA · macOS 15",
+    ));
+    events.push(ev(
+        207,
+        y(17, 30),
+        2,
+        Action::Copied,
+        "Microsoft 365 · username",
+        "Accounting",
+        "PC-INES · Windows 11",
+    ));
+    events.push(ev(
+        206,
+        y(16, 12),
+        1,
+        Action::Deleted,
+        "Old hosting",
+        "Dev",
+        "PC-HUGO · Windows 11",
+    ));
+    events.push(ev(
+        205,
+        y(15, 44),
+        4,
+        Action::Filled,
+        "Google Workspace",
+        "Interns",
+        "MAC-TOM · macOS 14",
+    ));
+    events.push(ev(
+        204,
+        y(11, 20),
+        3,
+        Action::Viewed,
+        "Slack",
+        "General",
+        "PC-SARAH · Windows 10",
+    ));
+    events.push(ev(
+        203,
+        y(9, 5),
+        1,
+        Action::Edited,
+        "GitHub · 2FA code",
+        "Dev",
+        "PC-HUGO · Windows 11",
+    ));
+    events.push(ev(
+        202,
+        today - 4 * 86_400 + 9 * 3600 + 3 * 60,
+        4,
+        Action::SignedIn,
+        "",
+        "",
+        "MAC-TOM · macOS 14",
+    ));
+    let me = members[0].clone();
+    let st = State {
+        org: OrgInfo {
+            id: uuid::Uuid::from_u128(0x0c1e_1500),
+            name: "Example Studio".into(),
+            cert,
+            next_cert: None,
+            org_public: Some(org_kp.public().0.to_vec()),
+            recovery_public: Some(key().to_vec()),
+            recovery_saved: Some(now - 11 * 86_400),
+        },
+        me,
+        roles: Role::defaults(),
+        policy,
+        members,
+        invites: vec![InviteView {
+            id: uuid::Uuid::from_u128(1),
+            name: String::new(),
+            email: "noa@example-studio.com".into(),
+            role: "member".into(),
+            spaces: vec![sp("General")],
+            created: now - 3 * 86_400,
+            expires: now + 4 * 86_400 + 3600,
+        }],
+        spaces: space_views,
+        pending: vec![],
+        org_key: None,
+        pending_admins: vec![],
+        seq: 0,
+        integrity: Some(Integrity {
+            checked: 214,
+            intact: true,
+            problem: None,
+            at: h(11, 30).min(now),
+        }),
+        events: 214,
+    };
+    let names = spaces.iter().map(|x| (x.0, x.1.clone())).collect();
+    let ui = crate::screens::org::OrgUi {
+        log: Some(LogPage { total: 214, events }),
+        log_days: Some(7),
+        ..Default::default()
+    };
+    s.org = Some(crate::org::OrgSession {
+        m: crate::org::Membership {
+            org: st.org.id,
+            name: "Example Studio".into(),
+            address: "vault.example-studio.lan:8443".into(),
+            pins: vec![cleis_crypto::hex(&cert)],
+            member: lea,
+        },
+        token: None,
+        local: crate::org::Local {
+            remembered: None,
+            last_ok: Some(now - 120),
+        },
+        state: Some(st),
+        busy: false,
+        again: false,
+        last_attempt: None,
+        error: None,
+        org_key: Some(org_kp),
+        full: vec![],
+        code: None,
+        names,
+        offline_locked: false,
+        ui,
+    });
 }

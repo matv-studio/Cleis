@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-58,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-59,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -12,8 +12,11 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    `python3 design/tools/shots.py all dark,light` (Playwright Chromium) → `target/captures/`.
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
-   [--page autofill|security|sync|import|merge] [--menu filter|columns|new-column|open-code]
-   [--import FICHIER [--review]] [--quick-access] [--restore] [--theme light]`. Captures de l'appli : `design/tools/appshots.sh` (Linux : Xvfb, ImageMagick,
+   [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join]
+   [--menu filter|columns|new-column|open-code|invite|invite-code|new-role|new-space|rekey|server-code]
+   [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
+   [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
+   --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché). Captures de l'appli : `design/tools/appshots.sh` (Linux : Xvfb, ImageMagick,
    `mesa-vulkan-drivers` pour le rendu logiciel llvmpipe ; paquets de compilation GPUI listés dans la CI).
 5. Toute fonction d'interface nouvelle ou refaite passe d'abord par une maquette validée.
 
@@ -39,13 +42,19 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), fenêtre au premier plan, adresse
   de l'onglet (UIA), remplissage (`run` + `Driver`), `platform/{windows,macos,other}.rs` (seul `unsafe`).
 - `crates/cleis-store` — fichier coffre SQLite ; tout le sensible est scellé, AAD = `type/id/espace` ;
-  `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique.
+  `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique ;
+  `org.rs` : espaces d'organisation (`spaces.org`, `key_gen`, `records.pushed`), rechiffrement.
+- `crates/cleis-net` — client HTTPS du serveur (rustls, certificat épinglé, HTTP/1.1 minimal).
+- `crates/cleis-server` — serveur d'organisation (D-59) : `api.rs` (requêtes), `db.rs` (schéma,
+  journal chaîné), `tls.rs` (certificat), `main.rs` (ligne de commande) ; `tests/flow.rs`.
 - `crates/cleis-app` — appli GPUI : `theme.rs` (jetons de la charte), `ui.rs` (composants), `app.rs`
   (états premier lancement / verrouillé / ouvert), `autofill.rs` (raccourcis, remplissages en attente,
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
-  connexion), `screens/` (un fichier par écran), `demo.rs` (données fictives), `tests/e2e.rs`.
-- À venir : `crates/cleis-server` (binaire unique, SQLite, VPN).
+  connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
+  sauvegardes), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
+  Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
+  `tests/org.rs` (deux fenêtres contre un vrai serveur).
 
 ## Pièges
 - RustCrypto 0.11 / dalek 3 : API différentes des exemples anciens (`hmac` 0.13 n'accepte plus un
@@ -73,3 +82,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Windows : jamais d'appui simulé sur Alt pour prendre le premier plan (l'appli devant affiche ses
   touches d'accès) ; `cleis_autofill::activate` utilise F22.
 - Minuteries dans les essais e2e : `cx.executor().advance_clock(...)` puis `run_until_parked()`.
+- Réseau : jamais d'appel bloquant sur le fil de l'interface ; `cx.background_spawn` (trait
+  `AppContext` à importer par `gpui_kit::prelude::*`), puis application au coffre dans `update`.
+  Dans les essais, appeler `org_sync` directement (le minuteur d'une seconde ne tourne pas).
+- Une boîte de saisie demande la fenêtre : créée au rendu suivant (`ensure_org_inputs`), pas dans une
+  tâche de fond.
+- Empreinte d'un certificat : `fingerprint_of_hash` (le hash est déjà fait), pas `fingerprint`.

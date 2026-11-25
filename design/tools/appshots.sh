@@ -27,5 +27,19 @@ for theme in dark light; do
   shot "sync-$theme" --demo --unlocked --tab settings --page sync --theme $theme
   shot "restore-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --restore --theme $theme
   shot "welcome-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --theme $theme
+  shot "welcome-org-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --org-welcome --theme $theme
+  shot "members-$theme" --demo --unlocked --tab settings --page members --theme $theme
+  shot "invite-$theme" --demo --unlocked --tab settings --page members --menu invite --theme $theme
+  shot "invite-code-$theme" --demo --unlocked --tab settings --page members --menu invite-code --theme $theme
+  shot "new-role-$theme" --demo --unlocked --tab settings --page members --menu new-role --theme $theme
+  shot "policy-$theme" --demo --unlocked --tab settings --page policy --theme $theme
+  shot "encryption-$theme" --demo --unlocked --tab settings --page encryption --theme $theme
+  shot "rekey-$theme" --demo --unlocked --tab settings --page encryption --menu rekey --theme $theme
+  shot "server-$theme" --demo --unlocked --tab settings --page server --theme $theme
+  shot "join-$theme" --demo --no-org --unlocked --tab settings --page join --theme $theme
+  shot "org-backups-$theme" --demo --unlocked --tab settings --page org-backups --theme $theme
+  shot "activity-$theme" --demo --unlocked --tab activity --theme $theme
+  shot "new-space-$theme" --demo --unlocked --menu new-space --theme $theme
+  shot "server-code-$theme" --demo --unlocked --menu server-code --theme $theme
 done
 echo "captures in $out"

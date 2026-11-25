@@ -1,6 +1,7 @@
-//! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
-//! [--quick-access] [--menu columns|new-column|open-code|filter]
-//! [--import FILE [--review]] [--try-autofill] [--background] [--restore]`
+//! `cleis [--vault PATH] [--theme dark|light] [--demo [--no-org]] [--unlocked] [--tab T]
+//! [--page P] [--quick-access] [--menu columns|new-column|open-code|filter|invite|invite-code|
+//! new-space|new-role|rekey|server-code] [--import FILE [--review]] [--try-autofill]
+//! [--background] [--restore] [--org-welcome]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -68,6 +69,8 @@ fn main() {
     let review = flag("--review");
     let background = flag("--background");
     let restore = flag("--restore");
+    let no_org = flag("--no-org");
+    let org_welcome = flag("--org-welcome");
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
@@ -112,9 +115,13 @@ fn main() {
                     {
                         app.enter(v, window, cx);
                         if let Some(s) = app.session() {
+                            if !no_org {
+                                cleis_app::demo::org(s);
+                            }
                             s.tab = match tab.as_deref() {
                                 Some("contacts") => cleis_app::app::Tab::Contacts,
                                 Some("health") => cleis_app::app::Tab::Health,
+                                Some("activity") => cleis_app::app::Tab::Activity,
                                 Some("settings") => cleis_app::app::Tab::Settings,
                                 _ => cleis_app::app::Tab::Vault,
                             };
@@ -124,11 +131,21 @@ fn main() {
                             } else if let Some(p) = page.as_deref() {
                                 s.settings_page = match p {
                                     "autofill" => "Autofill",
-                                    "sync" => "Sync & backups",
+                                    "sync" | "org-backups" => "Sync & backups",
                                     "security" => "Security",
                                     "import" => "Import & export",
+                                    "members" => "Members",
+                                    "policy" => "Security policy",
+                                    "encryption" => "Encryption",
+                                    "server" => "Server",
+                                    "join" => "Organization",
                                     _ => "Preferences",
                                 };
+                                if p == "org-backups"
+                                    && let Some(o) = s.org.as_mut()
+                                {
+                                    o.ui.org_backups = true;
+                                }
                             }
                         }
                     }
@@ -143,6 +160,14 @@ fn main() {
                             s.import.step = 3;
                         }
                     }
+                    if let Some(m) = menu.as_deref() {
+                        cleis_app::screens::org::demo_dialog(&mut app, m, window, cx);
+                    }
+                    if org_welcome {
+                        app.demo = true;
+                        // Screen 03 with the server option chosen, for screenshots.
+                        cleis_app::screens::org::demo_welcome(&mut app, window, cx);
+                    }
                     if menu.as_deref() == Some("filter") {
                         // Screen 01b for screenshots.
                         if let Some(s) = app.session() {
@@ -153,7 +178,10 @@ fn main() {
                     } else if menu.as_deref() == Some("open-code") {
                         // Screen 06 dialog for screenshots.
                         app.toggle_open_code(window, cx);
-                    } else if let Some(m) = menu.as_deref() {
+                    } else if let Some(m) = menu
+                        .as_deref()
+                        .filter(|m| matches!(*m, "columns" | "new-column"))
+                    {
                         // Screen 02 for screenshots.
                         if let Some(s) = app.session() {
                             s.selected = None;

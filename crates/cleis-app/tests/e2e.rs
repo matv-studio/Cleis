@@ -507,6 +507,16 @@ fn import_notion_csv(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("set-Import & export", cx));
     app.update(cx, |a, cx| a.load_import(&csv, cx));
     cx.run_until_parked();
+    // Into Design, where Figma already is.
+    app.update(cx, |a, _| {
+        if let Phase::Main(s) = &mut a.phase {
+            s.import.space = s
+                .spaces
+                .iter()
+                .find(|sp| sp.name == "Design")
+                .map(|sp| sp.id);
+        }
+    });
 
     // "En +" → Name: "Site/app" (Name) becomes Skip; then back.
     act(cx, h, |w, cx| w.click("map-8", cx));

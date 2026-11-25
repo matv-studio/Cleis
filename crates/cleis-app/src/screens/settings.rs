@@ -126,6 +126,14 @@ pub fn page(
                 .flex()
                 .items_center()
                 .gap(px(12.))
+                .when(org_view, |d| {
+                    d.child(
+                        div()
+                            .text_size(TEXT_XL)
+                            .font_weight(W_STRONG)
+                            .child("Sync & backups"),
+                    )
+                })
                 .child(super::org::segment(
                     "whose",
                     t,
@@ -145,17 +153,7 @@ pub fn page(
                     )
                 });
             let inner = if org_view {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(16.))
-                    .child(
-                        div()
-                            .text_size(TEXT_XL)
-                            .font_weight(W_STRONG)
-                            .child("Sync & backups"),
-                    )
-                    .child(super::org::backups(s, path, t, cx))
+                super::org::backups(s, path, t, cx)
             } else {
                 super::sync::page(s, t, s.sync_menu, cx)
             };

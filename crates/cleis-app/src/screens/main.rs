@@ -1209,6 +1209,12 @@ fn statusbar(s: &Session, t: &Tokens) -> Div {
             format!("{sp} › {}", e.name)
         })
         .unwrap_or_default();
+    // Standard spaces keep a copy of their key for the admins (D-21); everything else is
+    // end-to-end.
+    let standard = s
+        .selected_entry()
+        .and_then(|e| s.spaces.iter().find(|sp| sp.id == e.space))
+        .is_some_and(|sp| sp.mode == cleis_store::EncryptionMode::Standard);
     div()
         .h(STATUSBAR_H)
         .flex_none()
@@ -1228,7 +1234,11 @@ fn statusbar(s: &Session, t: &Tokens) -> Div {
                 .items_center()
                 .gap(px(6.))
                 .child(icon("shield", 14., t.text_muted))
-                .child("End-to-end encryption"),
+                .child(if standard {
+                    "Standard encryption"
+                } else {
+                    "End-to-end encryption"
+                }),
         )
         .child("Saved")
 }
