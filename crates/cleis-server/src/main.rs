@@ -542,7 +542,7 @@ mod windows {
             service_type: ServiceType::OWN_PROCESS,
             start_type: ServiceStartType::AutoStart,
             error_control: ServiceErrorControl::Normal,
-            executable: exe.to_owned(),
+            executable_path: exe.to_owned(),
             launch_arguments: vec![
                 "service".into(),
                 "--data".into(),
