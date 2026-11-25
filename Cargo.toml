@@ -41,6 +41,18 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 
+# Key derivation and ciphers are unusably slow unoptimised; keep debug builds responsive.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

@@ -128,9 +128,18 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 - **D-43 CI** : formatage, lint et tests sur Linux et Windows à chaque envoi ; macOS lancé à la demande
   (les minutes macOS comptent 10 fois dans le quota GitHub des dépôts privés : à valider avant de
   l'automatiser).
+- **D-44 GPUI par gpui-kit 0.11.0, version figée** (24/11/2026) : la dépendance unique `gpui-kit = "=0.11.0"`
+  apporte l'instantané GPUI `gpui-pre 0.3.14` (avec AccessKit) et gpui-component ; `Cargo.lock` fige tout
+  l'arbre. La copie du code dans le dépôt (D-33) n'est plus nécessaire tant que crates.io le fournit ; elle
+  reste possible si une version disparaît ou casse. Composants de la charte refaits en primitives GPUI
+  (`ui.rs`) ; seuls les champs de saisie viennent de gpui-component, recolorés par les jetons.
+- **D-45 Création du mot de passe maître** au premier lancement : étape ajoutée sous les deux choix de
+  l'écran 03 (deux champs, 10 caractères minimum). Pas de maquette dédiée : à valider sur capture.
+- **D-46 Essais de bout en bout** dans `crates/cleis-app/tests/e2e.rs` avec le banc d'essai de gpui-kit
+  (fenêtre sans écran, vrais clics et frappes) ; les éléments visés portent `.test_support()`.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation des écrans Contacts (20, 21).
-4. Distribution GPUI : validation de la proposition D-33.
+4. Validation de l'étape « mot de passe maître » du premier lancement (D-45).

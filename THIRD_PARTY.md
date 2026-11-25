@@ -11,7 +11,9 @@ with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bund
 | `zeroize`, `subtle` | wiping secrets, constant-time comparison | MIT OR Apache-2.0 / BSD-3-Clause |
 | `rusqlite` + SQLite (bundled) | vault file | MIT / public domain |
 | `serde`, `serde_json`, `csv`, `uuid`, `url`, `data-encoding`, `thiserror`, `strsim` | data handling | MIT OR Apache-2.0 / MIT |
-| Geist font (Vercel) | interface typeface (design charter) | SIL Open Font License 1.1 |
+| Geist, Geist Mono (Vercel, `geist` npm 1.9.2) | interface typeface, embedded TTF (`crates/cleis-app/assets/fonts`, licence in `OFL.txt`) | SIL Open Font License 1.1 |
+| GPUI (`gpui-pre`, Zed Industries), gpui-kit / gpui-component / gpui-base (Longbridge) | desktop interface | Apache-2.0 |
+| AccessKit (through GPUI) | accessibility (UI Automation, NSAccessibility) | MIT OR Apache-2.0 |
+| `directories` | standard data folder | MIT OR Apache-2.0 |
 
-Planned: GPUI and gpui-component (Apache-2.0), AccessKit (MIT OR Apache-2.0), tauri-apps `tray-icon`
-and `global-hotkey` (MIT OR Apache-2.0).
+Planned: tauri-apps `tray-icon` and `global-hotkey` (MIT OR Apache-2.0).
