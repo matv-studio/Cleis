@@ -337,6 +337,21 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     membres (copie), Install.
   - Versions : `cleis-server` livré dans les archives Windows et macOS, archive Linux à part.
 
+- **D-64 Deuxième étape de connexion par e-mail, SMS, Google, Microsoft** (25/11/2026, demande
+  de l'utilisateur : implémenter ce qui dépend d'un service extérieur, prêt dès sa configuration) :
+  - Le serveur dit ce qu'il sait faire (`[smtp]`, `[sms]`, `[[oidc]]` de `cleis-server.toml`) ;
+    la politique de sécurité n'offre que ces méthodes (case grisée sinon, info-bulle : quelle section
+    ajouter). Un membre en choisit une (Profile › Second step, ou à la demande de la politique).
+  - E-mail (lettre, SMTP) et SMS (n'importe quelle passerelle HTTPS, gabarit `{to}` `{code}`
+    `{text}`) : code à 6 chiffres gardé haché 10 min, 5 essais, un envoi par minute au plus.
+  - Google / Microsoft : OpenID Connect, code d'autorisation avec PKCE et redirection locale
+    (`http://127.0.0.1:<port>`, RFC 8252) ; le navigateur affiche la page du fournisseur. Le serveur
+    vérifie le jeton d'identité (signature RS256 par les clés publiées, émetteur, audience,
+    expiration, domaine), le lie au membre (émetteur + sujet) et ne l'accepte qu'une fois.
+    RS256 passe par `cleis-crypto` (`ring`), essayé sur le vecteur de la RFC 7515 A.2.
+  - Aucun compte ni enregistrement n'est fait par Cleis : l'organisation crée son client OAuth
+    (Google « Desktop app », Microsoft Entra) et sa passerelle SMS ; guide dans `deploy/README.md`.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -345,4 +360,5 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
    bureau (D-50, D-58).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
-7. Méthodes de connexion par e-mail, SMS, Google, Microsoft (service extérieur ou dépense).
+7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
+   un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).

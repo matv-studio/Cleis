@@ -559,3 +559,95 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
     });
     cleis_app::host::stop();
 }
+
+/// Second step by SMS (D-64): set up from Settings › Profile, then asked at the next sign-in. The
+/// server keeps the codes instead of sending them.
+#[gpui_kit::test]
+fn sms_second_step(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let sdir = dir.path().join("server");
+    let code = cleis_server::App::init(&sdir, "Example Studio", &[]).unwrap();
+    std::fs::write(
+        sdir.join("cleis-server.toml"),
+        "[sms]\nurl = \"https://sms.example-gateway.com/send\"\nbody = \"{to} {code}\"\n",
+    )
+    .unwrap();
+    let srv = cleis_server::App::open(&sdir).unwrap();
+    srv.capture_codes();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let app2 = srv.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            tx.send(l.local_addr().unwrap().to_string()).unwrap();
+            cleis_server::serve(app2, l, std::future::pending())
+                .await
+                .unwrap();
+        });
+    });
+    let addr = rx.recv().unwrap();
+    let (h, lea) = open(cx, &dir.path().join("lea.cleis"));
+    cx.run_until_parked();
+    first_launch(cx, h, &addr, &code, Some("Lea Martin"));
+    sync(cx, &lea);
+    lea.update(cx, |a, cx| {
+        a.org_set_policy(
+            |p| {
+                p.methods.insert(cleis_core::org::Method::Sms);
+            },
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Profile", cx));
+    act(cx, h, |w, cx| w.click("second-step-set", cx));
+    act(cx, h, |w, cx| w.click("srv-method-1", cx));
+    act(cx, h, |w, cx| {
+        w.click("srv-phone", cx);
+        w.input("+33 6 99 00 00 12", cx);
+        w.click("srv-send", cx);
+    });
+    let sent = srv.sent_codes();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    act(cx, h, |w, cx| {
+        w.click("srv-code", cx);
+        w.input(&sent[0].code, cx);
+        w.click("srv-code-ok", cx);
+    });
+    session(cx, &lea, |s| {
+        assert!(s.org.as_ref().unwrap().code.is_none())
+    });
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        let o = s.org.as_ref().unwrap();
+        assert_eq!(o.me().unwrap().factor, Some(cleis_core::org::Method::Sms));
+    });
+
+    // Next sign-in (session dropped, device not remembered): a code goes by SMS.
+    lea.update(cx, |a, _| {
+        if let Phase::Main(s) = &mut a.phase {
+            let o = s.org.as_mut().unwrap();
+            o.token = None;
+            o.local.remembered = None;
+        }
+    });
+    lea.update(cx, |a, cx| a.org_sync(None, cx));
+    cx.run_until_parked();
+    session(cx, &lea, |s| {
+        let c = s.org.as_ref().unwrap().code.as_ref().expect("code asked");
+        assert!(c.message.as_deref().unwrap().contains("00 12"));
+    });
+    let code = srv.sent_codes().last().unwrap().code.clone();
+    act(cx, h, |w, cx| {
+        w.click("srv-code", cx);
+        w.input(&code, cx);
+        w.click("srv-code-ok", cx);
+    });
+    session(cx, &lea, |s| {
+        let o = s.org.as_ref().unwrap();
+        assert!(o.code.is_none());
+        assert!(o.error.is_none(), "{:?}", o.error);
+    });
+}

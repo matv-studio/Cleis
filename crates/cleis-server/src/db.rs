@@ -79,6 +79,9 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
         ("spaces", "reserved", "INTEGER NOT NULL DEFAULT 0"),
         ("access", "granted_by", "TEXT"),
         ("invites", "created_by", "TEXT"),
+        // Second sign-in step (D-64): method and its target (phone, identity account).
+        ("members", "factor", "TEXT"),
+        ("members", "factor_target", "TEXT"),
     ] {
         let has: bool = conn
             .prepare(&format!(
@@ -89,6 +92,11 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
             conn.execute_batch(&format!("ALTER TABLE {t} ADD COLUMN {col} {def}"))?;
         }
     }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS codes (member TEXT PRIMARY KEY REFERENCES members(id), purpose TEXT NOT NULL, method TEXT NOT NULL, target TEXT NOT NULL, hash BLOB NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL) STRICT;
+         CREATE TABLE IF NOT EXISTS used_tokens (hash BLOB PRIMARY KEY, expires INTEGER NOT NULL) STRICT;
+         UPDATE members SET factor = 'authenticator_app' WHERE totp IS NOT NULL AND factor IS NULL;",
+    )?;
     Ok(())
 }
 

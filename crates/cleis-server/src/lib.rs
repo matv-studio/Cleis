@@ -10,6 +10,8 @@
 pub mod api;
 pub mod config;
 pub mod db;
+pub mod delivery;
+pub mod oidc;
 pub mod tls;
 
 use axum::http::StatusCode;
@@ -49,6 +51,12 @@ pub struct App {
     pub cert: [u8; 32],
     pub dir: PathBuf,
     failures: Mutex<HashMap<IpAddr, Vec<Instant>>>,
+    /// `cleis-server.toml`, read at start.
+    pub config: config::Config,
+    /// Identity providers' keys (D-64).
+    pub keys: oidc::KeyCache,
+    /// Codes kept instead of sent (`capture_codes`, tests).
+    pub outbox: Mutex<Option<Vec<delivery::Sent>>>,
 }
 
 /// Address of the peer, set on each request.
@@ -208,6 +216,9 @@ impl App {
             cert,
             dir: dir.to_owned(),
             failures: Mutex::new(HashMap::new()),
+            config: config::Config::load(dir).map_err(ServerError::Setup)?,
+            keys: oidc::KeyCache::default(),
+            outbox: Mutex::new(None),
         }))
     }
 
@@ -379,5 +390,64 @@ pub async fn backup_loop(app: Arc<App>, dir: PathBuf, every_hours: u32, keep: u3
             Err(e) => eprintln!("backup failed: {e}"),
         }
         tokio::time::sleep(every).await;
+    }
+}
+
+impl App {
+    /// Keeps verification codes in `outbox` instead of sending them (tests).
+    pub fn capture_codes(&self) {
+        if let Ok(mut o) = self.outbox.lock() {
+            *o = Some(vec![]);
+        }
+    }
+
+    /// Codes kept since `capture_codes`.
+    pub fn sent_codes(&self) -> Vec<delivery::Sent> {
+        self.outbox
+            .lock()
+            .ok()
+            .and_then(|o| o.clone())
+            .unwrap_or_default()
+    }
+
+    /// Sends a code by e-mail or SMS (blocking: call from a blocking task).
+    pub fn deliver(&self, to: &delivery::To, code: &str) -> Result<(), String> {
+        if let Ok(mut o) = self.outbox.lock()
+            && let Some(v) = o.as_mut()
+        {
+            v.push(delivery::Sent {
+                to: to.clone(),
+                code: code.to_owned(),
+            });
+            return Ok(());
+        }
+        let org = {
+            let conn = self.db.lock().expect("database lock");
+            String::from_utf8(
+                db::meta_get(&conn, "org_name")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+            )
+            .unwrap_or_default()
+        };
+        match to {
+            delivery::To::Email(e) => {
+                let cfg = self
+                    .config
+                    .smtp
+                    .as_ref()
+                    .ok_or("e-mail is not set up on the server")?;
+                delivery::send_email(cfg, &org, e, code)
+            }
+            delivery::To::Phone(p) => {
+                let cfg = self
+                    .config
+                    .sms
+                    .as_ref()
+                    .ok_or("SMS is not set up on the server")?;
+                delivery::send_sms(cfg, &org, p, code)
+            }
+        }
     }
 }

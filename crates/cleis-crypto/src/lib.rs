@@ -2,7 +2,7 @@
 //!
 //! No primitive is implemented here: everything delegates to audited, widely used
 //! crates (RustCrypto `aes-gcm`, `argon2`, `sha2`, `hkdf`; dalek `x25519-dalek`,
-//! `ed25519-dalek`). This crate only fixes the formats and the ways they are combined,
+//! `ed25519-dalek`; `ring` for RS256 checks of identity-provider tokens). This crate only fixes the formats and the ways they are combined,
 //! so the rest of the application cannot misuse them. See `THIRD_PARTY.md`.
 //!
 //! Formats (all versioned by a leading byte so they can evolve):
@@ -17,6 +17,7 @@ mod aead;
 mod error;
 mod kdf;
 mod keys;
+mod rsa;
 mod sign;
 mod wrap;
 
@@ -24,6 +25,7 @@ pub use aead::{open, seal};
 pub use error::CryptoError;
 pub use kdf::{KdfParams, MasterKey, derive_master_key};
 pub use keys::{SymmetricKey, random_bytes};
+pub use rsa::verify_rs256;
 pub use sign::{SigningKeyPair, VerifyingKey, verify};
 pub use wrap::{KeyPair, PublicKey, open_from, seal_to, unwrap_key, wrap_key};
 

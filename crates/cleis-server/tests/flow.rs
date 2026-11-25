@@ -86,6 +86,14 @@ fn join(addr: &str, code: &str, name: &str, email: &str) -> Result<Person, NetEr
 
 impl Person {
     fn sign_in(&mut self, code: Option<String>) -> Result<SessionReply, NetError> {
+        self.sign_in_with(code, None)
+    }
+
+    fn sign_in_with(
+        &mut self,
+        code: Option<String>,
+        id_token: Option<String>,
+    ) -> Result<SessionReply, NetError> {
         let c: Challenge = self.client.call("/v1/challenge", &())?;
         let r = self.client.send("POST", "/v1/hello", None);
         let cert = match r {
@@ -104,6 +112,7 @@ impl Person {
                 device: "PC".into(),
                 code,
                 remembered: None,
+                id_token,
             },
         )?;
         self.client.token = Some(reply.token.clone());
@@ -833,5 +842,165 @@ fn organization_flow() {
     lea.client = lea2;
     lea.sign_in(None).unwrap();
     assert!(lea.state().org.next_cert.is_none());
+    srv.stop();
+}
+
+fn token(n: usize) -> String {
+    include_str!("fixtures/oidc-tokens.txt")
+        .lines()
+        .find_map(|l| l.strip_prefix(&format!("T{n} ")))
+        .unwrap()
+        .to_owned()
+}
+
+/// Second steps by e-mail, SMS and an identity provider (D-64), codes kept by the server instead
+/// of being sent, the provider's keys given beforehand.
+#[test]
+fn second_steps() {
+    let dir = tempdir();
+    let code = App::init(&dir, "Example Studio", &[]).unwrap();
+    std::fs::write(
+        dir.join("cleis-server.toml"),
+        r#"
+[smtp]
+host = "smtp.example-studio.com"
+from = "Cleis <vault@example-studio.com>"
+[sms]
+url = "https://sms.example-gateway.com/send"
+body = "{to} {code}"
+[[oidc]]
+name = "google"
+issuer = "https://idp.example-idp.com"
+client_id = "cleis-test"
+domains = ["example-studio.com"]
+"#,
+    )
+    .unwrap();
+    let app = App::open(&dir).unwrap();
+    app.capture_codes();
+    app.keys.put(
+        "https://idp.example-idp.com",
+        vec![cleis_server::oidc::Jwk {
+            kid: "k1".into(),
+            kty: "RSA".into(),
+            n: "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ".into(),
+            e: "AQAB".into(),
+        }],
+    );
+    let srv = Server::start_app(app.clone(), dir);
+    let mut lea = join(&srv.addr, &code, "Lea Martin", "lea@example-studio.com").unwrap();
+    lea.sign_in(None).unwrap();
+    let st = lea.state();
+    assert_eq!(st.methods.len(), 4);
+    assert_eq!(st.providers[0].method, Method::Google);
+
+    // Not allowed by the policy yet.
+    let start = |m: Method, target: &str| CodeStart {
+        method: m,
+        target: target.into(),
+    };
+    let e = lea
+        .client
+        .call::<_, CodeSetup>("/v1/me/code", &start(Method::Email, ""))
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
+    let hello: Hello = lea.client.get("/v1/hello").unwrap();
+    assert_eq!(hello.methods, vec![Method::AuthenticatorApp]);
+    let mut policy = st.policy;
+    policy.methods = Method::ALL.into_iter().collect();
+    let _: Policy = lea.client.call("/v1/policy", &policy).unwrap();
+    let hello: Hello = lea.client.get("/v1/hello").unwrap();
+    assert_eq!(hello.methods.len(), 4);
+    let last = || app.sent_codes().last().cloned().unwrap();
+
+    // E-mail: set up, then each sign-in sends a code (one message a minute at most).
+    let setup: CodeSetup = lea
+        .client
+        .call("/v1/me/code", &start(Method::Email, ""))
+        .unwrap();
+    assert_eq!(setup.sent_to, "l•••@example-studio.com");
+    let sent = last();
+    assert_eq!(
+        sent.to,
+        cleis_server::delivery::To::Email("lea@example-studio.com".into())
+    );
+    let wrong = if sent.code == "000000" {
+        "111111"
+    } else {
+        "000000"
+    };
+    assert_eq!(
+        lea.client
+            .call::<_, SessionReply>("/v1/me/code/confirm", &CodeCheck { code: wrong.into() })
+            .unwrap_err()
+            .code(),
+        Some("wrong_code")
+    );
+    let _: SessionReply = lea
+        .client
+        .call("/v1/me/code/confirm", &CodeCheck { code: sent.code })
+        .unwrap();
+    assert_eq!(lea.state().me.factor, Some(Method::Email));
+    let e = lea.sign_in(None).unwrap_err();
+    assert_eq!(e.code(), Some("code_sent"));
+    let n = app.sent_codes().len();
+    assert_eq!(lea.sign_in(None).unwrap_err().code(), Some("code_sent"));
+    assert_eq!(
+        app.sent_codes().len(),
+        n,
+        "no second message within a minute"
+    );
+    let c = last().code;
+    lea.sign_in(Some(c.clone())).unwrap();
+    assert_eq!(lea.sign_in(Some(c)).unwrap_err().code(), Some("wrong_code"));
+
+    // SMS.
+    let e = lea
+        .client
+        .call::<_, CodeSetup>("/v1/me/code", &start(Method::Sms, "12"))
+        .unwrap_err();
+    assert_eq!(e.code(), Some("bad_request"));
+    let setup: CodeSetup = lea
+        .client
+        .call("/v1/me/code", &start(Method::Sms, "+33 6 99 00 00 12"))
+        .unwrap();
+    assert_eq!(setup.sent_to, "•••• 00 12");
+    let _: SessionReply = lea
+        .client
+        .call("/v1/me/code/confirm", &CodeCheck { code: last().code })
+        .unwrap();
+    assert_eq!(lea.sign_in(None).unwrap_err().code(), Some("code_sent"));
+    assert_eq!(
+        last().to,
+        cleis_server::delivery::To::Phone("+33699000012".into())
+    );
+    lea.sign_in(Some(last().code)).unwrap();
+
+    // Google: bound at set-up, each token used once, another account refused.
+    let setup: CodeSetup = lea
+        .client
+        .call("/v1/me/code", &start(Method::Google, &token(1)))
+        .unwrap();
+    assert!(setup.done);
+    assert_eq!(lea.state().me.factor, Some(Method::Google));
+    assert_eq!(
+        lea.sign_in(None).unwrap_err().code(),
+        Some("identity_google")
+    );
+    assert_eq!(
+        lea.sign_in_with(None, Some(token(1))).unwrap_err().code(),
+        Some("wrong_code"),
+        "token used at set-up"
+    );
+    lea.sign_in_with(None, Some(token(2))).unwrap();
+    assert_eq!(
+        lea.sign_in_with(None, Some(token(2))).unwrap_err().code(),
+        Some("wrong_code")
+    );
+    assert_eq!(
+        lea.sign_in_with(None, Some(token(3))).unwrap_err().code(),
+        Some("wrong_code"),
+        "other domain"
+    );
     srv.stop();
 }

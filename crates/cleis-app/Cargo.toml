@@ -32,6 +32,8 @@ async-channel = "2"
 zeroize.workspace = true
 # QR code of the verification-code key (Security › Opening the app).
 qrcode = { version = "0.15", default-features = false }
+# Sign-in with Google / Microsoft: the provider's endpoints (D-64).
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 
 [target.'cfg(windows)'.dependencies]
 # Reads window handles: Quick Access brought in front without GPUI's simulated Alt, main window

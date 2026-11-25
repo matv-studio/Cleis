@@ -99,12 +99,42 @@ pub struct Oidc {
     /// `https://accounts.google.com`, `https://login.microsoftonline.com/<tenant>/v2.0`.
     pub issuer: String,
     pub client_id: String,
+    /// Desktop-app ("installed") clients of Google carry a secret that is not one: it is given to
+    /// the apps with the client id. Empty for Microsoft.
+    #[serde(default)]
+    pub client_secret: String,
     /// E-mail domains accepted (`example-studio.com`); empty: any verified address of a member.
     #[serde(default)]
     pub domains: Vec<String>,
 }
 
 impl Config {
+    /// Sign-in methods this server can carry out (the authenticator app always).
+    pub fn methods(&self) -> Vec<cleis_core::org::Method> {
+        use cleis_core::org::Method;
+        let mut m = vec![Method::AuthenticatorApp];
+        if self.smtp.is_some() {
+            m.push(Method::Email);
+        }
+        if self.sms.is_some() {
+            m.push(Method::Sms);
+        }
+        for p in &self.oidc {
+            if let Some(x) = crate::oidc::method_of(p)
+                && !m.contains(&x)
+            {
+                m.push(x);
+            }
+        }
+        m
+    }
+
+    pub fn provider(&self, method: cleis_core::org::Method) -> Option<&Oidc> {
+        self.oidc
+            .iter()
+            .find(|p| crate::oidc::method_of(p) == Some(method))
+    }
+
     pub fn path(data: &Path) -> PathBuf {
         data.join(FILE)
     }
@@ -135,8 +165,13 @@ impl Config {
              #         username = \"…\"  password = \"…\"  from = \"Cleis <vault@example-studio.com>\"\n\
              # [sms]   url = \"https://sms.example-gateway.com/send?to={{to}}\"  method = \"POST\"\n\
              #         headers = [\"Authorization: Bearer …\"]  body = \"Cleis code: {{code}}\"\n\
-             # [[oidc]] name = \"google\"  issuer = \"https://accounts.google.com\"  client_id = \"…\"\n\
-             #          domains = [\"example-studio.com\"]\n\n{body}"
+             #         ({{to}}, {{code}}, {{text}} are replaced; JSON or form bodies are escaped)\n\
+             # [[oidc]] name = \"google\"  issuer = \"https://accounts.google.com\"\n\
+             #          client_id = \"….apps.googleusercontent.com\"  client_secret = \"…\"\n\
+             #          domains = [\"example-studio.com\"]\n\
+             # [[oidc]] name = \"microsoft\"\n\
+             #          issuer = \"https://login.microsoftonline.com/<tenant id>/v2.0\"  client_id = \"…\"\n\
+             # Redirect address to register with the provider: http://127.0.0.1 (desktop app).\n\n{body}"
         );
         std::fs::write(Self::path(data), text)
     }

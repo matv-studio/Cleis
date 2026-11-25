@@ -864,7 +864,8 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     };
     let method = |m: Method, cx: &mut Context<CleisApp>| {
         let on = p.methods.contains(&m);
-        let ok = m.available();
+        // Carried out by the server (D-64): `[smtp]`, `[sms]`, `[[oidc]]` in its configuration.
+        let ok = m == Method::AuthenticatorApp || st.methods.contains(&m);
         let ico = match m {
             Method::AuthenticatorApp | Method::Sms => "phone",
             Method::Email => "mail",
@@ -879,9 +880,12 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .when(ok, |d| d.cursor_pointer())
             .when(!ok, |d| {
                 d.opacity(0.45).tooltip(tip(match m {
-                    Method::Email => "Needs the organization's mail server",
-                    Method::Sms => "Needs a paid SMS service",
-                    _ => "Needs Cleis to be registered with this provider",
+                    Method::Email => "Set [smtp] in the server's cleis-server.toml",
+                    Method::Sms => "Set [sms] (an SMS gateway) in the server's cleis-server.toml",
+                    Method::Google => {
+                        "Add a google [[oidc]] provider in the server's cleis-server.toml"
+                    }
+                    _ => "Add a microsoft [[oidc]] provider in the server's cleis-server.toml",
                 }))
             })
             .child(check_box(t, on && ok))
@@ -2361,13 +2365,94 @@ fn overlay(body: Div) -> Div {
         .child(div().id("org-dialog").occlude().child(body))
 }
 
+fn method_short(m: Method) -> &'static str {
+    match m {
+        Method::AuthenticatorApp => "App",
+        Method::Email => "E-mail",
+        Method::Sms => "SMS",
+        Method::Google => "Google",
+        Method::Microsoft => "Microsoft",
+    }
+}
+
 /// The dialog open over the main window, if any.
 pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div> {
     let o = s.org.as_ref()?;
     let st = o.state.as_ref();
     if let Some(c) = &o.code {
-        let title = format!("{} · verification code", o.m.name);
+        let title = format!(
+            "{} · {}",
+            o.m.name,
+            if c.setup {
+                "second sign-in step"
+            } else {
+                "verification"
+            }
+        );
         let mut body = card(t, &title);
+        if c.setup && c.methods.len() > 1 {
+            let methods = c.methods.clone();
+            let labels: Vec<&str> = methods.iter().map(|m| method_short(*m)).collect();
+            let at = methods.iter().position(|m| *m == c.method).unwrap_or(0);
+            let pick: Pick = Rc::new(move |this, i, cx| {
+                if let Some(m) = methods.get(i) {
+                    this.org_setup_pick(*m, cx);
+                }
+            });
+            body = body.child(segment("srv-method", t, &labels, at, pick, cx));
+        }
+        if c.setup && c.methods.is_empty() {
+            body = body.child(
+                div()
+                    .text_color(t.text_muted)
+                    .child("The security policy allows no method this server can carry out."),
+            );
+        }
+        let identity = c.method.is_identity() && !c.asked;
+        let to_send = c.setup && !c.asked && matches!(c.method, Method::Email | Method::Sms);
+        if identity {
+            let label = format!("Continue with {}", method_short(c.method));
+            body = body
+                .child(div().text_color(t.text_muted).child(if c.setup {
+                    format!("Your {} will confirm each sign-in.", c.method.label())
+                } else {
+                    format!("Sign in with your {}.", c.method.label())
+                }))
+                .child(
+                    div().flex().justify_center().py(px(4.)).child(
+                        button("srv-identity", t, BtnKind::Primary, false)
+                            .when(c.busy, |b| b.opacity(0.6))
+                            .child(if c.busy {
+                                "Waiting for the browser…".to_owned()
+                            } else {
+                                label
+                            })
+                            .tooltip(tip("Opens the sign-in page in your browser"))
+                            .on_click(cx.listener(|this, _, _, cx| this.org_identity(cx)))
+                            .test_support(),
+                    ),
+                );
+        } else if to_send {
+            if c.method == Method::Email {
+                let email = o.me().map(|m| m.email.clone()).unwrap_or_default();
+                body = body.child(
+                    div()
+                        .text_color(t.text_muted)
+                        .child(format!("A code goes to {email} at each sign-in.")),
+                );
+            } else if let Some(p) = &c.phone {
+                body = body.child(field(t, "Phone number", Input::new(p).id("srv-phone")));
+            }
+            body = body.child(
+                div().flex().justify_end().child(
+                    button("srv-send", t, BtnKind::Default, false)
+                        .when(c.busy, |b| b.opacity(0.6))
+                        .child("Send code")
+                        .on_click(cx.listener(|this, _, _, cx| this.org_setup_send(cx)))
+                        .test_support(),
+                ),
+            );
+        }
         if let Some(secret) = &c.secret {
             let uri = cleis_core::totp::Totp::from_base32(secret)
                 .map(|mut x| {
@@ -2387,7 +2472,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 .child(
                     div()
                         .text_color(t.text_muted)
-                        .child("Required by your organization. Scan, then type the code."),
+                        .child("Scan with your authenticator app, then type the code."),
                 )
                 .child(
                     div()
@@ -2413,8 +2498,12 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                         ),
                 );
         }
+        let ask = c.asked && !identity && !to_send;
         body = body
-            .when_some(c.input.as_ref(), |d, i| {
+            .when_some(c.message.clone().filter(|_| ask), |d, m| {
+                d.child(div().text_color(t.text_muted).child(m))
+            })
+            .when_some(c.input.as_ref().filter(|_| ask), |d, i| {
                 d.child(field(t, "Code", Input::new(i).id("srv-code")))
             })
             .when_some(c.error.clone(), |d, e| {
@@ -2432,13 +2521,15 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                             .on_click(cx.listener(|this, _, _, cx| this.org_cancel_code(cx)))
                             .test_support(),
                     )
-                    .child(
-                        button("srv-code-ok", t, BtnKind::Primary, false)
-                            .when(c.busy, |b| b.opacity(0.6))
-                            .child("Continue")
-                            .on_click(cx.listener(|this, _, _, cx| this.org_submit_code(cx)))
-                            .test_support(),
-                    ),
+                    .when(ask, |d| {
+                        d.child(
+                            button("srv-code-ok", t, BtnKind::Primary, false)
+                                .when(c.busy, |b| b.opacity(0.6))
+                                .child("Continue")
+                                .on_click(cx.listener(|this, _, _, cx| this.org_submit_code(cx)))
+                                .test_support(),
+                        )
+                    }),
             );
         return Some(overlay(body));
     }
@@ -2843,6 +2934,17 @@ impl CleisApp {
                 o.ui.subs.push(sub);
             }
         }
+        if self
+            .session()
+            .and_then(|s| s.org.as_ref())
+            .and_then(|o| o.code.as_ref())
+            .is_some_and(|c| c.setup && c.phone.is_none())
+        {
+            let phone = cx.new(|cx| InputState::new(window, cx).placeholder("+33 6 99 00 00 12"));
+            if let Some(c) = org_mut(self).and_then(|o| o.code.as_mut()) {
+                c.phone = Some(phone);
+            }
+        }
         // Profile boxes, filled with the member's name once the state is known.
         let me = self
             .session()
@@ -3207,12 +3309,44 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         }
         "server-code" => {
             if let Some(o) = org_mut(app) {
-                o.code = Some(crate::org::CodePrompt {
-                    input: None,
-                    error: None,
-                    secret: Some("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP".into()),
-                    busy: false,
-                });
+                let mut c = crate::org::CodePrompt::new(Method::AuthenticatorApp);
+                c.setup = true;
+                c.methods = vec![
+                    Method::AuthenticatorApp,
+                    Method::Email,
+                    Method::Sms,
+                    Method::Google,
+                ];
+                c.secret = Some("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP".into());
+                o.code = Some(c);
+            }
+        }
+        "server-sms" => {
+            if let Some(o) = org_mut(app) {
+                let mut c = crate::org::CodePrompt::new(Method::Sms);
+                c.setup = true;
+                c.asked = false;
+                c.methods = vec![
+                    Method::AuthenticatorApp,
+                    Method::Email,
+                    Method::Sms,
+                    Method::Google,
+                ];
+                o.code = Some(c);
+            }
+        }
+        "server-email" => {
+            if let Some(o) = org_mut(app) {
+                let mut c = crate::org::CodePrompt::new(Method::Email);
+                c.message = Some("Enter the code sent to l•••@example-studio.com.".into());
+                o.code = Some(c);
+            }
+        }
+        "server-identity" => {
+            if let Some(o) = org_mut(app) {
+                let mut c = crate::org::CodePrompt::new(Method::Google);
+                c.asked = false;
+                o.code = Some(c);
             }
         }
         _ => {}
@@ -3327,6 +3461,38 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.copy(fp_copy.clone(), "Fingerprint", cx)
                                 })),
+                        ),
+                )
+                .child(
+                    row(t, false)
+                        .child(
+                            div()
+                                .id("second-step")
+                                .flex_1()
+                                .tooltip(tip("Asked at sign-in, after the account key"))
+                                .child("Second step"),
+                        )
+                        .child(
+                            div().text_color(t.text_muted).child(
+                                me.factor
+                                    .map_or("None".to_owned(), |m| m.label().to_owned()),
+                            ),
+                        )
+                        .child(
+                            button("second-step-set", t, BtnKind::Default, false)
+                                .child(if me.factor.is_some() {
+                                    "Change"
+                                } else {
+                                    "Set up"
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if this.demo {
+                                        this.toast("Not in the demo", cx);
+                                    } else {
+                                        this.org_setup_prompt(cx);
+                                    }
+                                }))
+                                .test_support(),
                         ),
                 ),
         )

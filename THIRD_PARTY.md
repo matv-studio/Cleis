@@ -34,4 +34,7 @@ with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bund
 | `axum`, `hyper`, `hyper-util`, `tower`, `tokio` | organization server | MIT |
 | `chrono` | local time of the activity log | MIT OR Apache-2.0 |
 | `toml` | server configuration file | MIT OR Apache-2.0 |
+| `lettre` | verification codes by e-mail (server) | MIT |
+| `ureq` | HTTPS calls to identity providers, SMS gateways | MIT OR Apache-2.0 |
+| `ring` (in `cleis-crypto`) | RS256 check of identity-provider tokens | ISC-style + OpenSSL notices |
 | Mullvad `windows-service` (Windows) | server as a Windows service | MIT OR Apache-2.0 |

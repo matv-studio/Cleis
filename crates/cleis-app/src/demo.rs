@@ -452,6 +452,7 @@ pub fn org(s: &mut crate::app::Session) {
         revoked: false,
         account_public: key(),
         verify_key: key(),
+        factor: two_fa.then_some(Method::AuthenticatorApp),
     };
     let all: Vec<SpaceId> = spaces.iter().map(|x| x.0).collect();
     let today = now - now.rem_euclid(86_400);
@@ -723,6 +724,8 @@ pub fn org(s: &mut crate::app::Session) {
             at: h(11, 30).min(now),
         }),
         events: 214,
+        methods: vec![Method::AuthenticatorApp, Method::Email, Method::Google],
+        providers: vec![],
     };
     let names = spaces.iter().map(|x| (x.0, x.1.clone())).collect();
     let ui = crate::screens::org::OrgUi {

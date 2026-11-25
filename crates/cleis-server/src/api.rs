@@ -76,9 +76,22 @@ struct Member {
     last_sign_in: Option<i64>,
     last_device: String,
     revoked: Option<i64>,
+    factor: Option<Method>,
+    factor_target: Option<String>,
 }
 
-const MEMBER_COLS: &str = "id, name, email, role, account_public, verify_key, export, totp, totp_pending, totp_last, last_sign_in, last_device, revoked";
+const MEMBER_COLS: &str = "id, name, email, role, account_public, verify_key, export, totp, totp_pending, totp_last, last_sign_in, last_device, revoked, factor, factor_target";
+
+fn method_key(m: Method) -> String {
+    serde_json::to_value(m)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+fn method_from(s: &str) -> Option<Method> {
+    serde_json::from_value(serde_json::Value::String(s.to_owned())).ok()
+}
 
 fn member_from(r: &rusqlite::Row) -> rusqlite::Result<Member> {
     let id: String = r.get(0)?;
@@ -100,6 +113,10 @@ fn member_from(r: &rusqlite::Row) -> rusqlite::Result<Member> {
         last_sign_in: r.get(10)?,
         last_device: r.get(11)?,
         revoked: r.get(12)?,
+        factor: r
+            .get::<_, Option<String>>(13)?
+            .and_then(|s| method_from(&s)),
+        factor_target: r.get(14)?,
     })
 }
 
@@ -144,13 +161,14 @@ fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
         email: m.email.clone(),
         role: m.role.clone(),
         spaces: spaces_of(conn, m.id)?,
-        two_fa: m.totp.is_some(),
+        two_fa: m.factor.is_some(),
         export: m.export || is_admin_role(&m.role),
         last_sign_in: m.last_sign_in,
         last_device: m.last_device.clone(),
         revoked: m.revoked.is_some(),
         account_public: m.account_public,
         verify_key: m.verify_key,
+        factor: m.factor,
     })
 }
 
@@ -337,7 +355,33 @@ async fn hello(State(app): State<Arc<App>>) -> Json<Hello> {
         )
         .unwrap_or_default(),
         version: env!("CARGO_PKG_VERSION").into(),
+        // Those a member may set up now: carried out by this server and allowed by the policy.
+        methods: {
+            let policy = db::policy(&conn);
+            app.config
+                .methods()
+                .into_iter()
+                .filter(|m| policy.methods.contains(m))
+                .collect()
+        },
+        providers: providers(&app),
     })
+}
+
+/// Identity providers the apps may sign in with.
+fn providers(app: &App) -> Vec<Provider> {
+    app.config
+        .oidc
+        .iter()
+        .filter_map(|p| {
+            Some(Provider {
+                method: crate::oidc::method_of(p)?,
+                issuer: p.issuer.replace("{tenantid}", "organizations"),
+                client_id: p.client_id.clone(),
+                client_secret: p.client_secret.clone(),
+            })
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -533,87 +577,65 @@ fn random_token() -> Result<String, ApiErr> {
     Ok(hex(&b))
 }
 
+/// What a sign-in still needs once the signature is checked.
+enum Next {
+    /// Open the session; `checked`: a second step was passed now (the device may be remembered).
+    Open(Box<Member>, bool),
+    /// A code to send (or one sent less than a minute ago), then ask for it.
+    Send(crate::delivery::To, Option<String>),
+    /// An ID token to check against the member's identity account.
+    Identity(Box<Member>, Method, String),
+}
+
 async fn session(
     State(app): State<Arc<App>>,
     Extension(peer): Extension<Peer>,
     Json(req): Json<SessionRequest>,
 ) -> Res<SessionReply> {
     throttle(&app, &peer, false)?;
-    let conn = app.db.lock().expect("database lock");
     let t = now();
-    if conn.execute(
-        "DELETE FROM challenges WHERE nonce = ?1 AND expires >= ?2",
-        params![&req.nonce[..], t],
-    )? != 1
-    {
-        return Err(ApiErr::unauthorized("expired", "Try again."));
-    }
-    let Some(m) = member(&conn, req.member)? else {
-        return Err(ApiErr::unauthorized(
-            "revoked",
-            "This account is not part of the organization.",
-        ));
+    let (m, checked) = match session_check(&app, &peer, &req, t)? {
+        Next::Open(m, checked) => (m, checked),
+        Next::Send(to, code) => {
+            let shown = crate::delivery::masked(&to);
+            if let Some(code) = code {
+                send(&app, to, code).await?;
+            }
+            return Err(ApiErr::unauthorized(
+                "code_sent",
+                &format!("Enter the code sent to {shown}."),
+            ));
+        }
+        Next::Identity(m, factor, token) => {
+            let claims = check_identity(&app, factor, token).await?;
+            if Some(claims.account()) != m.factor_target {
+                throttle(&app, &peer, true)?;
+                return Err(ApiErr::unauthorized(
+                    "wrong_code",
+                    "This is not the account set up for Cleis.",
+                ));
+            }
+            (m, true)
+        }
     };
-    if m.revoked.is_some() {
-        return Err(ApiErr::unauthorized(
-            "revoked",
-            "This account was removed from the organization.",
-        ));
-    }
-    if verify(
-        &VerifyingKey(m.verify_key),
-        SIGN_IN_DOMAIN,
-        &sign_in_message(&req.nonce, &app.cert),
-        &req.signature,
-    )
-    .is_err()
-    {
-        drop(conn);
-        throttle(&app, &peer, true)?;
-        return Err(ApiErr::unauthorized("unauthorized", "Signature refused."));
-    }
+    let conn = app.db.lock().expect("database lock");
     let policy = db::policy(&conn);
     let mut remembered = None;
-    if let Some(secret) = &m.totp {
-        let known = match &req.remembered {
-            Some(r) => conn
-                .prepare("SELECT 1 FROM remembered WHERE token_hash = ?1 AND member = ?2 AND expires > ?3")?
-                .exists(params![&sha256(r.as_bytes())[..], m.id.to_string(), t])?,
-            None => false,
-        };
-        if !known {
-            let Some(code) = &req.code else {
-                return Err(ApiErr::unauthorized(
-                    "code_required",
-                    "Enter the code from your authenticator app.",
-                ));
-            };
-            let Some(step) = check_code(secret, code, m.totp_last, t) else {
-                drop(conn);
-                throttle(&app, &peer, true)?;
-                return Err(ApiErr::unauthorized("wrong_code", "Wrong code."));
-            };
-            conn.execute(
-                "UPDATE members SET totp_last = ?2 WHERE id = ?1",
-                params![m.id.to_string(), step],
-            )?;
-            if policy.remember_days > 0 {
-                let r = random_token()?;
-                conn.execute("DELETE FROM remembered WHERE expires < ?1", [t])?;
-                conn.execute(
-                    "INSERT INTO remembered(token_hash, member, expires, device) VALUES (?1, ?2, ?3, ?4)",
-                    params![
-                        &sha256(r.as_bytes())[..],
-                        m.id.to_string(),
-                        t + i64::from(policy.remember_days) * 86_400,
-                        req.device
-                    ],
-                )?;
-                remembered = Some(r);
-            }
-        }
+    if checked && policy.remember_days > 0 {
+        let r = random_token()?;
+        conn.execute("DELETE FROM remembered WHERE expires < ?1", [t])?;
+        conn.execute(
+            "INSERT INTO remembered(token_hash, member, expires, device) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                &sha256(r.as_bytes())[..],
+                m.id.to_string(),
+                t + i64::from(policy.remember_days) * 86_400,
+                req.device
+            ],
+        )?;
+        remembered = Some(r);
     }
-    let setup_only = policy.code_required && m.totp.is_none();
+    let setup_only = policy.code_required && m.factor.is_none();
     let token = random_token()?;
     conn.execute("DELETE FROM sessions WHERE expires < ?1", [t])?;
     conn.execute(
@@ -645,15 +667,322 @@ async fn session(
     }))
 }
 
-async fn code_setup(State(app): State<Arc<App>>, caller: Caller) -> Res<CodeSetup> {
-    let key: [u8; 20] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
-    let secret = data_encoding::BASE32_NOPAD.encode(&key);
+/// Challenge, member and signature, then the second step as far as it goes without the network.
+fn session_check(app: &App, peer: &Peer, req: &SessionRequest, t: i64) -> Result<Next, ApiErr> {
     let conn = app.db.lock().expect("database lock");
+    if conn.execute(
+        "DELETE FROM challenges WHERE nonce = ?1 AND expires >= ?2",
+        params![&req.nonce[..], t],
+    )? != 1
+    {
+        return Err(ApiErr::unauthorized("expired", "Try again."));
+    }
+    let Some(m) = member(&conn, req.member)? else {
+        return Err(ApiErr::unauthorized(
+            "revoked",
+            "This account is not part of the organization.",
+        ));
+    };
+    if m.revoked.is_some() {
+        return Err(ApiErr::unauthorized(
+            "revoked",
+            "This account was removed from the organization.",
+        ));
+    }
+    if verify(
+        &VerifyingKey(m.verify_key),
+        SIGN_IN_DOMAIN,
+        &sign_in_message(&req.nonce, &app.cert),
+        &req.signature,
+    )
+    .is_err()
+    {
+        throttle(app, peer, true)?;
+        return Err(ApiErr::unauthorized("unauthorized", "Signature refused."));
+    }
+    let Some(factor) = m.factor else {
+        return Ok(Next::Open(Box::new(m), false));
+    };
+    let known = match &req.remembered {
+        Some(r) => conn
+            .prepare(
+                "SELECT 1 FROM remembered WHERE token_hash = ?1 AND member = ?2 AND expires > ?3",
+            )?
+            .exists(params![&sha256(r.as_bytes())[..], m.id.to_string(), t])?,
+        None => false,
+    };
+    if known {
+        return Ok(Next::Open(Box::new(m), false));
+    }
+    match factor {
+        Method::AuthenticatorApp => {
+            let Some(code) = &req.code else {
+                return Err(ApiErr::unauthorized(
+                    "code_required",
+                    "Enter the code from your authenticator app.",
+                ));
+            };
+            let secret = m.totp.clone().unwrap_or_default();
+            let Some(step) = check_code(&secret, code, m.totp_last, t) else {
+                throttle(app, peer, true)?;
+                return Err(ApiErr::unauthorized("wrong_code", "Wrong code."));
+            };
+            conn.execute(
+                "UPDATE members SET totp_last = ?2 WHERE id = ?1",
+                params![m.id.to_string(), step],
+            )?;
+            Ok(Next::Open(Box::new(m), true))
+        }
+        Method::Email | Method::Sms => match &req.code {
+            Some(code) => {
+                if take_code(&conn, m.id, "sign_in", code)?.is_none() {
+                    throttle(app, peer, true)?;
+                    return Err(ApiErr::unauthorized("wrong_code", "Wrong code."));
+                }
+                Ok(Next::Open(Box::new(m), true))
+            }
+            None => {
+                let to = match factor {
+                    Method::Email => crate::delivery::To::Email(m.email.clone()),
+                    _ => crate::delivery::To::Phone(m.factor_target.clone().unwrap_or_default()),
+                };
+                let fresh = new_code(&conn, m.id, "sign_in", factor, &to)?;
+                Ok(Next::Send(to, fresh))
+            }
+        },
+        Method::Google | Method::Microsoft => match req.id_token.clone() {
+            Some(token) => Ok(Next::Identity(Box::new(m), factor, token)),
+            None => Err(ApiErr::unauthorized(
+                if factor == Method::Google {
+                    "identity_google"
+                } else {
+                    "identity_microsoft"
+                },
+                &format!("Sign in with your {}.", factor.label()),
+            )),
+        },
+    }
+}
+
+/// A 6-digit code for `member`, kept hashed 10 minutes; `None` when one went out less than a
+/// minute ago (no new message, the same code stays good).
+fn new_code(
+    conn: &Connection,
+    member: MemberId,
+    purpose: &str,
+    method: Method,
+    to: &crate::delivery::To,
+) -> Result<Option<String>, ApiErr> {
+    let t = now();
+    let target = match to {
+        crate::delivery::To::Email(e) | crate::delivery::To::Phone(e) => e.clone(),
+    };
+    let recent = conn
+        .prepare("SELECT 1 FROM codes WHERE member = ?1 AND purpose = ?2 AND target = ?3 AND sent > ?4 AND expires > ?5")?
+        .exists(params![member.to_string(), purpose, target, t - 60, t])?;
+    if recent {
+        return Ok(None);
+    }
+    let n: [u8; 4] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
+    let code = format!("{:06}", u32::from_le_bytes(n) % 1_000_000);
     conn.execute(
-        "UPDATE members SET totp_pending = ?2 WHERE id = ?1",
-        params![caller.id.to_string(), secret],
+        "INSERT OR REPLACE INTO codes(member, purpose, method, target, hash, expires, tries, sent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+        params![member.to_string(), purpose, method_key(method), target, &sha256(code.as_bytes())[..], t + 600, t],
     )?;
-    Ok(Json(CodeSetup { secret }))
+    Ok(Some(code))
+}
+
+/// Uses up a code; returns its method and target. Five wrong tries cancel it.
+fn take_code(
+    conn: &Connection,
+    member: MemberId,
+    purpose: &str,
+    code: &str,
+) -> Result<Option<(Method, String)>, ApiErr> {
+    let digits: String = code.chars().filter(char::is_ascii_digit).collect();
+    let row: Option<(String, String, Vec<u8>)> = conn
+        .query_row(
+            "SELECT method, target, hash FROM codes WHERE member = ?1 AND purpose = ?2 AND expires > ?3 AND tries < 5",
+            params![member.to_string(), purpose, now()],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    let Some((method, target, hash)) = row else {
+        return Ok(None);
+    };
+    use subtle::ConstantTimeEq;
+    if !bool::from(hash.ct_eq(&sha256(digits.as_bytes())[..])) {
+        conn.execute(
+            "UPDATE codes SET tries = tries + 1 WHERE member = ?1",
+            [member.to_string()],
+        )?;
+        return Ok(None);
+    }
+    conn.execute("DELETE FROM codes WHERE member = ?1", [member.to_string()])?;
+    Ok(method_from(&method).map(|m| (m, target)))
+}
+
+/// Sends a code off the request thread.
+async fn send(app: &Arc<App>, to: crate::delivery::To, code: String) -> Result<(), ApiErr> {
+    let a = app.clone();
+    tokio::task::spawn_blocking(move || a.deliver(&to, &code))
+        .await
+        .map_err(|_| ApiErr::bad("delivery"))?
+        .map_err(|e| {
+            eprintln!("{e}");
+            ApiErr(StatusCode::BAD_GATEWAY, "delivery", e)
+        })
+}
+
+/// Checks an identity provider's ID token (fetching its keys if needed) and uses it up.
+async fn check_identity(
+    app: &Arc<App>,
+    method: Method,
+    token: String,
+) -> Result<crate::oidc::Claims, ApiErr> {
+    let provider =
+        app.config.provider(method).cloned().ok_or_else(|| {
+            ApiErr::bad(&format!("{} is not set up on the server.", method.label()))
+        })?;
+    let a = app.clone();
+    let tok = token.clone();
+    let claims =
+        tokio::task::spawn_blocking(move || crate::oidc::verify(&provider, &tok, now(), &a.keys))
+            .await
+            .map_err(|_| ApiErr::bad("identity"))?
+            .map_err(|e| ApiErr::unauthorized("wrong_code", &format!("Sign-in refused: {e}.")))?;
+    let conn = app.db.lock().expect("database lock");
+    conn.execute("DELETE FROM used_tokens WHERE expires < ?1", [now()])?;
+    if conn.execute(
+        "INSERT OR IGNORE INTO used_tokens(hash, expires) VALUES (?1, ?2)",
+        params![&sha256(token.as_bytes())[..], claims.exp + 60],
+    )? != 1
+    {
+        return Err(ApiErr::unauthorized(
+            "wrong_code",
+            "This sign-in was used already.",
+        ));
+    }
+    Ok(claims)
+}
+
+fn method_allowed(app: &App, conn: &Connection, method: Method) -> Result<(), ApiErr> {
+    if !app.config.methods().contains(&method) {
+        return Err(ApiErr::bad(&format!(
+            "{} is not set up on the server.",
+            method.label()
+        )));
+    }
+    let policy = db::policy(conn);
+    if !policy.methods.contains(&method) {
+        return Err(ApiErr::forbidden(
+            "The security policy does not allow this method.",
+        ));
+    }
+    Ok(())
+}
+
+async fn code_setup(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<Option<CodeStart>>,
+) -> Res<CodeSetup> {
+    let req = req.unwrap_or(CodeStart {
+        method: Method::AuthenticatorApp,
+        target: String::new(),
+    });
+    if req.method.is_identity() {
+        {
+            let conn = app.db.lock().expect("database lock");
+            method_allowed(&app, &conn, req.method)?;
+        }
+        let claims = check_identity(&app, req.method, req.target).await?;
+        let conn = app.db.lock().expect("database lock");
+        set_factor(&app, &conn, &caller, req.method, Some(claims.account()))?;
+        return Ok(Json(CodeSetup {
+            secret: String::new(),
+            sent_to: claims.address().to_owned(),
+            done: true,
+        }));
+    }
+    let (to, fresh) = {
+        let conn = app.db.lock().expect("database lock");
+        method_allowed(&app, &conn, req.method)?;
+        if req.method == Method::AuthenticatorApp {
+            let key: [u8; 20] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
+            let secret = data_encoding::BASE32_NOPAD.encode(&key);
+            conn.execute(
+                "UPDATE members SET totp_pending = ?2 WHERE id = ?1",
+                params![caller.id.to_string(), secret],
+            )?;
+            conn.execute(
+                "DELETE FROM codes WHERE member = ?1 AND purpose = 'setup'",
+                [caller.id.to_string()],
+            )?;
+            return Ok(Json(CodeSetup {
+                secret,
+                sent_to: String::new(),
+                done: false,
+            }));
+        }
+        let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+        let to = if req.method == Method::Email {
+            if !m.email.contains('@') {
+                return Err(ApiErr::bad(
+                    "Add your e-mail address in your profile first.",
+                ));
+            }
+            crate::delivery::To::Email(m.email.clone())
+        } else {
+            let phone: String = req
+                .target
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == '+')
+                .collect();
+            if phone.chars().filter(char::is_ascii_digit).count() < 8 {
+                return Err(ApiErr::bad("Enter the phone number with its country code."));
+            }
+            crate::delivery::To::Phone(phone)
+        };
+        let fresh = new_code(&conn, caller.id, "setup", req.method, &to)?;
+        (to, fresh)
+    };
+    if let Some(code) = fresh {
+        send(&app, to.clone(), code).await?;
+    }
+    Ok(Json(CodeSetup {
+        secret: String::new(),
+        sent_to: crate::delivery::masked(&to),
+        done: false,
+    }))
+}
+
+/// Records the member's second step and lifts a set-up-only session.
+fn set_factor(
+    app: &App,
+    conn: &Connection,
+    caller: &Caller,
+    method: Method,
+    target: Option<String>,
+) -> Result<(), ApiErr> {
+    conn.execute(
+        "UPDATE members SET factor = ?2, factor_target = ?3 WHERE id = ?1",
+        params![caller.id.to_string(), method_key(method), target],
+    )?;
+    if method != Method::AuthenticatorApp {
+        conn.execute(
+            "UPDATE members SET totp = NULL, totp_pending = NULL WHERE id = ?1",
+            [caller.id.to_string()],
+        )?;
+    }
+    conn.execute(
+        "UPDATE sessions SET setup_only = 0 WHERE member = ?1",
+        [caller.id.to_string()],
+    )?;
+    let mut e = caller.event(Action::MemberChanged);
+    e.note = format!("Second step set up: {}", method.label());
+    app.record(conn, e)?;
+    Ok(())
 }
 
 async fn code_confirm(
@@ -662,23 +991,27 @@ async fn code_confirm(
     Json(req): Json<CodeCheck>,
 ) -> Res<SessionReply> {
     let conn = app.db.lock().expect("database lock");
-    let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
-    let pending = m
-        .totp_pending
-        .ok_or_else(|| ApiErr::bad("Start the set-up again."))?;
-    let step = check_code(&pending, &req.code, 0, now())
-        .ok_or_else(|| ApiErr::unauthorized("wrong_code", "Wrong code."))?;
-    conn.execute(
-        "UPDATE members SET totp = totp_pending, totp_pending = NULL, totp_last = ?2 WHERE id = ?1",
-        params![caller.id.to_string(), step],
-    )?;
-    conn.execute(
-        "UPDATE sessions SET setup_only = 0 WHERE member = ?1",
-        [caller.id.to_string()],
-    )?;
-    let mut e = caller.event(Action::MemberChanged);
-    e.note = "Verification code set up".into();
-    app.record(&conn, e)?;
+    let pending_code = conn
+        .prepare("SELECT 1 FROM codes WHERE member = ?1 AND purpose = 'setup'")?
+        .exists([caller.id.to_string()])?;
+    if pending_code {
+        let (method, target) = take_code(&conn, caller.id, "setup", &req.code)?
+            .ok_or_else(|| ApiErr::unauthorized("wrong_code", "Wrong code."))?;
+        let target = (method == Method::Sms).then_some(target);
+        set_factor(&app, &conn, &caller, method, target)?;
+    } else {
+        let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+        let pending = m
+            .totp_pending
+            .ok_or_else(|| ApiErr::bad("Start the set-up again."))?;
+        let step = check_code(&pending, &req.code, 0, now())
+            .ok_or_else(|| ApiErr::unauthorized("wrong_code", "Wrong code."))?;
+        conn.execute(
+            "UPDATE members SET totp = totp_pending, totp_pending = NULL, totp_last = ?2 WHERE id = ?1",
+            params![caller.id.to_string(), step],
+        )?;
+        set_factor(&app, &conn, &caller, Method::AuthenticatorApp, None)?;
+    }
     Ok(Json(SessionReply {
         token: String::new(),
         remembered: None,
@@ -894,6 +1227,8 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
             None
         },
         events,
+        methods: app.config.methods(),
+        providers: providers(&app),
     }))
 }
 

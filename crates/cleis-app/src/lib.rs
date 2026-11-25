@@ -11,6 +11,7 @@ pub mod editor;
 pub mod format;
 pub mod host;
 pub mod kit;
+pub mod oidc;
 pub mod org;
 pub mod screens;
 pub mod sync;

@@ -22,10 +22,12 @@
   d'une organisation depuis l'appli (serveur sur cet ordinateur ou commandes pour une autre machine).
   Maquettes 25b, 24b. Essai `organization_hosted_here` (lance le vrai `cleis-server`).
 
+- D-64 : deuxième étape de connexion par e-mail, SMS, Google, Microsoft (serveur et appli, essais
+  `second_steps` et `sms_second_step`).
+
 ## Prochaines étapes
-1. Fonctions dépendant d'un service extérieur, prêtes dès leur configuration : code par e-mail
-   (SMTP), SMS (passerelle HTTP), places GitHub (jeton) et SFTP, Windows Hello / Touch ID,
-   connexion Google / Microsoft (OpenID Connect).
+1. Fonctions dépendant d'un service extérieur, prêtes dès leur configuration : places GitHub
+   (jeton) et SFTP, Windows Hello / Touch ID.
 2. Audit complet demandé par l'utilisateur.
 
 ## 25/11/2026 (suite, branche `feat/full-app`)

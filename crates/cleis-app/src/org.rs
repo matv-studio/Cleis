@@ -118,6 +118,8 @@ pub struct Conn {
     pub remembered: Option<String>,
     /// Verification code typed for this sign-in.
     pub code: Option<String>,
+    /// ID token from Google / Microsoft for this sign-in (D-64).
+    pub id_token: Option<String>,
     /// Set when a sign-in gave a new "remembered device" token.
     pub new_remembered: Option<String>,
     pub setup_code: bool,
@@ -136,6 +138,7 @@ impl Conn {
                 device: self.device.clone(),
                 code: self.code.take(),
                 remembered: self.remembered.clone(),
+                id_token: self.id_token.take(),
             },
         )?;
         self.client.token = Some(reply.token);
@@ -203,14 +206,21 @@ pub enum Outcome {
         changes: Changes,
         state: Box<State>,
     },
-    /// The server wants a verification code (`wrong`: the one typed was refused).
+    /// The server wants a verification code (`wrong`: the one typed was refused; `message`:
+    /// where a code was sent).
     NeedCode {
         wrong: bool,
+        message: Option<String>,
     },
-    /// Signed in, but the policy wants a verification code set up first.
+    /// The member signs in with Google / Microsoft.
+    NeedIdentity {
+        method: Method,
+        providers: Vec<Provider>,
+    },
+    /// Signed in, but the policy wants a second step set up first: the methods allowed.
     SetupCode {
         conn: Box<Conn>,
-        secret: String,
+        hello: Box<Hello>,
     },
     /// This member was removed from the organization.
     Revoked,
@@ -224,10 +234,10 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
             conn.sign_in()?;
         }
         if conn.setup_code {
-            let setup: CodeSetup = conn.call("/v1/me/code", &())?;
+            let hello: Hello = conn.client.get("/v1/hello")?;
             return Ok(Outcome::SetupCode {
                 conn: Box::new(conn.clone()),
-                secret: setup.secret,
+                hello: Box::new(hello),
             });
         }
         if !push.rows.is_empty() || !push.purged.is_empty() {
@@ -264,8 +274,38 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
     match run(&mut conn) {
         Ok(o) => o,
         Err(e) => match e.code() {
-            Some("code_required") => Outcome::NeedCode { wrong: false },
-            Some("wrong_code") => Outcome::NeedCode { wrong: true },
+            Some("code_required") => Outcome::NeedCode {
+                wrong: false,
+                message: None,
+            },
+            Some("code_sent") => Outcome::NeedCode {
+                wrong: false,
+                message: match &e {
+                    NetError::Api(_, a) => Some(a.message.clone()),
+                    _ => None,
+                },
+            },
+            Some(c @ ("identity_google" | "identity_microsoft")) => Outcome::NeedIdentity {
+                method: if c == "identity_google" {
+                    Method::Google
+                } else {
+                    Method::Microsoft
+                },
+                providers: conn
+                    .client
+                    .get::<Hello>("/v1/hello")
+                    .map(|h| h.providers)
+                    .unwrap_or_default(),
+            },
+            Some("wrong_code") => match &e {
+                NetError::Api(_, a) if a.message != "Wrong code." => {
+                    Outcome::Failed(a.message.clone())
+                }
+                _ => Outcome::NeedCode {
+                    wrong: true,
+                    message: None,
+                },
+            },
             Some("revoked") => Outcome::Revoked,
             Some("setup_code") => Outcome::Failed("Set up your verification code".into()),
             _ => Outcome::Failed(e.to_string()),
@@ -329,6 +369,37 @@ pub struct CodePrompt {
     /// Setting a code up: the key to add to an authenticator app.
     pub secret: Option<String>,
     pub busy: bool,
+    /// Setting the second step up (rather than signing in).
+    pub setup: bool,
+    /// Where the code was sent (e-mail, SMS).
+    pub message: Option<String>,
+    /// Set-up: the methods the member may choose.
+    pub methods: Vec<Method>,
+    pub providers: Vec<Provider>,
+    /// Set-up: the method chosen; sign-in: the identity provider asked.
+    pub method: Method,
+    /// SMS set-up: the phone number box.
+    pub phone: Option<Entity<InputState>>,
+    /// A code was sent or a key given: the code box is shown.
+    pub asked: bool,
+}
+
+impl CodePrompt {
+    pub fn new(method: Method) -> Self {
+        Self {
+            input: None,
+            error: None,
+            secret: None,
+            busy: false,
+            setup: false,
+            message: None,
+            methods: vec![],
+            providers: vec![],
+            method,
+            phone: None,
+            asked: true,
+        }
+    }
 }
 
 /// The organization as this session knows it.
@@ -604,6 +675,7 @@ impl CleisApp {
             device: device_name(),
             remembered: o.local.remembered.clone(),
             code: None,
+            id_token: None,
             new_remembered: None,
             setup_code: false,
         })
@@ -629,10 +701,21 @@ impl CleisApp {
 
     /// Sends this vault's changes to the server, takes the others', refreshes the state.
     pub fn org_sync(&mut self, code: Option<String>, cx: &mut Context<Self>) {
+        self.org_sync_with(code, None, cx);
+    }
+
+    /// `org_sync` with an ID token from Google / Microsoft.
+    pub fn org_sync_with(
+        &mut self,
+        code: Option<String>,
+        id_token: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(mut conn) = self.org_conn() else {
             return;
         };
         conn.code = code;
+        conn.id_token = id_token;
         let Some(s) = self.session() else { return };
         let Some(o) = s.org.as_mut() else { return };
         let key = o.m.key();
@@ -678,28 +761,53 @@ impl CleisApp {
                 let _ = s.vault.org_pushed(&sent.rows, &sent.purged);
                 apply_state(s, *state, &changes);
             }
-            Outcome::NeedCode { wrong } => {
-                let already = o.code.is_some();
-                if let Some(c) = o.code.as_mut() {
-                    c.busy = false;
-                    c.error = Some(
-                        if wrong {
-                            "Wrong code"
-                        } else {
-                            "Enter the code"
-                        }
-                        .into(),
-                    );
-                }
+            Outcome::NeedCode { wrong, message } => {
                 o.again = false;
-                if !already {
-                    self.org_code_prompt(None, wrong, cx);
+                match o.code.as_mut() {
+                    Some(c) => {
+                        c.busy = false;
+                        c.error = Some(
+                            if wrong {
+                                "Wrong code"
+                            } else {
+                                "Enter the code"
+                            }
+                            .into(),
+                        );
+                        if message.is_some() {
+                            c.message = message;
+                        }
+                    }
+                    None => {
+                        let mut c = CodePrompt::new(Method::AuthenticatorApp);
+                        c.error = wrong.then(|| "Wrong code".into());
+                        c.message = message;
+                        o.code = Some(c);
+                    }
                 }
             }
-            Outcome::SetupCode { conn, secret } => {
+            Outcome::NeedIdentity { method, providers } => {
+                o.again = false;
+                let mut c = CodePrompt::new(method);
+                c.providers = providers;
+                c.asked = false;
+                o.code = Some(c);
+            }
+            Outcome::SetupCode { conn, hello } => {
                 o.token = conn.client.token.clone();
                 o.again = false;
-                self.org_code_prompt(Some(secret), false, cx);
+                let mut c = CodePrompt::new(Method::AuthenticatorApp);
+                c.setup = true;
+                c.asked = false;
+                c.methods = hello.methods.clone();
+                c.providers = hello.providers.clone();
+                o.code = Some(c);
+                let first = hello
+                    .methods
+                    .first()
+                    .copied()
+                    .unwrap_or(Method::AuthenticatorApp);
+                self.org_setup_pick(first, cx);
             }
             Outcome::Revoked => {
                 let name = o.m.name.clone();
@@ -913,16 +1021,183 @@ impl CleisApp {
         .detach();
     }
 
-    /// Shows the dialog asking the server's verification code (its box is made at the next
-    /// render, which has the window).
-    fn org_code_prompt(&mut self, secret: Option<String>, wrong: bool, cx: &mut Context<Self>) {
-        if let Some(o) = self.session().and_then(|s| s.org.as_mut()) {
-            o.code = Some(CodePrompt {
-                input: None,
-                error: wrong.then(|| "Wrong code".into()),
-                secret,
-                busy: false,
-            });
+    /// Opens the set-up of the second sign-in step (Settings › Profile, or asked by the policy).
+    pub fn org_setup_prompt(&mut self, cx: &mut Context<Self>) {
+        let Some(mut conn) = self.org_conn() else {
+            return;
+        };
+        let task = cx.background_spawn(async move { conn.get::<Hello>("/v1/hello") });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                let Some(o) = app.session().and_then(|s| s.org.as_mut()) else {
+                    return;
+                };
+                match r {
+                    Ok(hello) => {
+                        let mut c = CodePrompt::new(Method::AuthenticatorApp);
+                        c.setup = true;
+                        c.asked = false;
+                        c.methods = hello.methods.clone();
+                        c.providers = hello.providers;
+                        o.code = Some(c);
+                        let first = hello
+                            .methods
+                            .first()
+                            .copied()
+                            .unwrap_or(Method::AuthenticatorApp);
+                        app.org_setup_pick(first, cx);
+                    }
+                    Err(e) => app.toast(e.to_string(), cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Set-up: a method chosen. The authenticator app's key is asked at once; e-mail and SMS wait
+    /// for "Send code", Google and Microsoft for "Continue".
+    pub fn org_setup_pick(&mut self, method: Method, cx: &mut Context<Self>) {
+        let Some(c) = self
+            .session()
+            .and_then(|s| s.org.as_mut())
+            .and_then(|o| o.code.as_mut())
+        else {
+            return;
+        };
+        c.method = method;
+        c.secret = None;
+        c.message = None;
+        c.error = None;
+        c.asked = false;
+        if method == Method::AuthenticatorApp {
+            self.org_setup_send(cx);
+        }
+        cx.notify();
+    }
+
+    /// Set-up: asks the server for the key (app) or to send a code (e-mail, SMS).
+    pub fn org_setup_send(&mut self, cx: &mut Context<Self>) {
+        let Some(c) = self
+            .session()
+            .and_then(|s| s.org.as_mut())
+            .and_then(|o| o.code.as_mut())
+        else {
+            return;
+        };
+        let target = c
+            .phone
+            .as_ref()
+            .filter(|_| c.method == Method::Sms)
+            .map(|p| p.read(cx).value().to_string())
+            .unwrap_or_default();
+        let method = c.method;
+        c.busy = true;
+        c.error = None;
+        self.org_request::<_, CodeSetup>(
+            "/v1/me/code",
+            CodeStart { method, target },
+            move |app, r, cx| {
+                if let Some(c) = app
+                    .session()
+                    .and_then(|s| s.org.as_mut())
+                    .and_then(|o| o.code.as_mut())
+                    .filter(|c| c.method == method)
+                {
+                    c.busy = false;
+                    match r {
+                        Ok(setup) => {
+                            c.asked = true;
+                            if method == Method::AuthenticatorApp {
+                                c.secret = Some(setup.secret);
+                            } else {
+                                c.message = Some(format!("Code sent to {}", setup.sent_to));
+                            }
+                        }
+                        Err(e) => c.error = Some(e.into()),
+                    }
+                }
+                cx.notify();
+            },
+            cx,
+        );
+    }
+
+    /// Google / Microsoft: the provider's page in the browser, then the ID token to the server
+    /// (sign-in, or set-up).
+    pub fn org_identity(&mut self, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let Some(o) = s.org.as_mut() else { return };
+        let email = o.me().map(|m| m.email.clone()).unwrap_or_default();
+        let Some(c) = o.code.as_mut() else { return };
+        let Some(p) = c.providers.iter().find(|p| p.method == c.method).cloned() else {
+            c.error = Some(format!("{} is not set up on the server", c.method.label()).into());
+            cx.notify();
+            return;
+        };
+        let setup = c.setup;
+        c.busy = true;
+        c.error = None;
+        cx.notify();
+        let task = cx.background_spawn(async move { crate::oidc::start(&p, &email) });
+        cx.spawn(async move |this, cx| {
+            let pending = task.await;
+            let pending = match pending {
+                Ok(p) => p,
+                Err(e) => {
+                    this.update(cx, |app, cx| app.org_identity_failed(e, cx))
+                        .ok();
+                    return;
+                }
+            };
+            this.update(cx, |_, cx| cx.open_url(&pending.url)).ok();
+            let finish = cx
+                .background_spawn(async move { crate::oidc::finish(pending) })
+                .await;
+            this.update(cx, |app, cx| match finish {
+                Ok(token) if setup => {
+                    let method = app
+                        .session()
+                        .and_then(|s| s.org.as_ref())
+                        .and_then(|o| o.code.as_ref())
+                        .map_or(Method::Google, |c| c.method);
+                    app.org_request::<_, CodeSetup>(
+                        "/v1/me/code",
+                        CodeStart {
+                            method,
+                            target: token,
+                        },
+                        |app, r, cx| match r {
+                            Ok(_) => {
+                                if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
+                                    o.code = None;
+                                }
+                                app.toast("Second step set up", cx);
+                                app.org_sync(None, cx);
+                            }
+                            Err(e) => app.org_identity_failed(e, cx),
+                        },
+                        cx,
+                    );
+                }
+                Ok(token) => app.org_sync_with(None, Some(token), cx),
+                Err(e) => app.org_identity_failed(e, cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn org_identity_failed(&mut self, e: String, cx: &mut Context<Self>) {
+        if let Some(c) = self
+            .session()
+            .and_then(|s| s.org.as_mut())
+            .and_then(|o| o.code.as_mut())
+        {
+            c.busy = false;
+            c.error = Some(e.into());
         }
         cx.notify();
     }
@@ -942,7 +1217,7 @@ impl CleisApp {
             return;
         }
         c.busy = true;
-        if c.secret.is_some() {
+        if c.setup {
             self.org_request::<_, SessionReply>(
                 "/v1/me/code/confirm",
                 CodeCheck { code: typed },
@@ -950,7 +1225,10 @@ impl CleisApp {
                     if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
                         match r {
                             // The session stays: the server lifted its set-up restriction.
-                            Ok(_) => o.code = None,
+                            Ok(_) => {
+                                o.code = None;
+                                app.toast("Second step set up", cx);
+                            }
                             Err(_) => {
                                 if let Some(c) = o.code.as_mut() {
                                     c.busy = false;

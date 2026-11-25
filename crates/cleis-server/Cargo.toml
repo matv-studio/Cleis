@@ -20,6 +20,7 @@ serde_json.workspace = true
 uuid.workspace = true
 data-encoding.workspace = true
 thiserror.workspace = true
+subtle.workspace = true
 axum = { version = "0.8", default-features = false, features = ["json"] }
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
@@ -27,6 +28,8 @@ tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "signal", "time", "sync"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 toml = "0.8"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "rustls", "ring", "webpki-roots"] }
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 rcgen = { version = "0.14", default-features = false, features = ["ring", "crypto", "pem"] }
 
 [target.'cfg(windows)'.dependencies]

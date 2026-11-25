@@ -206,8 +206,9 @@ pub enum LogDetail {
     Everything,
 }
 
-/// Sign-in methods an organization may allow (screen 08). Only the authenticator app is carried
-/// out today; the others need an outside service (D-59). Security keys are left out (D-60).
+/// Second sign-in step an organization may allow (screen 08). E-mail and SMS need the server's
+/// `[smtp]` / `[sms]`, Google and Microsoft an `[[oidc]]` provider (D-64); the server says which it
+/// can carry out (`Hello::methods`). Security keys are left out (D-60).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Method {
@@ -237,10 +238,31 @@ impl Method {
         }
     }
 
-    /// Whether Cleis can verify this method now.
-    pub fn available(self) -> bool {
-        matches!(self, Method::AuthenticatorApp)
+    /// Signs in through an identity provider (browser) rather than with a typed code.
+    pub fn is_identity(self) -> bool {
+        matches!(self, Method::Google | Method::Microsoft)
     }
+}
+
+/// An identity provider the apps sign in with (OpenID Connect, authorization code with PKCE and a
+/// loopback redirect, RFC 8252).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Provider {
+    pub method: Method,
+    pub issuer: String,
+    pub client_id: String,
+    /// Google desktop clients only (not a secret, see the server configuration).
+    #[serde(default)]
+    pub client_secret: String,
+}
+
+/// Starts setting up the second step: the method, and the phone number (SMS) or the ID token
+/// (Google, Microsoft). E-mail uses the member's address.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CodeStart {
+    pub method: Method,
+    #[serde(default)]
+    pub target: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -580,6 +602,9 @@ pub struct SessionRequest {
     /// Token given after an earlier code, while the device is remembered.
     #[serde(default)]
     pub remembered: Option<String>,
+    /// ID token from the member's identity provider (Google, Microsoft).
+    #[serde(default)]
+    pub id_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -642,6 +667,9 @@ pub struct MemberView {
     pub account_public: [u8; 32],
     #[serde(with = "b64_32")]
     pub verify_key: [u8; 32],
+    /// Second sign-in step set up (D-64).
+    #[serde(default)]
+    pub factor: Option<Method>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -727,6 +755,11 @@ pub struct State {
     /// Auditors: events kept.
     #[serde(default)]
     pub events: u64,
+    /// Second steps the server can carry out (D-64).
+    #[serde(default)]
+    pub methods: Vec<Method>,
+    #[serde(default)]
+    pub providers: Vec<Provider>,
 }
 
 /// A record as stored on the server: the same sealed row as in the vault file.
@@ -774,6 +807,11 @@ pub struct InviteInfo {
 pub struct Hello {
     pub name: String,
     pub version: String,
+    /// Methods a member may set up: carried out by this server and allowed by the policy.
+    #[serde(default)]
+    pub methods: Vec<Method>,
+    #[serde(default)]
+    pub providers: Vec<Provider>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -971,6 +1009,12 @@ pub struct Integrity {
 pub struct CodeSetup {
     /// Base32 key for the authenticator app.
     pub secret: String,
+    /// E-mail, SMS: where the code went (masked).
+    #[serde(default)]
+    pub sent_to: String,
+    /// Google, Microsoft: set up already (nothing to confirm).
+    #[serde(default)]
+    pub done: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1000,8 +1044,9 @@ pub struct Recovery {
 /// Error body of a refused request.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiError {
-    /// Stable code the app acts on: `code_required`, `wrong_code`, `setup_code`, `forbidden`,
-    /// `revoked`, `expired`, `not_found`, `bad_request`, `unauthorized`.
+    /// Stable code the app acts on: `code_required`, `code_sent`, `identity_google`,
+    /// `identity_microsoft`, `wrong_code`, `setup_code`, `forbidden`, `revoked`, `expired`,
+    /// `not_found`, `bad_request`, `unauthorized`.
     pub error: String,
     pub message: String,
 }

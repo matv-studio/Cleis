@@ -15,7 +15,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
    profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
-   delete-folder|create-elsewhere]
+   delete-folder|create-elsewhere|server-sms|server-email|server-identity]
    [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
@@ -39,7 +39,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Pas de dépense (adhésion Apple, minutes CI macOS automatiques…) sans accord.
 
 ## Carte du code
-- `crates/cleis-crypto` — Argon2id, AES-256-GCM, X25519 (enveloppe de clés), Ed25519, empreintes.
+- `crates/cleis-crypto` — Argon2id, AES-256-GCM, X25519 (enveloppe de clés), Ed25519, empreintes,
+  RS256 (jetons Google / Microsoft, `ring`).
 - `crates/cleis-core` — modèle sans E/S : `entry`, `contact`, `column`, `formula`, `money`, `totp`,
   `import_csv`, `vcard`, `health`, `dedupe`, `journal`, `generator`, `settings`, `text`, `autofill`
   (correspondance fenêtre ↔ éléments, séquences de remplissage), `edit` / `contact_edit` (saisie dans
@@ -51,14 +52,16 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `org.rs` : espaces d'organisation (`spaces.org`, `key_gen`, `records.pushed`), rechiffrement.
 - `crates/cleis-net` — client HTTPS du serveur (rustls, certificat épinglé, HTTP/1.1 minimal).
 - `crates/cleis-server` — serveur d'organisation (D-59, D-63) : `api.rs` (requêtes), `db.rs`
-  (schéma, journal chaîné), `tls.rs` (certificat), `config.rs` (`cleis-server.toml`), `main.rs`
+  (schéma, journal chaîné), `tls.rs` (certificat), `config.rs` (`cleis-server.toml`), `delivery.rs` (codes par
+  e-mail / SMS), `oidc.rs` (jetons d'identité), `main.rs`
   (ligne de commande, services systemd / launchd / Windows) ; `tests/flow.rs`.
 - `crates/cleis-app` — appli GPUI : `theme.rs` (jetons de la charte), `ui.rs` (composants), `app.rs`
   (états premier lancement / verrouillé / ouvert), `autofill.rs` (raccourcis, remplissages en attente,
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
-  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
+  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `oidc.rs` (connexion Google / Microsoft par le
+  navigateur), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
   `tests/org.rs` (deux fenêtres contre un vrai serveur).
 

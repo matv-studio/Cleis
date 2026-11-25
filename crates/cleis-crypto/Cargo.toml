@@ -21,6 +21,7 @@ serde.workspace = true
 thiserror.workspace = true
 data-encoding.workspace = true
 unicode-normalization.workspace = true
+ring = "0.17"
 
 [dev-dependencies]
 serde_json.workspace = true

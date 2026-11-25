@@ -46,3 +46,24 @@ stop the server, `cleis-server restore --data DATA FILE`, start it again. Admins
 and restore from the app (Settings › Sync & backups › the organization).
 
 Items are sealed by the apps: the server and its copies never hold a key that opens them.
+
+## 5. Second sign-in step
+
+The authenticator app always works. The other methods appear in Security policy once the server
+can carry them out; add the section to `cleis-server.toml`, then restart the server.
+
+- **E-mail**: `[smtp]` with `host`, `port` (587), `security` (`starttls`, `tls` or `none`),
+  `username`, `password`, `from`. The code goes to the member's address (Profile).
+- **SMS**: `[sms]` with the gateway's `url`, `method`, `headers` and `body`; `{to}`, `{code}` and
+  `{text}` are replaced (JSON or form bodies are escaped). Any gateway reached by HTTPS works.
+- **Google**: create an OAuth client of type *Desktop app* in Google Cloud, then
+  `[[oidc]] name = "google"`, `issuer = "https://accounts.google.com"`, `client_id`,
+  `client_secret` (a desktop client's secret is not secret: it is handed to the apps).
+- **Microsoft**: register an application in Microsoft Entra with the redirect address
+  `http://localhost` (public client), then `[[oidc]] name = "microsoft"`,
+  `issuer = "https://login.microsoftonline.com/<tenant id>/v2.0"` (or `{tenantid}` in place of
+  the id to accept any work account), `client_id`.
+- `domains = ["example-studio.com"]` in an `[[oidc]]` section accepts only those addresses.
+
+Codes last 10 minutes, five wrong tries cancel one, a new one goes out at most once a minute. An
+ID token is checked against the provider's published keys and used only once.
