@@ -208,7 +208,7 @@ function premierLancement() {
         <div class="field" style="margin-top:var(--s-2)"><span class="label">Invitation code</span><div class="input is-focus"><span class="grow code">K7Q2-9MXA</span></div></div>
       </div><span class="ico">${i('server')}</span></div>
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <button class="btn btn--ghost">${i('upload')}Import a vault</button>
+        <button class="btn btn--ghost" title="From GitHub, OneDrive, Google Drive, SFTP or a setup code">${i('sync')}Restore my vault</button>
         <button class="btn btn--primary">Continue</button>
       </div>
     </div></div></main></div>`;
@@ -259,9 +259,9 @@ function settingsNav(active, admin = true) {
   const it = (ico, n) => `<div class="side-item ${n === active ? 'is-active' : ''}">${i(ico)}<span>${n}</span></div>`;
   return `<nav class="settings-nav">
     <div class="side-group" style="padding-top:var(--s-1)">My account</div>
-    ${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences')}${it('fill', 'Autofill')}${it('download', 'My backups')}
+    ${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences')}${it('fill', 'Autofill')}${it('sync', 'Sync & backups')}
     ${admin ? `<div class="side-group">Example Studio</div>
-    ${it('users', 'Members')}${it('folder', 'Spaces')}${it('shield', 'Security policy')}${it('key', 'Encryption')}${it('server', 'Server')}${it('repo', 'Backups')}${it('upload', 'Import & export')}` : ''}
+    ${it('users', 'Members')}${it('folder', 'Spaces')}${it('shield', 'Security policy')}${it('key', 'Encryption')}${it('server', 'Server')}${it('upload', 'Import & export')}` : ''}
   </nav>`;
 }
 const settings = (active, body, overlay = '', scroll = 0) => shell('Settings', `<div class="settings">${settingsNav(active)}<div class="settings-body"><div class="page" ${scroll ? `style="margin-top:-${scroll}px"` : ''}>${body}</div></div></div>`, { primary: null, overlay });
@@ -303,8 +303,8 @@ function preferences() {
     <div class="page-head"><h1>Preferences</h1></div>
     <div class="section">${sectionTitle('Appearance')}
       <div class="row"><span class="row-label">Theme</span><div class="segmented" role="radiogroup" aria-label="Theme"><button role="radio" aria-checked="true">Dark</button><button role="radio" aria-checked="false">Light</button><button role="radio" aria-checked="false" title="Follow Windows or macOS">System</button></div></div>
-      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', true, 'None')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#f59e0b', false, 'Amber')}${sw('#ef4444', false, 'Red')}</div></div>
-      <div class="row"><span class="row-label" title="Where the accent color is used">Accent scope</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">Minimal</button><button role="radio" aria-checked="true">Standard</button><button role="radio" aria-checked="false">Extended</button></div></div>
+      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', true, 'Ochre (default)')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#14b8a6', false, 'Teal')}${sw('#ef4444', false, 'Red')}</div></div>
+      <div class="row"><span class="row-label" title="Where the accent color is used">Accent scope</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="false" title="Focus and window outline">Minimal</button><button role="radio" aria-checked="false" title="Also the main button, switches and selection">Standard</button><button role="radio" aria-checked="true" title="Also tabs, choices and active rows">Extended</button></div></div>
     </div>
     <div class="section">${sectionTitle('Tabs', 'Hidden tabs keep their data.')}
       <div class="row"><span class="row-label">${i('users')}Contacts</span><span class="switch on"></span></div>
@@ -500,8 +500,8 @@ function sante() {
 // ---------- 13. Backups ----------
 function sauvegardes() {
   const h = (d, where, size, ok) => `<tr><td>${d}</td><td class="muted">${where}</td><td class="num muted">${size}</td><td>${ok ? '<span class="chip chip--ok" title="Test restore succeeded"><span class="dot"></span>Verified</span>' : '<span class="chip">Not verified</span>'}</td><td style="text-align:right"><button class="btn btn--ghost btn--sm">Verify</button><button class="btn btn--sm">Restore</button></td></tr>`;
-  return settings('Backups', `
-    <div class="page-head"><h1>Backups</h1><button class="btn btn--primary">${i('upload')}Back up now</button></div>
+  return settings('Sync & backups', `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1><div class="segmented" role="radiogroup" aria-label="Whose vault" title="Your vault, or the organization's (administrators)"><button role="radio" aria-checked="false">Mine</button><button role="radio" aria-checked="true">Example Studio</button></div><span style="flex:1"></span><button class="btn btn--primary">${i('upload')}Back up now</button></div>
     <div class="section">${sectionTitle('GitHub', 'Encrypted file pushed to a private repository.')}
       <div class="row"><span class="site-ico">${i('repo')}</span><div class="member row-label"><div class="meta"><span class="code">example-studio/vault-backups</span><span class="sub">Connected as example-studio</span></div></div><span class="chip">Private</span><button class="btn btn--ghost btn--sm">Disconnect</button></div>
       <div class="row"><span class="row-label">Frequency</span><div class="input select" style="width:160px"><span class="grow">Daily</span></div><span class="switch on"></span></div>
@@ -751,6 +751,49 @@ function fusion() {
     </div>`, { primary: `${i('plus')}New contact` });
 }
 
+// ---------- 22. Restore my vault (new device) ----------
+function restaurer() {
+  const tile = (ico, label, on = false, tip = '') => `<button class="tile ${on ? 'is-active' : ''}" ${tip ? `title="${tip}"` : ''}>${i(ico)}<span>${label}</span></button>`;
+  return `<div class="app"><main class="main" style="margin:6px"><div class="center-stage">
+    <div class="card" style="width:520px">
+      <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>Restore my vault</h1></div>
+      <div class="section">${sectionTitle('Where is it?', 'Cleis opens your encrypted vault there. The provider never sees your passwords.')}
+        <div class="tiles">${tile('repo', 'GitHub', true, 'Private repository')}${tile('cloud', 'OneDrive', false, 'Microsoft account')}${tile('cloud', 'Google Drive', false, 'Google account')}${tile('server', 'SFTP', false, 'Your own server')}${tile('qr', 'Setup code', false, 'Code shown on another device or in your emergency kit')}</div>
+        <div class="row plain"><span class="chip chip--ok"><span class="dot"></span>Signed in as lea-example</span><span style="flex:1"></span><button class="btn btn--ghost btn--sm">Switch account</button></div>
+        <div class="field"><span class="label">Vault</span><div class="input select"><span class="site-ico" style="width:18px;height:18px">${i('repo')}</span><span class="grow code">lea-example/cleis-vault</span><span class="muted" style="font-size:var(--text-sm)">2 min ago</span></div></div>
+      </div>
+      <div class="section">
+        <div class="field"><span class="label">Master password</span><div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act"><button class="icon-btn icon-btn--sm" aria-label="Show" title="Show">${i('eye')}</button></span></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between"><button class="btn btn--ghost">Back</button><button class="btn btn--primary">Restore</button></div>
+    </div></div></main></div>`;
+}
+
+// ---------- 23. Sync & backups (my account) ----------
+function synchro() {
+  const place = (ico, name, sub, action) => `<div class="row"><span class="site-ico">${i(ico)}</span><div class="member row-label"><div class="meta"><span>${name}</span><span class="sub">${sub}</span></div></div>${action}</div>`;
+  return settings('Sync & backups', `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1><div class="segmented" role="radiogroup" aria-label="Whose vault" title="Your vault, or the organization's (administrators)"><button role="radio" aria-checked="true">Mine</button><button role="radio" aria-checked="false">Example Studio</button></div><span style="flex:1"></span><button class="btn btn--primary">${i('sync')}Sync now</button></div>
+    <div class="section">${sectionTitle('Sync', 'Your encrypted vault, kept the same on every device signed in to this place. Your master password stays on your devices.')}
+      <div class="row"><span class="site-ico">${i('repo')}</span><div class="member row-label"><div class="meta"><span class="code">lea-example/cleis-vault</span><span class="sub">GitHub · lea-example</span></div></div><span class="chip chip--ok" title="Last sync today at 10:42"><span class="dot"></span>Up to date</span><button class="btn btn--ghost btn--sm">Disconnect</button></div>
+      <div class="row"><span class="row-label">Sync automatically</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label" title="Devices that opened this vault">Devices</span><span class="muted" style="font-size:var(--text-sm)">This PC · MacBook · Office PC</span><button class="btn btn--ghost btn--sm">Manage</button></div>
+    </div>
+    <div class="section">${sectionTitle('Other places', 'A second copy, kept in sync too.')}
+      ${place('cloud', 'OneDrive', 'Microsoft account', '<button class="btn btn--sm">Sign in</button>')}
+      ${place('cloud', 'Google Drive', 'Google account', '<button class="btn btn--sm">Sign in</button>')}
+      ${place('server', 'SFTP', 'Your own server', '<button class="btn btn--sm">Set up</button>')}
+    </div>
+    <div class="section">${sectionTitle('New device', 'What a new computer needs besides your master password.')}
+      <div class="row"><span class="row-label" title="QR code and text holding the place of your vault and its access. Useless without the master password.">${i('qr')}Setup code</span><button class="btn btn--sm">Show</button></div>
+      <div class="row"><span class="row-label" title="PDF with the setup code and a space to write your master password. Print it and keep it safe.">${i('file')}Emergency kit</span><button class="btn btn--sm">${i('download')}Download</button></div>
+    </div>
+    <div class="section">${sectionTitle('Backups', 'Dated copies you can go back to.')}
+      <div class="row"><span class="row-label">Keep</span><div class="input select" style="width:160px"><span class="grow">30 versions</span></div></div>
+      <div class="row"><span class="row-label">Encrypted export</span><button class="btn btn--sm">${i('download')}Export</button></div>
+    </div>`);
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '02-colonnes': ['Custom columns', colonnes],
@@ -764,7 +807,7 @@ export const SCREENS = {
   '10-rechiffrer': ['Re-encrypt a space', rechiffrer],
   '11-journal': ['Activity log', journal],
   '12-sante': ['Health report', sante],
-  '13-sauvegardes': ['Backups', sauvegardes],
+  '13-sauvegardes': ['Sync & backups — organization', sauvegardes],
   '14-import': ['CSV import', importCsv],
   '15-preferences': ['Preferences', preferences],
   '16-remplissage': ['Autofill', remplissage],
@@ -773,4 +816,6 @@ export const SCREENS = {
   '19-remplissage-suite': ['Autofill — browsers, permissions', remplissageSuite],
   '20-contacts': ['Contacts', contacts],
   '21-fusion': ['Contacts — merge & fix', fusion],
+  '22-restaurer': ['Restore my vault', restaurer],
+  '23-synchro': ['Sync & backups', synchro],
 };

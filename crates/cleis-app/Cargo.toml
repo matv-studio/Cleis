@@ -16,14 +16,19 @@ path = "src/main.rs"
 cleis-core.workspace = true
 cleis-crypto.workspace = true
 cleis-store.workspace = true
+cleis-autofill.workspace = true
 # Pinned exactly: GPUI is pre-1.0 and gpui-kit fixes the matching gpui-pre snapshot (D-33).
 gpui-kit = "=0.11.0"
 directories = "6"
+serde_json.workspace = true
 anyhow = "1"
+async-channel = "2"
+zeroize.workspace = true
 
 [dev-dependencies]
 gpui-kit = { version = "=0.11.0", features = ["test-support"] }
 tempfile = "3"
+cleis-autofill.workspace = true
 
 [lints]
 workspace = true

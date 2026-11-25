@@ -6,6 +6,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
 /// Argon2id cost parameters, stored next to the vault so they can be raised later.
@@ -64,9 +65,12 @@ pub fn derive_master_key(
         )
         .map_err(|_| CryptoError::Kdf)?,
     );
+    // NFC first: "é" typed on macOS (often decomposed) and on Windows (composed) must give
+    // the same key, or a vault created on one could not be opened on the other.
+    let normalized = Zeroizing::new(password.nfc().collect::<String>());
     let mut stretched = Zeroizing::new([0u8; 32]);
     argon
-        .hash_password_into(password.as_bytes(), salt, stretched.as_mut())
+        .hash_password_into(normalized.as_bytes(), salt, stretched.as_mut())
         .map_err(|_| CryptoError::Kdf)?;
     let hk = Hkdf::<Sha256>::new(None, stretched.as_ref());
     let mut enc = Zeroizing::new([0u8; 32]);
@@ -96,6 +100,14 @@ mod tests {
         assert_ne!(a.encryption, c.encryption);
         assert_ne!(a.encryption, d.encryption);
         assert_ne!(a.encryption, a.authentication);
+    }
+
+    #[test]
+    fn composed_and_decomposed_passwords_match() {
+        let p = KdfParams::insecure_for_tests();
+        let composed = derive_master_key("Caf\u{e9} cr\u{e8}me", &[1; 16], p).unwrap();
+        let decomposed = derive_master_key("Cafe\u{301} cre\u{300}me", &[1; 16], p).unwrap();
+        assert_eq!(composed.encryption, decomposed.encryption);
     }
 
     /// RFC 9106 §5.3 Argon2id test vector, run against the argon2 crate configured the

@@ -1,6 +1,7 @@
 //! Design-charter tokens (design/maquettes/css/tokens.css) as GPUI colours.
 //! Keep both files in step: the mockups are the reference.
 
+use cleis_core::settings::{AccentScope, Preferences};
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::{App, Global, Hsla, Pixels, Rgba, px, rgb, rgba};
 
@@ -42,6 +43,10 @@ pub struct Tokens {
     pub primary: Hsla,
     pub primary_ink: Hsla,
     pub focus: Hsla,
+    /// Extended scope: tinted background of active tabs, choices and rows.
+    pub accent_soft: Hsla,
+    /// Extended scope: text of active tabs, choices and rows.
+    pub accent_text: Hsla,
 }
 
 impl Global for Tokens {}
@@ -84,6 +89,8 @@ impl Tokens {
             primary: c(rgb(0xf2f2f2)),
             primary_ink: c(rgb(0x191919)),
             focus: c(rgb(0x9d9d9d)),
+            accent_soft: c(rgb(0x383838)),
+            accent_text: text,
         }
     }
 
@@ -120,6 +127,8 @@ impl Tokens {
             primary: c(rgb(0x1a1a1a)),
             primary_ink: c(rgb(0xffffff)),
             focus: c(rgb(0x626262)),
+            accent_soft: c(rgb(0xe6e6e6)),
+            accent_text: text,
         }
     }
 
@@ -127,6 +136,128 @@ impl Tokens {
         match mode {
             Mode::Dark => Self::dark(),
             Mode::Light => Self::light(),
+        }
+    }
+
+    /// Applies an accent following the charter (tokens.css): the accent replaces the primary
+    /// action, focus, stage outline and selection; Extended also tints tabs, choices and active
+    /// rows; Minimal keeps the primary action in inverse contrast.
+    pub fn with_accent(mut self, accent: Option<Rgba>, scope: AccentScope) -> Self {
+        let Some(a) = accent else { return self };
+        let a = fit_contrast(a, self.bg.into(), MIN_ACCENT_CONTRAST);
+        let ah: Hsla = a.into();
+        let text: Rgba = self.text.into();
+        self.focus = ah;
+        self.stage_line = ah;
+        if scope != AccentScope::Minimal {
+            self.primary = ah;
+            self.primary_ink = ink_for(a);
+            self.selection = ah.opacity(0.14);
+        }
+        if scope == AccentScope::Extended {
+            self.accent_soft = ah.opacity(0.18);
+            self.accent_text = mix(a, text, 0.72).into();
+        }
+        self
+    }
+}
+
+/// `color-mix(in srgb, a p%, b)`: interpolation of gamma-encoded sRGB components.
+pub fn mix(a: Rgba, b: Rgba, p: f32) -> Rgba {
+    Rgba {
+        r: a.r * p + b.r * (1. - p),
+        g: a.g * p + b.g * (1. - p),
+        b: a.b * p + b.b * (1. - p),
+        a: 1.,
+    }
+}
+
+fn linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// WCAG relative luminance.
+pub fn luminance(c: Rgba) -> f32 {
+    0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
+}
+
+/// Black or white, whichever contrasts more with `c` (charter: `--accent-ink`).
+pub fn ink_for(c: Rgba) -> Hsla {
+    let l = luminance(c);
+    let with_white = 1.05 / (l + 0.05);
+    let with_black = (l + 0.05) / 0.05;
+    if with_white >= with_black {
+        gpui_kit::white()
+    } else {
+        gpui_kit::black()
+    }
+}
+
+/// Contrast an accent keeps against the page in both themes: above the 3:1 floor of
+/// WCAG 1.4.11 so the 72 % text mix and focus rings on raised surfaces still pass (D-51).
+pub const MIN_ACCENT_CONTRAST: f32 = 3.6;
+
+/// WCAG contrast ratio.
+pub fn contrast(a: Rgba, b: Rgba) -> f32 {
+    let (x, y) = (luminance(a), luminance(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// Same hue and saturation, lightness moved away from `bg` until the contrast reaches `min`:
+/// a pale folder ochre stays as is on the dark page and deepens on the light one.
+pub fn fit_contrast(c: Rgba, bg: Rgba, min: f32) -> Rgba {
+    if contrast(c, bg) >= min {
+        return c;
+    }
+    let darker = luminance(bg) > 0.18;
+    let mut h: Hsla = c.into();
+    for _ in 0..200 {
+        h.l = (h.l + if darker { -0.005 } else { 0.005 }).clamp(0., 1.);
+        let r: Rgba = h.into();
+        if contrast(r, bg) >= min || h.l <= 0. || h.l >= 1. {
+            return r;
+        }
+    }
+    h.into()
+}
+
+/// `#rrggbb` → colour.
+pub fn parse_hex(s: &str) -> Option<Rgba> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() != 6 {
+        return None;
+    }
+    u32::from_str_radix(h, 16).ok().map(rgb)
+}
+
+/// Appearance chosen in Preferences (read before unlock from the plain appearance file).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Appearance {
+    pub mode: Mode,
+    pub accent: Option<Rgba>,
+    pub scope: AccentScope,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self::from_prefs(&Preferences::default())
+    }
+}
+
+impl Appearance {
+    pub fn from_prefs(p: &Preferences) -> Self {
+        Self {
+            mode: if p.theme == cleis_core::settings::Theme::Light {
+                Mode::Light
+            } else {
+                Mode::Dark
+            },
+            accent: p.accent.as_deref().and_then(parse_hex),
+            scope: p.accent_scope,
         }
     }
 }
@@ -153,8 +284,9 @@ pub const FONT_MONO: &str = "Geist Mono";
 
 /// Installs the tokens and maps them onto gpui-component's theme so its inputs,
 /// scrollbars and popovers follow the charter too.
-pub fn apply(mode: Mode, cx: &mut App) {
-    let t = Tokens::for_mode(mode);
+pub fn apply(appearance: &Appearance, cx: &mut App) {
+    let mode = appearance.mode;
+    let t = Tokens::for_mode(mode).with_accent(appearance.accent, appearance.scope);
     Theme::change(
         match mode {
             Mode::Dark => ThemeMode::Dark,
@@ -201,4 +333,44 @@ pub fn apply(mode: Mode, cx: &mut App) {
 
 pub fn tokens(cx: &App) -> &Tokens {
     cx.global::<Tokens>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ochre_deepens_on_light_only() {
+        let a = parse_hex(cleis_core::settings::DEFAULT_ACCENT).unwrap();
+        let dark: Rgba = Tokens::for_mode(Mode::Dark).bg.into();
+        let light: Rgba = Tokens::for_mode(Mode::Light).bg.into();
+        assert_eq!(fit_contrast(a, dark, MIN_ACCENT_CONTRAST), a);
+        let deep = fit_contrast(a, light, MIN_ACCENT_CONTRAST);
+        assert!(contrast(deep, light) >= MIN_ACCENT_CONTRAST);
+        assert!(contrast(deep, light) < MIN_ACCENT_CONTRAST + 0.2);
+        // Close to the #a17419 shown in the comparison sent on 25/11/2026.
+        let want = parse_hex("#a17419").unwrap();
+        assert!((deep.r - want.r).abs() < 0.03 && (deep.g - want.g).abs() < 0.03);
+        assert_eq!(ink_for(a), gpui_kit::black());
+        assert_eq!(ink_for(deep), gpui_kit::black());
+    }
+
+    #[test]
+    fn bronze_accent() {
+        let a = parse_hex("#a57118").unwrap();
+        // Former default bronze: black ink contrasts more than white (charter: ink by luminance).
+        assert_eq!(ink_for(a), gpui_kit::black());
+        assert_eq!(ink_for(parse_hex("#3b82f6").unwrap()), gpui_kit::black());
+        assert_eq!(ink_for(parse_hex("#84580b").unwrap()), gpui_kit::white());
+        assert_eq!(ink_for(parse_hex("#f59e0b").unwrap()), gpui_kit::black());
+        let t = Tokens::dark().with_accent(Some(a), AccentScope::Extended);
+        assert_eq!(t.primary, Hsla::from(a));
+        assert_eq!(t.stage_line, Hsla::from(a));
+        let m = Tokens::dark().with_accent(Some(a), AccentScope::Minimal);
+        assert_eq!(m.primary, Tokens::dark().primary);
+        assert_eq!(m.focus, Hsla::from(a));
+        // The chosen ink passes WCAG AA (4.5:1) on bronze.
+        assert!((luminance(a) + 0.05) / 0.05 > 4.5);
+        assert_eq!(parse_hex("nope"), None);
+    }
 }

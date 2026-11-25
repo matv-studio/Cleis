@@ -19,7 +19,13 @@ pub enum FormulaError {
     Currency,
     #[error("division by zero")]
     DivZero,
+    #[error("formula nested too deeply")]
+    TooDeep,
 }
+
+/// Nesting allowed in a formula: far above any real one, low enough that a pasted or synced
+/// `((((…` cannot overflow the stack.
+const MAX_DEPTH: usize = 64;
 
 /// A number, possibly a price (`currency`), possibly per period (`per_year` multiplier).
 #[derive(Clone, Debug, PartialEq)]
@@ -110,6 +116,7 @@ struct Parser<'a, R: Row> {
     pos: usize,
     row: &'a R,
     len: usize,
+    depth: usize,
 }
 
 type Out = Result<Option<Num>, FormulaError>;
@@ -187,6 +194,16 @@ impl<R: Row> Parser<'_, R> {
         Ok(a)
     }
     fn factor(&mut self) -> Out {
+        self.depth += 1;
+        let v = if self.depth > MAX_DEPTH {
+            Err(FormulaError::TooDeep)
+        } else {
+            self.factor_inner()
+        };
+        self.depth -= 1;
+        v
+    }
+    fn factor_inner(&mut self) -> Out {
         let at = self.at();
         match self.toks.get(self.pos).map(|t| t.1.clone()) {
             Some(Tok::Num(n)) => {
@@ -276,6 +293,7 @@ pub fn eval<R: Row>(expr: &str, row: &R) -> Out {
         pos: 0,
         row,
         len: expr.len(),
+        depth: 0,
     };
     let v = p.expr()?;
     if p.pos != p.toks.len() {
@@ -307,6 +325,19 @@ pub fn validate(expr: &str, known_columns: &[&str]) -> Result<(), FormulaError> 
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn deep_nesting_is_refused_not_a_crash() {
+        let row = M(HashMap::new());
+        let deep = format!("{}1{}", "(".repeat(100_000), ")".repeat(100_000));
+        assert!(matches!(eval(&deep, &row), Err(FormulaError::TooDeep)));
+        assert!(matches!(
+            eval(&format!("{}1", "-".repeat(100_000)), &row),
+            Err(FormulaError::TooDeep)
+        ));
+        let ok = format!("{}1{}", "(".repeat(20), ")".repeat(20));
+        assert_eq!(eval(&ok, &row).unwrap().unwrap().value, 1.0);
+    }
 
     struct M(HashMap<&'static str, Num>);
     impl Row for M {

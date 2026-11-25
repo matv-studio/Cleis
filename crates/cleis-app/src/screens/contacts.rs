@@ -142,9 +142,13 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .h(CONTROL_MD)
             .px(px(8.))
             .rounded(RADIUS_MD)
-            .text_color(if active { t.text } else { t.text_muted })
-            .when(active, |d| d.bg(t.surface_active))
-            .child(icon(ico, 16., if active { t.text } else { t.text_muted }))
+            .text_color(if active { t.accent_text } else { t.text_muted })
+            .when(active, |d| d.bg(t.accent_soft))
+            .child(icon(
+                ico,
+                16.,
+                if active { t.accent_text } else { t.text_muted },
+            ))
             .child(div().flex_1().child(label))
             .child(
                 div()

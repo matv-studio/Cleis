@@ -137,9 +137,60 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   l'écran 03 (deux champs, 10 caractères minimum). Pas de maquette dédiée : à valider sur capture.
 - **D-46 Essais de bout en bout** dans `crates/cleis-app/tests/e2e.rs` avec le banc d'essai de gpui-kit
   (fenêtre sans écran, vrais clics et frappes) ; les éléments visés portent `.test_support()`.
+- **D-47 Icône des préférences** (25/11/2026) : l'ancienne icône ressemblait à un soleil ; remplacée par le
+  rouage de Lucide (ISC, attribution dans `icons.js` et `THIRD_PARTY.md`), ramené à la grille 16 px.
+- **D-48 Apparence par défaut** (25/11/2026) : thème sombre, accent `#a57118` (« Bronze », encre noire : meilleur contraste, 5,0:1 ; remplace `#84580b`, changement du
+  25/11/2026),
+  étendue « Étendue » (onglets, choix, lignes actives en plus de l'action principale, des interrupteurs, de
+  la sélection, du focus et du contour du plateau). Réglables dans *Preferences*.
+- **D-49 Maquettes Contacts validées** (écrans 20, 21), 25/11/2026.
+- **D-50 Connexion GitHub / Microsoft / Google et nouvel appareil** (proposé, 25/11/2026, écrans 03, 22, 23).
+  L'identification (qui je suis, où est mon coffre) reste séparée du déchiffrement (mot de passe maître),
+  comme chez Bitwarden et 1Password. Se connecter à GitHub, Microsoft ou Google donne accès à
+  l'emplacement du coffre chiffré (dépôt privé, dossier d'application OneDrive `Files.ReadWrite.AppFolder`,
+  dossier d'application Google Drive `drive.appdata`, non sensible) ; le mot de passe maître reste demandé.
+  Sans ces comptes : SFTP saisi à la main, ou « code de configuration » (QR + texte : emplacement et accès)
+  affiché par un autre appareil ou imprimé dans un kit d'urgence. La sauvegarde devient une
+  synchronisation (fusion par enregistrement, numéros de révision déjà présents dans le fichier).
+  Suspens : enregistrement des applications OAuth (GitHub, Microsoft Entra, Google Cloud) au nom de
+  l'entreprise ; ouverture sans mot de passe (appareil de confiance) reportée au serveur d'organisation.
+
+- **D-51 Accent « Ochre »** (25/11/2026, remplace l'accent de D-48 ; le reste de D-48 tient) : piste C choisie
+  par l'utilisateur, ocre du dossier classique `#e0a93b` (encre noire). Les teintes pâles tombent sous
+  3:1 sur le thème clair (WCAG 1.4.11 : focus, états actifs) ; l'appli ajuste donc la luminosité de tout
+  accent pour garder 3,6:1 sur la page (`fit_contrast`) : `#e0a93b` reste tel quel en sombre et devient
+  ≈ `#a17419` en clair. Pastille « Amber » remplacée par « Teal » (trop proche de l'ocre).
+- **D-52 Code `unsafe`** (25/11/2026) : `unsafe_code = "deny"` dans l'espace de travail (au lieu de
+  `forbid`), et `#![forbid(unsafe_code)]` à la racine de chaque crate sauf `cleis-autofill`, dont seuls les
+  modules `platform/windows.rs` et `platform/macos.rs` l'autorisent (appels Win32 et AppKit, chacun
+  commenté). Le reste passe par des bibliothèques : `global-hotkey`, `enigo`, `arboard`, `uiautomation`.
+- **D-53 Remplissage, règles retenues** (25/11/2026, applique D-31 ; écrans 16, 17) :
+  - Ordre des propositions : appli liée, puis site enregistré (adresse de l'onglet), puis nom dans le titre.
+    Dans un navigateur dont l'adresse est connue, le titre seul ne compte pas (une page peut afficher
+    n'importe quelle marque). « Fill best match » ne remplit seul qu'un unique lien ou site ; sinon
+    Quick Access s'ouvre (et toujours pour un simple nom si « Ask before filling » est actif).
+  - Séquence : identifiant, Tab, mot de passe, Entrée si demandé. Si le champ suivant n'est pas un mot de
+    passe (connexion en deux pages), Cleis s'arrête : la suite (mot de passe, puis code 2FA) attend le
+    prochain « Fill best match » sur la même fenêtre, 2 minutes au plus. Focus déjà dans le mot de passe :
+    l'identifiant n'est écrit que si le champ précédent est vide.
+  - Avant chaque étape, la fenêtre au premier plan doit être celle demandée, sinon arrêt : un secret n'est
+    jamais tapé ailleurs. Raccourcis relâchés avant de taper (Windows).
+  - « Automatic » : écriture par UI Automation seulement dans les champs natifs (Win32, WinForms, WPF,
+    XAML) ; pages web et contrôles maison : frappe (un changement de valeur par UIA n'y est pas toujours
+    vu par la page). « Paste » vide le presse-papiers après 0,4 s.
+  - Liens appris : le premier élément choisi dans Quick Access pour une appli (hors navigateurs) ; un
+    second choix ne crée pas de lien. Retrait dans *Settings › Autofill › Linked apps*.
+  - Raccourcis réglables (bouton « Change », enregistrement de la combinaison ; une touche seule ou
+    Shift seul refusés) ; un raccourci pris par une autre appli est signalé « Unavailable ».
+  - Limites de cette version : macOS sans lecture du champ ni de l'adresse (auto-type classique, non
+    essayé faute de Mac) ; pas d'icône de zone de notification : Cleis doit rester ouvert ; Linux sans
+    détection (développement seulement).
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
-3. Validation des écrans Contacts (20, 21).
-4. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
+3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
+4. Validation de la restauration et de la synchronisation (D-50, écrans 22, 23).
+5. Verrouillage après inactivité pour un coffre personnel (le réglage n'existe que dans la politique
+   d'organisation, défaut « jamais », D-02) : maquette à faire si souhaité.
+6. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.

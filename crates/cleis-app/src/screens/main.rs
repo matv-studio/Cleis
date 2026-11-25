@@ -27,7 +27,7 @@ pub fn render(
         Tab::Vault => vault_page(s, &t, window, cx).into_any_element(),
         Tab::Contacts => super::contacts::page(s, &t, cx).into_any_element(),
         Tab::Health => super::health::page(s, &t, cx).into_any_element(),
-        Tab::Settings => super::settings::page(s, &t, cx).into_any_element(),
+        Tab::Settings => super::settings::page(s, &app.autofill, &t, cx).into_any_element(),
     };
     let toast = s.toast.clone();
     div()
@@ -38,6 +38,37 @@ pub fn render(
         .font_family(FONT)
         .text_size(TEXT_MD)
         .text_color(t.text)
+        .track_focus(&s.main_focus)
+        .on_key_down(
+            cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                let k = &ev.keystroke;
+                let cmd = if cfg!(target_os = "macos") {
+                    k.modifiers.platform
+                } else {
+                    k.modifiers.control
+                };
+                if !cmd || k.modifiers.alt || k.modifiers.shift {
+                    return;
+                }
+                match k.key.as_str() {
+                    // Tooltip of the lock button (mockup 01): "Lock (Ctrl+L)".
+                    "l" => {
+                        cx.stop_propagation();
+                        this.lock(window, cx);
+                    }
+                    "f" => {
+                        cx.stop_propagation();
+                        if let Some(s) = this.session() {
+                            let search = s.search.clone();
+                            s.tab = crate::app::Tab::Vault;
+                            search.update(cx, |st, cx| st.focus(window, cx));
+                        }
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }),
+        )
         .child(topbar(s, &t, cx))
         .child(
             div()
@@ -110,7 +141,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             el.h(px(33.))
                 .mb(px(-1.))
                 .bg(t.bg)
-                .text_color(t.text)
+                .text_color(t.accent_text)
                 .border_1()
                 .border_b_0()
                 .border_color(t.stage_line)
@@ -211,10 +242,14 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .px(px(8.))
             .rounded(RADIUS_MD)
             .cursor_pointer()
-            .text_color(if active { t.text } else { t.text_muted })
-            .when(active, |d| d.bg(t.surface_active))
+            .text_color(if active { t.accent_text } else { t.text_muted })
+            .when(active, |d| d.bg(t.accent_soft))
             .hover(|d| d.bg(t.surface_hover))
-            .child(icon(ico, 16., if active { t.text } else { t.text_muted }))
+            .child(icon(
+                ico,
+                16.,
+                if active { t.accent_text } else { t.text_muted },
+            ))
             .child(
                 div()
                     .flex_1()
@@ -823,7 +858,8 @@ fn inspector(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                         .items_center()
                         .font_weight(W_MEDIUM)
                         .border_b_2()
-                        .border_color(t.text)
+                        .border_color(t.accent_text)
+                        .text_color(t.accent_text)
                         .child("Details"),
                 )
                 .child(

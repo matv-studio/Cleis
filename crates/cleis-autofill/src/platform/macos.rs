@@ -1,0 +1,122 @@
+//! macOS: the app in front through AppKit (`NSWorkspace`), typing through `enigo`, which
+//! requires the Accessibility permission (System Settings › Privacy & Security).
+//!
+//! Field kinds and browser addresses are not read yet on macOS: plans run as classic
+//! auto-type, and items are matched by link or window name.
+#![allow(unsafe_code)]
+
+use super::keyboard::Keyboard;
+use crate::{Driver, FillError, Foreground, WindowRef};
+use cleis_core::autofill::{Context, Focus, Key};
+use cleis_core::settings::TypingSpeed;
+use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+use std::time::{Duration, Instant};
+
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
+
+fn front_pid() -> Option<i32> {
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    Some(app.processIdentifier())
+}
+
+pub fn foreground() -> Option<Foreground> {
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let pid = app.processIdentifier();
+    let program = app
+        .bundleIdentifier()
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let app_name = app
+        .localizedName()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    Some(Foreground {
+        window: WindowRef(pid as u64),
+        context: Context {
+            program,
+            title: app_name.clone(),
+            app_name,
+            url: None,
+        },
+    })
+}
+
+pub fn browser_url(_: WindowRef) -> Option<String> {
+    None
+}
+
+pub fn activate(w: WindowRef) -> bool {
+    let pid = w.0 as i32;
+    let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) else {
+        return false;
+    };
+    app.activateWithOptions(NSApplicationActivationOptions::empty());
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(800) {
+        if front_pid() == Some(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    front_pid() == Some(pid)
+}
+
+pub fn accessibility_allowed() -> bool {
+    // SAFETY: no arguments; reads this process's trust state.
+    unsafe { AXIsProcessTrusted() }
+}
+
+/// Opens the system prompt that leads to Privacy & Security › Accessibility.
+pub fn request_accessibility() -> bool {
+    if accessibility_allowed() {
+        return true;
+    }
+    // enigo shows the system prompt when created with the prompt setting on.
+    let _ = enigo::Enigo::new(&enigo::Settings::default());
+    accessibility_allowed()
+}
+
+/// enigo types independently of the keys held on the physical keyboard on macOS.
+pub fn wait_modifiers_released(_: Duration) {}
+
+pub struct SystemDriver {
+    pid: i32,
+    kb: Keyboard,
+}
+
+impl SystemDriver {
+    pub fn new(w: WindowRef) -> Result<Self, FillError> {
+        Ok(Self {
+            pid: w.0 as i32,
+            kb: Keyboard::new()?,
+        })
+    }
+}
+
+impl Driver for SystemDriver {
+    fn still_target(&mut self) -> Result<bool, FillError> {
+        Ok(front_pid() == Some(self.pid))
+    }
+    fn focus(&mut self) -> Focus {
+        Focus::Unknown
+    }
+    fn set_value(&mut self, _: &str) -> bool {
+        false
+    }
+    fn type_text(&mut self, v: &str, s: TypingSpeed) -> Result<(), FillError> {
+        self.kb.type_text(v, s)
+    }
+    fn press(&mut self, k: Key) -> Result<(), FillError> {
+        self.kb.press(k)
+    }
+    fn paste(&mut self, v: &str) -> Result<(), FillError> {
+        self.kb.paste(v)
+    }
+    fn pause(&mut self, d: Duration) {
+        std::thread::sleep(d);
+    }
+}

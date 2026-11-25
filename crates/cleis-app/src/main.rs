@@ -1,4 +1,9 @@
-//! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked]`
+//! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
+//! [--quick-access]`
+
+// Release builds on Windows are a GUI program: no console window behind Cleis.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![forbid(unsafe_code)]
 
 use cleis_app::app::CleisApp;
 use cleis_app::theme::{self, Mode};
@@ -20,10 +25,10 @@ fn main() {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let mode = if value("--theme").as_deref() == Some("light") {
-        Mode::Light
-    } else {
-        Mode::Dark
+    let forced_mode = match value("--theme").as_deref() {
+        Some("light") => Some(Mode::Light),
+        Some("dark") => Some(Mode::Dark),
+        _ => None,
     };
     let mut path = value("--vault")
         .map(PathBuf::from)
@@ -38,12 +43,18 @@ fn main() {
     let unlocked = flag("--unlocked") && flag("--demo");
     let tab = value("--tab");
     let page = value("--page");
+    let demo = flag("--demo");
+    let quick_access = flag("--quick-access") && unlocked;
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
             cleis_app::assets::load_fonts(cx);
-            theme::apply(mode, cx);
+            let mut appearance = cleis_app::app::load_appearance();
+            if let Some(m) = forced_mode {
+                appearance.mode = m;
+            }
+            theme::apply(&appearance, cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let opts = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -58,7 +69,12 @@ fn main() {
             let (tab, page) = (tab.clone(), page.clone());
             gpui_kit::open_window(opts, cx, move |window, cx| {
                 cx.new(|cx| {
-                    let mut app = CleisApp::new(path.clone(), mode, window, cx);
+                    let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
+                    if demo {
+                        // Demo and screenshots: never take the system's shortcuts or type.
+                        app.no_shortcuts = true;
+                        app.autofill.dry_run = Some(vec![]);
+                    }
                     if unlocked
                         && let Ok(v) = cleis_store::LockedVault::open(&path)
                             .and_then(|l| l.unlock(cleis_app::demo::PASSWORD))
@@ -74,11 +90,27 @@ fn main() {
                             if let Some(p) = page.as_deref() {
                                 s.settings_page = match p {
                                     "autofill" => "Autofill",
+                                    "sync" => "Sync & backups",
                                     "security" => "Security",
                                     _ => "Preferences",
                                 };
                             }
                         }
+                    }
+                    if quick_access {
+                        // Screen 17 for screenshots: as if pressed over a desktop app.
+                        app.open_quick_access(
+                            cleis_autofill::Foreground {
+                                window: cleis_autofill::WindowRef(0),
+                                context: cleis_core::autofill::Context {
+                                    program: "figma.exe".into(),
+                                    app_name: "Figma".into(),
+                                    title: "Figma".into(),
+                                    url: None,
+                                },
+                            },
+                            cx,
+                        );
                     }
                     app
                 })

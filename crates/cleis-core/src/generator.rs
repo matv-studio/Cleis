@@ -70,10 +70,11 @@ pub fn generate(o: &GeneratorOptions) -> Result<String, CryptoError> {
     }
     let length = o.length.clamp(classes.len().max(4), 128);
     let all: Vec<char> = classes.concat();
+    // `?`: a failing system RNG must stop generation, never fall back to a fixed index.
     let mut out: Vec<char> = classes
         .iter()
-        .map(|c| c[uniform(c.len()).unwrap_or(0)])
-        .collect();
+        .map(|c| uniform(c.len()).map(|i| c[i]))
+        .collect::<Result<_, _>>()?;
     while out.len() < length {
         out.push(all[uniform(all.len())?]);
     }

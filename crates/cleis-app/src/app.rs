@@ -1,6 +1,6 @@
 //! Application state: first launch → unlock → main window (vault, contacts, health, settings).
 
-use crate::theme::{self, Mode, Tokens};
+use crate::theme::{self, Appearance, Mode, Tokens};
 use cleis_core::column::ColumnDef;
 use cleis_core::settings::Preferences;
 use cleis_core::text::matches;
@@ -61,6 +61,12 @@ pub struct Session {
     pub visible: Vec<usize>,
     pub selected_contact: Option<cleis_core::ContactId>,
     pub settings_page: &'static str,
+    /// Shortcut being recorded in Settings › Autofill (`"qa"` or `"best"`).
+    pub recording: Option<&'static str>,
+    /// Takes the keyboard while a shortcut is recorded.
+    pub keys_focus: gpui_kit::FocusHandle,
+    /// Main window shortcuts (Ctrl+L lock, Ctrl+F search) when no field has the focus.
+    pub main_focus: gpui_kit::FocusHandle,
 }
 
 impl Session {
@@ -104,7 +110,13 @@ pub enum Phase {
 pub struct CleisApp {
     pub path: PathBuf,
     pub phase: Phase,
-    pub mode: Mode,
+    /// Theme forced on the command line (screenshots); otherwise preferences decide.
+    pub forced_mode: Option<Mode>,
+    /// Main window, brought back when a shortcut is pressed while the vault is locked.
+    pub main_window: Option<gpui_kit::AnyWindowHandle>,
+    pub autofill: crate::autofill::AutofillState,
+    /// Screenshots and tests: never take the system shortcuts.
+    pub no_shortcuts: bool,
     _ticker: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -119,7 +131,12 @@ fn password_input(
 }
 
 impl CleisApp {
-    pub fn new(path: PathBuf, mode: Mode, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        path: PathBuf,
+        forced_mode: Option<Mode>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // One tick per second keeps 2FA codes and their countdown current.
         let ticker = cx.spawn(async move |this, cx| {
             loop {
@@ -136,7 +153,10 @@ impl CleisApp {
                 error: None,
                 busy: false,
             }),
-            mode,
+            forced_mode,
+            main_window: Some(window.window_handle()),
+            autofill: Default::default(),
+            no_shortcuts: false,
             _ticker: ticker,
             _subs: vec![],
         };
@@ -318,13 +338,7 @@ impl CleisApp {
                     }
                 }),
             ];
-        let mode = match prefs.theme {
-            cleis_core::settings::Theme::Light => Mode::Light,
-            _ => self.mode,
-        };
-        if mode != self.mode {
-            self.set_mode(mode, cx);
-        }
+        self.apply_appearance(&prefs, cx);
         let mut s = Session {
             vault,
             entries,
@@ -342,9 +356,16 @@ impl CleisApp {
             visible: vec![],
             selected_contact: None,
             settings_page: "Preferences",
+            recording: None,
+            keys_focus: cx.focus_handle(),
+            main_focus: cx.focus_handle(),
         };
         s.refilter();
+        window.focus(&s.main_focus.clone(), cx);
         self.phase = Phase::Main(Box::new(s));
+        if !cfg!(test) && !self.no_shortcuts {
+            self.sync_autofill(cx);
+        }
         cx.notify();
     }
 
@@ -355,10 +376,38 @@ impl CleisApp {
         }
     }
 
-    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
-        self.mode = mode;
-        theme::apply(mode, cx);
+    /// Applies theme and accent from the preferences (and remembers them for the unlock screen).
+    pub fn apply_appearance(&mut self, prefs: &Preferences, cx: &mut Context<Self>) {
+        let mut a = Appearance::from_prefs(prefs);
+        if let Some(m) = self.forced_mode {
+            a.mode = m;
+        }
+        theme::apply(&a, cx);
+        save_appearance(prefs);
         cx.notify();
+    }
+
+    /// Short message at the bottom of the main window.
+    pub fn toast(&mut self, msg: impl Into<SharedString>, cx: &mut Context<Self>) {
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        let msg: SharedString = msg.into();
+        s.toast = Some(msg.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(4)).await;
+            this.update(cx, |this, cx| {
+                if let Phase::Main(s) = &mut this.phase
+                    && s.toast.as_ref() == Some(&msg)
+                {
+                    s.toast = None;
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Copies a secret and clears the clipboard after the preference delay, if unchanged.
@@ -416,4 +465,34 @@ impl Render for CleisApp {
             Phase::Main(_) => crate::screens::main::render(self, window, cx).into_any_element(),
         }
     }
+}
+
+fn appearance_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "matv-studio", "Cleis")
+        .map(|d| d.config_dir().join("appearance.json"))
+}
+
+/// Theme and accent are not secret: kept in clear so the unlock screen already looks right.
+fn save_appearance(p: &Preferences) {
+    if cfg!(test) {
+        return;
+    }
+    let Some(path) = appearance_path() else {
+        return;
+    };
+    let subset =
+        serde_json::json!({ "theme": p.theme, "accent": p.accent, "accent_scope": p.accent_scope });
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, subset.to_string());
+}
+
+/// Appearance remembered from the last session, or the defaults (dark, bronze, extended).
+pub fn load_appearance() -> Appearance {
+    appearance_path()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<Preferences>(&b).ok())
+        .map(|p| Appearance::from_prefs(&p))
+        .unwrap_or_default()
 }

@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod assets;
+pub mod autofill;
 pub mod demo;
 pub mod format;
 pub mod screens;
