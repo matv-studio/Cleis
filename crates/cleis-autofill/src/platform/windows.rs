@@ -265,7 +265,31 @@ impl Driver for SystemDriver {
             kind,
             ControlType::Edit | ControlType::ComboBox | ControlType::Document
         ) {
-            return Focus::Other;
+            // Controls where typed letters act as shortcuts or choices: never typed into.
+            // A pane, window or custom element may be a text box drawn by the app itself
+            // (no accessibility): unknown, the plan types as usual.
+            let not_text = matches!(
+                kind,
+                ControlType::Button
+                    | ControlType::SplitButton
+                    | ControlType::MenuItem
+                    | ControlType::Menu
+                    | ControlType::MenuBar
+                    | ControlType::List
+                    | ControlType::ListItem
+                    | ControlType::Tree
+                    | ControlType::TreeItem
+                    | ControlType::Tab
+                    | ControlType::TabItem
+                    | ControlType::CheckBox
+                    | ControlType::RadioButton
+                    | ControlType::Hyperlink
+                    | ControlType::ToolBar
+                    | ControlType::Slider
+                    | ControlType::ScrollBar
+            );
+            crate::log(&format!("focus: control {kind:?}"));
+            return if not_text { Focus::Other } else { Focus::Unknown };
         }
         if e.is_password().unwrap_or(false) {
             return Focus::Password;
