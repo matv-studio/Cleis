@@ -168,6 +168,25 @@ function coffre() {
     </div>${statusbar()}`);
 }
 
+// ---------- 1b. Filter ----------
+function filtre() {
+  const opt = (label, on, count) => `<div class="menu-item"><span class="check ${on ? 'on' : ''}">${on ? i('check') : ''}</span><span>${label}</span><span class="kbd" style="margin-left:auto">${count}</span></div>`;
+  const menu = `<div class="menu" style="top:40px;left:300px;width:240px">
+    <div class="menu-head">Subscription</div>
+    ${opt('Active', true, 7)}${opt('Renew soon', false, 1)}${opt('Pending', false, 1)}${opt('Free', false, 4)}${opt('Off', false, 2)}
+    <div class="menu-sep"></div>
+    <div class="menu-head">2FA</div>
+    ${opt('With a 2FA code', false, 7)}${opt('Without', false, 8)}
+    <div class="menu-sep"></div>
+    <div class="menu-item">${i('x')}<span>Clear filters</span></div>
+  </div>`;
+  return shell('Vault', `
+    <div class="work">${sidebar()}
+      <section class="center">${vaultToolbar().replace('btn btn--ghost">' + i('filter') + 'Filter', 'btn" style="background:var(--surface-active)">' + i('filter') + 'Filter · 1')}<div class="table-wrap">${vaultTable({ selected: null })}</div>${menu}</section>
+      ${inspector()}
+    </div>${statusbar()}`);
+}
+
 // ---------- 2. Columns ----------
 function colonnes() {
   const col = (ico, name, on, locked = false) =>
@@ -836,6 +855,7 @@ function synchro() {
 
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
+  '01b-filtre': ['Vault filter', filtre],
   '02-colonnes': ['Custom columns', colonnes],
   '03-premier-lancement': ['First launch', premierLancement],
   '04-deverrouiller': ['Unlock', deverrouiller],

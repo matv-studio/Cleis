@@ -881,3 +881,42 @@ fn health_change_weak_password(cx: &mut TestAppContext) {
         assert_eq!(e.password_history.last().unwrap().password, old);
     });
 }
+
+/// Scenario (screen 01b): filter the vault on active subscriptions with a 2FA code, switch to
+/// cards and back, clear the filters.
+#[gpui_kit::test]
+fn vault_filter_and_cards(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("filter", cx));
+    act(cx, h, |w, cx| w.click("vf-active", cx));
+    act(cx, h, |w, cx| w.click("vf-2fa-true", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.visible.is_empty());
+        assert!(s.visible.iter().all(|i| {
+            let e = &s.entries[*i];
+            e.subscription == cleis_core::Subscription::Active && e.totp.is_some()
+        }));
+    });
+    act(cx, h, |w, cx| w.click("vview-Cards", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.vault_cards);
+    });
+    act(cx, h, |w, cx| w.click("vview-Table", cx));
+    // The menu stays open for several choices.
+    act(cx, h, |w, cx| w.click("vf-clear", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.visible.len(), s.entries.len());
+    });
+}

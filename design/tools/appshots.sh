@@ -12,6 +12,7 @@ shot() { # name, args...
 for theme in dark light; do
   shot "unlock-$theme" --demo --theme $theme
   shot "vault-$theme" --demo --unlocked --theme $theme
+  shot "filter-$theme" --demo --unlocked --menu filter --theme $theme
   shot "columns-$theme" --demo --unlocked --menu new-column --theme $theme
   shot "import-$theme" --demo --unlocked --tab settings --page import --import "$root/design/tools/notion-export.csv" --theme $theme
   shot "import-review-$theme" --demo --unlocked --tab settings --page import --import "$root/design/tools/notion-export.csv" --review --theme $theme

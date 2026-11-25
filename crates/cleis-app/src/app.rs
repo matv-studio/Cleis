@@ -112,6 +112,23 @@ pub struct Session {
     pub health: crate::screens::health::HealthUi,
     /// Open select of Settings › Preferences.
     pub pref_menu: Option<&'static str>,
+    /// Vault toolbar: Filter menu (screen 01b) and Cards view.
+    pub vault_filter: VaultFilter,
+    pub filter_menu: bool,
+    pub vault_cards: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VaultFilter {
+    pub subs: std::collections::BTreeSet<cleis_core::Subscription>,
+    /// `Some(true)`: with a 2FA code, `Some(false)`: without.
+    pub two_fa: Option<bool>,
+}
+
+impl VaultFilter {
+    pub fn count(&self) -> usize {
+        self.subs.len() + usize::from(self.two_fa.is_some())
+    }
 }
 
 impl Session {
@@ -129,6 +146,11 @@ impl Session {
                 Filter::Trash => false,
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
+            .filter(|(_, e)| {
+                let f = &self.vault_filter;
+                (f.subs.is_empty() || f.subs.contains(&e.subscription))
+                    && f.two_fa.is_none_or(|w| e.totp.is_some() == w)
+            })
             .map(|(i, _)| i)
             .collect();
         v.sort_by_key(|i| cleis_core::text::fold(&self.entries[*i].name));
@@ -449,6 +471,9 @@ impl CleisApp {
             sync_menu: false,
             health: Default::default(),
             pref_menu: None,
+            vault_filter: Default::default(),
+            filter_menu: false,
+            vault_cards: false,
         };
         match s.prefs.start_in.as_str() {
             "favorites" => s.filter = Filter::Favorites,

@@ -397,14 +397,38 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             ));
         }
     }
-    d.child(div().flex_1()).child(item(
-        "f-trash",
-        "trash",
-        "Trash".into(),
-        (!s.trash.is_empty()).then_some(s.trash.len()),
-        Filter::Trash,
-        cx,
-    ))
+    d.child(div().flex_1())
+        .child(
+            div()
+                .id("f-import")
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(CONTROL_MD)
+                .px(px(8.))
+                .rounded(RADIUS_MD)
+                .cursor_pointer()
+                .text_color(t.text_muted)
+                .hover(|d| d.bg(t.surface_hover))
+                .child(icon("upload", 16., t.text_muted))
+                .child("Import")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.tab = Tab::Settings;
+                        s.settings_page = "Import & export";
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        )
+        .child(item(
+            "f-trash",
+            "trash",
+            "Trash".into(),
+            (!s.trash.is_empty()).then_some(s.trash.len()),
+            Filter::Trash,
+            cx,
+        ))
 }
 
 /// Width of each built-in column, as in mockup 01.
@@ -607,6 +631,228 @@ fn row_cell(
     }
 }
 
+/// Table / Cards switch of the vault toolbar (mockup 01).
+fn view_toggle(cards: bool, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    div()
+        .flex()
+        .p(px(2.))
+        .gap(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD)
+        .children(
+            [(false, "list", "Table"), (true, "columns", "Cards")].map(|(c, ico, name)| {
+                let on = cards == c;
+                div()
+                    .id(SharedString::from(format!("vview-{name}")))
+                    .h(px(22.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .rounded(RADIUS_SM)
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(t.accent_soft))
+                    .child(icon(
+                        ico,
+                        14.,
+                        if on { t.accent_text } else { t.text_muted },
+                    ))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.vault_cards = c;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support()
+            }),
+        )
+}
+
+/// Cards view of the vault: one card per listed item.
+fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
+    let mut grid = div().flex().flex_wrap().gap(px(12.)).p(px(12.));
+    for i in &s.visible {
+        let e = &s.entries[*i];
+        let id = e.id;
+        let selected = s.selected == Some(id);
+        grid = grid.child(
+            div()
+                .id(SharedString::from(format!("vcard-{id}")))
+                .w(px(240.))
+                .p(px(12.))
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .bg(t.surface_raised)
+                .border_1()
+                .border_color(if selected { t.primary } else { t.line })
+                .rounded(RADIUS_LG)
+                .cursor_pointer()
+                .hover(|d| d.bg(t.surface_hover))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.selected = Some(id);
+                        s.reveal = false;
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(site_icon(t, e.name.chars().next().unwrap_or('?'), 24.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .font_weight(W_MEDIUM)
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(e.name.clone()),
+                        )
+                        .when(e.favorite, |d| d.child(icon("star", 12., t.warning_text))),
+                )
+                .child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_muted)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(e.username.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .when_some(subscription_chip(t, e.subscription), |d, c| d.child(c))
+                        .child(div().flex_1())
+                        .when_some(e.price.as_ref(), |d, m| d.child(money(m, true))),
+                )
+                .test_support(),
+        );
+    }
+    div().flex_1().min_h_0().flex().flex_col().child(
+        div()
+            .id("vault-cards")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .child(grid),
+    )
+}
+
+/// Filter menu of the vault toolbar (screen 01b): subscription states and 2FA, with counts.
+fn filter_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    use cleis_core::Subscription as Sub;
+    let f = &s.vault_filter;
+    let check = |on: bool| {
+        div()
+            .size(px(16.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(RADIUS_SM)
+            .border_1()
+            .border_color(if on { t.primary } else { t.line_strong })
+            .when(on, |d| {
+                d.bg(t.primary).child(icon("check", 12., t.primary_ink))
+            })
+    };
+    let count = |pred: &dyn Fn(&Entry) -> bool| s.entries.iter().filter(|e| pred(e)).count();
+    let head = |label: &str| {
+        div()
+            .px(px(8.))
+            .pt(px(6.))
+            .pb(px(2.))
+            .text_size(TEXT_XS)
+            .font_weight(W_MEDIUM)
+            .text_color(t.text_muted)
+            .child(label.to_owned())
+    };
+    let opt = |id: String, label: &str, on: bool, n: usize| {
+        menu_item(id, t, None, label.to_owned(), false)
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(TEXT_SM)
+                    .text_color(t.text_faint)
+                    .child(n.to_string()),
+            )
+            .child(div().absolute().left(px(8.)).child(check(on)))
+            .pl(px(32.))
+            .relative()
+    };
+    let mut m = menu_box(t)
+        .top(px(36.))
+        .left_0()
+        .w(px(240.))
+        .child(head("Subscription"));
+    for (sub, label) in [
+        (Sub::Active, "Active"),
+        (Sub::RenewSoon, "Renew soon"),
+        (Sub::Pending, "Pending"),
+        (Sub::Free, "Free"),
+        (Sub::Off, "Off"),
+    ] {
+        let on = f.subs.contains(&sub);
+        m = m.child(
+            opt(
+                format!("vf-{}", sub.id()),
+                label,
+                on,
+                count(&|e| e.subscription == sub),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    if !s.vault_filter.subs.remove(&sub) {
+                        s.vault_filter.subs.insert(sub);
+                    }
+                    s.refilter();
+                }
+                cx.notify();
+            }))
+            .test_support(),
+        );
+    }
+    m = m
+        .child(div().h(px(1.)).my(px(4.)).bg(t.line))
+        .child(head("2FA"));
+    for (want, label) in [(true, "With a 2FA code"), (false, "Without")] {
+        let on = f.two_fa == Some(want);
+        m = m.child(
+            opt(
+                format!("vf-2fa-{want}"),
+                label,
+                on,
+                count(&|e| e.totp.is_some() == want),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.vault_filter.two_fa = if on { None } else { Some(want) };
+                    s.refilter();
+                }
+                cx.notify();
+            }))
+            .test_support(),
+        );
+    }
+    m.child(div().h(px(1.)).my(px(4.)).bg(t.line)).child(
+        menu_item("vf-clear", t, Some("x"), "Clear filters", false)
+            .on_click(cx.listener(|this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.vault_filter = Default::default();
+                    s.filter_menu = false;
+                    s.refilter();
+                }
+                cx.notify();
+            }))
+            .test_support(),
+    )
+}
+
 fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<CleisApp>) -> Div {
     let cols: Vec<ColumnDef> =
         cleis_core::column::visible_columns(&s.columns, cleis_core::column::Table::Vault, None)
@@ -729,9 +975,30 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                         )),
                     ))
                     .child(
-                        button("filter", t, BtnKind::Ghost, false)
-                            .child(icon("filter", 16., t.text_muted))
-                            .child("Filter"),
+                        div()
+                            .relative()
+                            .child(
+                                button("filter", t, BtnKind::Ghost, false)
+                                    .when(s.filter_menu || s.vault_filter.count() > 0, |d| {
+                                        d.bg(t.surface_active)
+                                    })
+                                    .child(icon("filter", 16., t.text_muted))
+                                    .child(match s.vault_filter.count() {
+                                        0 => "Filter".to_owned(),
+                                        n => format!("Filter · {n}"),
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(s) = this.session() {
+                                            s.filter_menu = !s.filter_menu;
+                                            s.columns_menu = None;
+                                        }
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            )
+                            .when(s.filter_menu, |d| {
+                                d.child(gpui_kit::deferred(filter_menu(s, t, cx)))
+                            }),
                     )
                     .child(
                         div()
@@ -749,10 +1016,12 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                             .when_some(s.columns_menu.as_ref(), |d, m| {
                                 d.child(gpui_kit::deferred(super::columns::menu(s, m, t, cx)))
                             }),
-                    ),
+                    )
+                    .child(div().flex_1())
+                    .child(view_toggle(s.vault_cards, t, cx)),
             )
-            .child(head)
-            .child(list)
+            .when(!s.vault_cards, |d| d.child(head).child(list))
+            .when(s.vault_cards, |d| d.child(vault_cards(s, t, cx)))
             .child(
                 div()
                     .h(ROW_H)

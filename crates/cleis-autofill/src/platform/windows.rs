@@ -289,7 +289,11 @@ impl Driver for SystemDriver {
                     | ControlType::ScrollBar
             );
             crate::log(&format!("focus: control {kind:?}"));
-            return if not_text { Focus::Other } else { Focus::Unknown };
+            return if not_text {
+                Focus::Other
+            } else {
+                Focus::Unknown
+            };
         }
         if e.is_password().unwrap_or(false) {
             return Focus::Password;
