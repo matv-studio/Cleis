@@ -69,6 +69,17 @@ fn place_row(
 }
 
 pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>) -> Div {
+    page_with(s, t, keep_open, true, cx)
+}
+
+/// `with_head: false` when Settings puts the title and the Mine / organization choice above.
+pub fn page_with(
+    s: &Session,
+    t: &Tokens,
+    keep_open: bool,
+    with_head: bool,
+    cx: &mut Context<CleisApp>,
+) -> Div {
     let c = &s.sync;
     let head = div()
         .flex()
@@ -275,7 +286,7 @@ pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>
                         .test_support(),
                 ),
         );
-    let mut keep_menu = menu_box(t).top(px(32.)).right_0().w(px(160.));
+    let mut keep_menu = menu_box(t).top(px(32.)).right_0().w(px(220.));
     for k in KEEP {
         keep_menu = keep_menu.child(
             menu_item(format!("keep-{k}"), t, None, format!("{k} versions"), false)
@@ -390,7 +401,7 @@ pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head)
+        .when(with_head, |d| d.child(head))
         .child(sync)
         .child(places)
         .child(device)

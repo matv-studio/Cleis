@@ -20,7 +20,7 @@ fn tip(
 /// The menu of a folder in the sidebar: rename, delete (not My vault).
 pub fn menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let home = s.vault.home_space() == id;
-    let mut m = menu_box(t).top(px(28.)).right_0().w(px(170.)).child(
+    let mut m = menu_box(t).top(px(28.)).right_0().w(px(220.)).child(
         menu_item(format!("frename-{id}"), t, Some("text"), "Rename", false)
             .on_click(
                 cx.listener(move |this, _, window, cx| this.open_folder_rename(id, window, cx)),
@@ -101,17 +101,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             )
         }
     };
-    let card = div()
-        .w(px(400.))
-        .p(px(20.))
-        .flex()
-        .flex_col()
-        .gap(px(12.))
-        .bg(t.surface_raised)
-        .border_1()
-        .border_color(t.line_strong)
-        .rounded(RADIUS_LG)
-        .shadow_lg()
+    let card = dialog_box(t)
         .child(div().text_size(TEXT_LG).font_weight(W_MEDIUM).child(title))
         .child(body)
         .child(
@@ -154,7 +144,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui_kit::black().opacity(0.45))
+            .bg(t.overlay)
             .child(div().id("folder-dialog").occlude().child(card)),
     )
 }

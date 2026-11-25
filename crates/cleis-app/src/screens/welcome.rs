@@ -330,7 +330,7 @@ pub fn render(
                 .child(choice_with(
                     &t,
                     w.org,
-                    "Add an organization server",
+                    "Join an organization",
                     "Shared spaces, on top of your personal vault",
                     "server",
                     w.org.then(|| super::org::join_fields(&w.join, &t, cx)),

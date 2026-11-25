@@ -172,18 +172,18 @@ pub fn page(
                 }
                 cx.notify();
             });
+            // Audit U-15: the same head in both views: title, then the choice, then the action.
             let whose = div()
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .when(org_view, |d| {
-                    d.child(
-                        div()
-                            .text_size(TEXT_XL)
-                            .font_weight(W_STRONG)
-                            .child("Sync & backups"),
-                    )
-                })
+                .min_h(px(32.))
+                .child(
+                    div()
+                        .text_size(TEXT_XL)
+                        .font_weight(W_STRONG)
+                        .child("Sync & backups"),
+                )
                 .child(super::org::segment(
                     "whose",
                     t,
@@ -201,11 +201,20 @@ pub fn page(
                             .on_click(cx.listener(|this, _, _, cx| this.org_backup_now(cx)))
                             .test_support(),
                     )
+                })
+                .when(!org_view && s.sync.place.is_some(), |d| {
+                    d.child(
+                        button("sync-now", t, BtnKind::Primary, false)
+                            .child(icon("sync", 16., t.primary_ink))
+                            .child("Sync now")
+                            .on_click(cx.listener(|this, _, _, cx| this.sync_now(cx)))
+                            .test_support(),
+                    )
                 });
             let inner = if org_view {
                 super::org::backups(s, path, t, cx)
             } else {
-                super::sync::page(s, t, s.sync_menu, cx)
+                super::sync::page_with(s, t, s.sync_menu, false, cx)
             };
             div()
                 .flex()
@@ -528,7 +537,7 @@ fn pref_select(
         .find(|o| o.2)
         .map(|o| o.1)
         .unwrap_or_default();
-    let mut menu = menu_box(t).top(px(32.)).right_0().w(px(200.));
+    let mut menu = menu_box(t).top(px(32.)).right_0().w(px(220.));
     for (value, name, on) in options {
         menu = menu.child(
             menu_item(format!("{id}-{value}"), t, None, name, false)

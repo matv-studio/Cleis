@@ -53,7 +53,7 @@
   --surface-hover: var(--gray-750);
   --surface-active: var(--gray-700);
   --line: var(--gray-750); --line-strong: var(--gray-700);
-  --text: #ededed; --text-muted: #9d9d9d; --text-faint: #8a8a8a;
+  --text: #ededed; --text-muted: #a3a3a3; --text-faint: #969696;
   --inverse: #f2f2f2; --inverse-ink: var(--gray-900);
   --danger-text: var(--red-text-dark); --danger-bg: var(--red-bg-dark);
   --success-text: var(--green-text-dark);

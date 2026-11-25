@@ -173,7 +173,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_menu(Menu::More, cx)))
                         .test_support(),
                 )
-                .when(more_open, |d| d.child(more_menu)),
+                .when(more_open, |d| d.child(gpui_kit::deferred(more_menu))),
         );
 
     let tab = |label: &'static str, on: bool, cx: &mut Context<CleisApp>| {
@@ -435,7 +435,7 @@ fn details(
                                 }))
                                 .test_support(),
                         )
-                        .when(sub_open, |d| d.child(sub_menu)),
+                        .when(sub_open, |d| d.child(gpui_kit::deferred(sub_menu))),
                 ),
         )
         .child(kv("Price", Field::Price, cx))
@@ -499,7 +499,7 @@ fn totp_view(t: &Tokens, totp: &Totp, now: i64) -> Div {
         .items_center()
         .gap(px(6.))
         .font_family(FONT_MONO)
-        .text_size(px(17.))
+        .text_size(TEXT_LG)
         .child(totp_ring(t, frac))
         .child(code)
 }

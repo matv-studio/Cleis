@@ -92,7 +92,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .id("sec-opening")
                 .child(section_title(t, "Opening the app"))
                 .tooltip(tip(
-                    "Code asked each time Cleis opens, on top of the master password.",
+                    "Code asked each time Cleis opens, on top of the master password. This computer only: an organization's two-step verification is in Profile.",
                 )),
         )
         .child(
@@ -138,7 +138,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             )
         });
     let lock_menu = {
-        let mut m = menu_box(t).top(px(32.)).right_0().w(px(140.));
+        let mut m = menu_box(t).top(px(32.)).right_0().w(px(220.));
         for (i, v) in LOCK.into_iter().enumerate() {
             m = m.child(
                 menu_item(format!("lock-{i}"), t, None, lock_label(v), false)
@@ -213,7 +213,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         });
     let secs = p.clipboard_clear_secs;
     let clip_menu = {
-        let mut m = menu_box(t).top(px(32.)).right_0().w(px(120.));
+        let mut m = menu_box(t).top(px(32.)).right_0().w(px(220.));
         for v in CLIPBOARD {
             m = m.child(
                 menu_item(format!("clip-{v}"), t, None, secs_label(v), false)
@@ -296,23 +296,12 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 }
 
 fn card(t: &Tokens, title: &str) -> Div {
-    div()
-        .w(px(420.))
-        .p(px(20.))
-        .flex()
-        .flex_col()
-        .gap(px(12.))
-        .bg(t.surface_raised)
-        .border_1()
-        .border_color(t.line_strong)
-        .rounded(RADIUS_LG)
-        .shadow_lg()
-        .child(
-            div()
-                .text_size(TEXT_LG)
-                .font_weight(W_MEDIUM)
-                .child(title.to_owned()),
-        )
+    dialog_box(t).child(
+        div()
+            .text_size(TEXT_LG)
+            .font_weight(W_MEDIUM)
+            .child(title.to_owned()),
+    )
 }
 
 fn actions(
@@ -417,11 +406,11 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                 ))
         }
         SecDialog::SetupCode { code, input, error } => card(t, "Verification code on open")
-            .child(
-                div()
-                    .text_color(t.text_muted)
-                    .child("Scan with an authenticator app, then type its code."),
-            )
+            .child(hint(
+                "hint-open-code",
+                t,
+                "Scan with an authenticator app, then type its code.",
+            ))
             .child(
                 div()
                     .flex()
@@ -464,11 +453,11 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                 grid = grid.child(div().w(px(180.)).font_family(FONT_MONO).child(c.clone()));
             }
             card(t, "Recovery codes")
-                .child(
-                    div()
-                        .text_color(t.text_muted)
-                        .child("Each opens Cleis once. Keep them outside Cleis."),
-                )
+                .child(hint(
+                    "hint-recovery",
+                    t,
+                    "Each opens Cleis once. Keep them outside Cleis.",
+                ))
                 .child(grid)
                 .child(
                     div()
@@ -502,7 +491,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
         .flex()
         .items_center()
         .justify_center()
-        .bg(gpui_kit::black().opacity(0.45))
+        .bg(t.overlay)
         .child(div().id("sec-dialog").occlude().child(body))
 }
 

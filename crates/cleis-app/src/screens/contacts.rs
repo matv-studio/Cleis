@@ -486,6 +486,10 @@ fn contact_cell(
                 .when(!email.is_empty(), |d| {
                     d.child(
                         icon_button(SharedString::from(format!("ce-{id}")), t, "copy", true)
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new("Copy e-mail")
+                                    .build(window, cx)
+                            })
                             .when(!selected, |d| {
                                 d.invisible().group_hover("crow", |s| s.visible())
                             })
@@ -1291,7 +1295,7 @@ fn details(
         );
     }
     let label_open = ui.menu == Some(ContactMenu::AddLabel);
-    let mut label_menu = menu_box(t).top(px(28.)).left_0().w(px(200.)).child(
+    let mut label_menu = menu_box(t).top(px(28.)).left_0().w(px(220.)).child(
         div()
             .p(px(4.))
             .child(Input::new(&ed.label).id("label-input").small()),

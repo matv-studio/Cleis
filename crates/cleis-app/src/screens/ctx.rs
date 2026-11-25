@@ -187,6 +187,43 @@ fn off(el: Stateful<Div>, why: &'static str, cx: &mut Context<CleisApp>) -> AnyE
         .into_any_element()
 }
 
+/// Whether a floating menu other than a right-click one is open (audit U-2).
+pub fn menu_open(s: &Session) -> bool {
+    s.filter_menu
+        || s.sync_menu
+        || s.pref_menu.is_some()
+        || s.folder_menu.is_some()
+        || s.security.menu.is_some()
+        || s.contacts_ui.menu.is_some()
+        || s.import.menu.is_some()
+        || s.import.space_menu
+        || s.health.vault_menu
+        || s.health.space_menu
+        || s.editor.as_ref().is_some_and(|e| e.menu.is_some())
+        || s.org.as_ref().is_some_and(|o| o.ui.menu.is_some())
+}
+
+/// Audit U-2: below the open menu (menus are painted last), a layer that closes it when the
+/// pointer goes down anywhere else.
+pub fn outside(s: &Session, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
+    menu_open(s).then(|| {
+        div()
+            .id("menu-outside")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.close_menus(cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _, cx| this.close_menus(cx)),
+            )
+            .into_any_element()
+    })
+}
+
 pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
     let m = s.ctx.as_ref()?;
     let (main, sub) = match m.target {
@@ -346,7 +383,7 @@ fn entry_menu(
     ));
     let subm = (sub == Some(Sub::Move)).then(|| {
         let from_org = s.org_of(e.space).map(|o| o.m.key());
-        let mut m = menu_box(t).w(px(200.));
+        let mut m = menu_box(t).w(px(220.));
         for sp in s
             .spaces
             .iter()
@@ -548,7 +585,7 @@ fn contact_menu(
     ));
     let subm = match sub {
         Some(Sub::Copy) => {
-            let mut m = menu_box(t).w(px(200.));
+            let mut m = menu_box(t).w(px(220.));
             let mut add =
                 |key: &str, label: &'static str, value: Option<String>, what: &'static str| {
                     let el = menu_item(
@@ -576,7 +613,7 @@ fn contact_menu(
         }
         Some(Sub::Move) => {
             let from_org = s.org_of(c.space).map(|o| o.m.key());
-            let mut m = menu_box(t).w(px(200.));
+            let mut m = menu_box(t).w(px(220.));
             for sp in s
                 .spaces
                 .iter()
@@ -669,7 +706,7 @@ fn member_menu(
     };
     let subm = match sub {
         Some(Sub::Role) if editable => {
-            let mut sm = menu_box(t).w(px(180.));
+            let mut sm = menu_box(t).w(px(220.));
             for r in st.roles.iter().filter(|r| i_admins || !r.is_admin()) {
                 let rid = r.id.clone();
                 let on = r.id == m.role;
@@ -784,6 +821,27 @@ impl CleisApp {
         cx.notify();
     }
 
+    pub fn close_menus(&mut self, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        s.filter_menu = false;
+        s.sync_menu = false;
+        s.pref_menu = None;
+        s.folder_menu = None;
+        s.security.menu = None;
+        s.contacts_ui.menu = None;
+        s.import.menu = None;
+        s.import.space_menu = false;
+        s.health.vault_menu = false;
+        s.health.space_menu = false;
+        if let Some(e) = s.editor.as_mut() {
+            e.menu = None;
+        }
+        if let Some(o) = s.org.as_mut() {
+            o.ui.menu = None;
+        }
+        cx.notify();
+    }
+
     pub fn close_ctx(&mut self, cx: &mut Context<Self>) {
         if let Some(s) = self.session()
             && s.ctx.take().is_some()
@@ -817,6 +875,45 @@ impl CleisApp {
             && !m.alt
             && !m.shift
             && (k.key == "delete" || (cfg!(target_os = "macos") && k.key == "backspace"));
+        // Audit U-3: arrows move the selection through the list.
+        let step = match (cmd || m.alt || m.shift, k.key.as_str()) {
+            (false, "down") => Some(1isize),
+            (false, "up") => Some(-1),
+            _ => None,
+        };
+        if let Some(step) = step {
+            match s.tab {
+                Tab::Vault => {
+                    let ids: Vec<EntryId> = s.visible.iter().map(|i| s.entries[*i].id).collect();
+                    let at = s.selected.and_then(|id| ids.iter().position(|x| *x == id));
+                    let next = match at {
+                        Some(i) => (i as isize + step).clamp(0, ids.len() as isize - 1) as usize,
+                        None => 0,
+                    };
+                    if let Some(id) = ids.get(next) {
+                        s.selected = Some(*id);
+                        s.reveal = false;
+                    }
+                }
+                Tab::Contacts => {
+                    let ids: Vec<ContactId> =
+                        super::contacts::listed(s).iter().map(|c| c.id).collect();
+                    let at = s
+                        .selected_contact
+                        .and_then(|id| ids.iter().position(|x| *x == id));
+                    let next = match at {
+                        Some(i) => (i as isize + step).clamp(0, ids.len() as isize - 1) as usize,
+                        None => 0,
+                    };
+                    if let Some(id) = ids.get(next) {
+                        s.selected_contact = Some(*id);
+                    }
+                }
+                _ => return false,
+            }
+            cx.notify();
+            return true;
+        }
         match s.tab {
             Tab::Vault => {
                 let Some(e) = s.selected_entry().cloned() else {

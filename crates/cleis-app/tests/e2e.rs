@@ -917,13 +917,19 @@ fn vault_filter_and_cards(cx: &mut TestAppContext) {
             e.subscription == cleis_core::Subscription::Active && e.totp.is_some()
         }));
     });
+    // Audit U-2: a click outside closes the menu (it stays open for several choices inside).
+    act(cx, h, |w, cx| w.click("vview-Cards", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.filter_menu && !s.vault_cards);
+    });
     act(cx, h, |w, cx| w.click("vview-Cards", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert!(s.vault_cards);
     });
     act(cx, h, |w, cx| w.click("vview-Table", cx));
-    // The menu stays open for several choices.
+    act(cx, h, |w, cx| w.click("filter", cx));
     act(cx, h, |w, cx| w.click("vf-clear", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
@@ -1445,6 +1451,20 @@ fn context_menu_and_shortcuts(cx: &mut TestAppContext) {
 
     act(cx, h, |w, cx| w.press("ctrl-d", cx));
     main(cx, &|s| assert_eq!(s.entries.len(), count + 1));
+    // Audit U-3: arrows move through the list; Ctrl+N makes a new item.
+    let before = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.selected,
+        _ => None,
+    });
+    act(cx, h, |w, cx| w.press("up", cx));
+    main(cx, &|s| assert!(s.selected.is_some()));
+    let after = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.selected,
+        _ => None,
+    });
+    assert_ne!(before, after);
+    act(cx, h, |w, cx| w.press("ctrl-n", cx));
+    main(cx, &|s| assert_eq!(s.entries.len(), count + 2));
 
     // A question: Escape cancels it, and Enter too (Cancel holds the focus).
     app.update(cx, |a, cx| {

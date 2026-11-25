@@ -441,17 +441,7 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
             "SFTP"
         }
     };
-    let card = div()
-        .w(px(480.))
-        .p(px(20.))
-        .flex()
-        .flex_col()
-        .gap(px(12.))
-        .bg(t.surface_raised)
-        .border_1()
-        .border_color(t.line_strong)
-        .rounded(RADIUS_LG)
-        .shadow_lg()
+    let card = dialog_box(t)
         .child(div().text_size(TEXT_LG).font_weight(W_MEDIUM).child(title))
         .child(body)
         .when_some(d.error.clone(), |c, e| {
@@ -494,6 +484,6 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
         .flex()
         .items_center()
         .justify_center()
-        .bg(gpui_kit::black().opacity(0.45))
+        .bg(t.overlay)
         .child(div().id("place-dialog").occlude().child(card))
 }

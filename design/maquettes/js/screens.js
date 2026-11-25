@@ -222,7 +222,7 @@ function premierLancement() {
     <div class="card" style="width:460px">
       <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>Welcome to Cleis</h1></div>
       <div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">This computer only</b><span>Personal vault</span></div><span class="ico">${i('laptop')}</span></div>
-      <div class="choice is-active"><span class="radio on"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Add an organization server</b><span>Shared spaces, on top of your personal vault</span>
+      <div class="choice is-active"><span class="radio on"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Join an organization</b><span>Shared spaces, on top of your personal vault</span>
         <div class="field" style="margin-top:var(--s-3)"><span class="label" title="Cleis server (https://…), network folder (\\\\server\\share), SFTP (sftp://…) or private GitHub repository">Server or folder address</span><div class="input"><span class="grow">vault.example-studio.lan</span><span class="chip chip--ok" title="Cleis server reachable through your VPN · certificate trusted">${i('server')}Server</span></div></div>
         <div class="field" style="margin-top:var(--s-2)"><span class="label">Invitation code</span><div class="input is-focus"><span class="grow code">K7Q2-9MXA</span></div></div>
       </div><span class="ico">${i('server')}</span></div>
@@ -834,25 +834,25 @@ function restaurer() {
 
 // ---------- 23. Sync & backups (my account) ----------
 function synchro() {
+  // Audit U-8: as the app is (25/11/2026): places by folder, GitHub and SFTP; no account sign-in.
   const place = (ico, name, sub, action) => `<div class="row"><span class="site-ico">${i(ico)}</span><div class="member row-label"><div class="meta"><span>${name}</span><span class="sub">${sub}</span></div></div>${action}</div>`;
   return settings('Sync & backups', `
     <div class="page-head"><h1 style="flex:none">Sync & backups</h1><div class="segmented" role="radiogroup" aria-label="Whose vault" title="Your vault, or the organization's (administrators)"><button role="radio" aria-checked="true">Mine</button><button role="radio" aria-checked="false">Example Studio</button></div><span style="flex:1"></span><button class="btn btn--primary">${i('sync')}Sync now</button></div>
-    <div class="section">${sectionTitle('Sync', 'Your encrypted vault, kept the same on every device signed in to this place. Your master password stays on your devices.')}
-      <div class="row"><span class="site-ico">${i('repo')}</span><div class="member row-label"><div class="meta"><span class="code">lea-example/cleis-vault</span><span class="sub">GitHub · lea-example</span></div></div><span class="chip chip--ok" title="Last sync today at 10:42"><span class="dot"></span>Up to date</span><button class="btn btn--ghost btn--sm">Disconnect</button></div>
-      <div class="row"><span class="row-label">Sync automatically</span><span class="switch on"></span></div>
-      <div class="row"><span class="row-label" title="Devices that opened this vault">Devices</span><span class="muted" style="font-size:var(--text-sm)">This PC · MacBook · Office PC</span><button class="btn btn--ghost btn--sm">Manage</button></div>
+    <div class="section">${sectionTitle('Sync', 'Your encrypted vault, kept the same on every device that uses this place. Your master password stays on your devices.')}
+      <div class="row"><span class="site-ico">${i('repo')}</span><div class="member row-label"><div class="meta"><span>GitHub</span><span class="sub code">lea-example/cleis-vault</span></div></div><span class="chip chip--ok" title="Last sync today at 10:42"><span class="dot"></span>Up to date</span><button class="btn btn--ghost btn--sm">Disconnect</button></div>
     </div>
-    <div class="section">${sectionTitle('Other places', 'A second copy, kept in sync too.')}
-      ${place('cloud', 'OneDrive', 'Microsoft account', '<button class="btn btn--sm">Sign in</button>')}
-      ${place('cloud', 'Google Drive', 'Google account', '<button class="btn btn--sm">Sign in</button>')}
+    <div class="section">${sectionTitle('Places', 'Where the encrypted copy is kept.')}
+      ${place('cloud', 'OneDrive', 'Folder kept by the OneDrive app', '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('cloud', 'Google Drive', 'Folder kept by Google Drive for desktop', '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('folder', 'Folder', 'Network share, Dropbox, USB drive', '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('repo', 'GitHub', 'Private repository', '<button class="btn btn--sm">Connect</button>')}
       ${place('server', 'SFTP', 'Your own server', '<button class="btn btn--sm">Set up</button>')}
     </div>
     <div class="section">${sectionTitle('New device', 'What a new computer needs besides your master password.')}
-      <div class="row"><span class="row-label" title="QR code and text holding the place of your vault and its access. Useless without the master password.">${i('qr')}Setup code</span><button class="btn btn--sm">Show</button></div>
-      <div class="row"><span class="row-label" title="PDF with the setup code and a space to write your master password. Print it and keep it safe.">${i('file')}Emergency kit</span><button class="btn btn--sm">${i('download')}Download</button></div>
+      <div class="row"><span class="row-label" title="PDF with where your vault is and a space to write your master password. Print it and keep it safe.">${i('file')}Emergency kit</span><button class="btn btn--sm">${i('download')}Download</button></div>
     </div>
     <div class="section">${sectionTitle('Backups', 'Dated copies you can go back to.')}
-      <div class="row"><span class="row-label">Keep</span><div class="input select" style="width:160px"><span class="grow">30 versions</span></div></div>
+      <div class="row"><span class="row-label">Keep</span><div class="input select" style="width:160px"><span class="grow">30 versions</span></div><button class="btn btn--sm">${i('upload')}Back up now</button></div>
       <div class="row"><span class="row-label">Encrypted export</span><button class="btn btn--sm">${i('download')}Export</button></div>
     </div>`);
 }
@@ -910,7 +910,7 @@ function serveur() {
 function rejoindre() {
   return settings('Organization', `
     <div class="page-head"><h1>Organization</h1></div>
-    <div class="section">${sectionTitle('Add an organization server', 'Shared spaces, on top of your personal vault')}
+    <div class="section">${sectionTitle('Join an organization', 'Shared spaces, on top of your personal vault')}
       <div class="field"><span class="label" title="Cleis server, reached through your VPN">Server address</span><div class="input"><span class="grow">vault.example-studio.lan</span><span class="chip chip--ok"><span class="dot"></span>Example Studio</span></div></div>
       ${fld('Invitation code', 'K7Q2-9MXA-4TRE-LB2C-WQ7N-3HJD-PXYV-6FKA', true)}
       <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Join</button></div>

@@ -88,6 +88,15 @@ pub fn render(
                         cx.stop_propagation();
                         this.lock(window, cx);
                     }
+                    // Audit U-3: Ctrl+N, a new item or contact (as the top bar's button).
+                    "n" => {
+                        cx.stop_propagation();
+                        match this.session().map(|s| s.tab) {
+                            Some(crate::app::Tab::Vault) => this.new_entry(window, cx),
+                            Some(crate::app::Tab::Contacts) => this.new_contact(window, cx),
+                            _ => {}
+                        }
+                    }
                     "f" => {
                         cx.stop_propagation();
                         if let Some(s) = this.session() {
@@ -151,6 +160,7 @@ pub fn render(
         .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::folders::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::places::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(super::ctx::outside(s, cx), |d, m| d.child(m))
         .when_some(super::ctx::render(s, &t, cx), |d, m| d.child(m))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
@@ -302,6 +312,10 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                 .child(sync_status(s, t, cx))
                 .child(
                     icon_button("lock", t, "lock", false)
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("Lock (Ctrl+L)")
+                                .build(window, cx)
+                        })
                         .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx)))
                         .test_support(),
                 )
@@ -740,7 +754,7 @@ fn totp_view(t: &Tokens, totp: &Totp, now: i64, big: bool) -> Div {
         .items_center()
         .gap(px(6.))
         .font_family(FONT_MONO)
-        .when(big, |d| d.text_size(px(17.)))
+        .when(big, |d| d.text_size(TEXT_LG))
         .child(totp_ring(t, frac))
         .child(code)
 }
@@ -785,6 +799,10 @@ fn row_cell(
                 )
                 .child(
                     icon_button(SharedString::from(format!("cu-{id}")), t, "copy", true)
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("Copy username")
+                                .build(window, cx)
+                        })
                         .when(!selected, |d| {
                             d.invisible().group_hover("row", |s| s.visible())
                         })
@@ -810,6 +828,10 @@ fn row_cell(
             )
             .child(
                 icon_button(SharedString::from(format!("cp-{id}")), t, "copy", true)
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Copy password")
+                            .build(window, cx)
+                    })
                     .when(!selected, |d| {
                         d.invisible().group_hover("row", |s| s.visible())
                     })

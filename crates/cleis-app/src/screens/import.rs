@@ -250,19 +250,21 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             section(t)
                 .child(section_title(t, "Export"))
                 .child(
+                    // Audit U-6: the same export as Sync & backups, working here too.
                     row(t, true)
-                        .opacity(0.45)
                         .child(
                             div()
                                 .id("export-label")
                                 .flex_1()
                                 .child("Encrypted export")
-                                .tooltip(tip("Comes with Sync & backups")),
+                                .tooltip(tip("A sealed copy of your personal vault, opened with the master password")),
                         )
                         .child(
                             button("export", t, BtnKind::Default, true)
                                 .child(icon("download", 14., t.text))
-                                .child("Export"),
+                                .child("Export")
+                                .on_click(cx.listener(|this, _, _, cx| this.export_vault(cx)))
+                                .test_support(),
                         ),
                 ),
         )

@@ -11,7 +11,7 @@ cleis-server init --data DATA --org "Example Studio" [--listen 0.0.0.0:8443]
 ```
 
 It prints the first administrator's invitation code (valid 7 days). In Cleis: first launch →
-*Add an organization server*, or Settings › Organization, with the server's address and the code.
+*Join an organization*, or Settings › Organization, with the server's address and the code.
 
 `DATA` holds `server.db` and `cleis-server.toml` (addresses, automatic backups, e-mail, SMS,
 Google / Microsoft sign-in). Without `--data`: `CLEIS_DATA`, else `/var/lib/cleis-server`

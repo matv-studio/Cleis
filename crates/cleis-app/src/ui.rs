@@ -360,7 +360,7 @@ pub fn menu_box(t: &Tokens) -> Div {
         .absolute()
         // Clicks on the menu must not reach what lies under it.
         .occlude()
-        .min_w(px(180.))
+        .min_w(px(220.))
         .p(px(4.))
         .flex()
         .flex_col()
@@ -393,4 +393,44 @@ pub fn menu_item(
         .hover(|d| d.bg(t.surface_hover))
         .when_some(icon_name, |d, n| d.child(icon(n, 14., fg)))
         .child(label.into())
+}
+
+/// Audit U-12: the one dialog of the charter (§ 6): 420 px, raised surface, title then body.
+pub fn dialog_box(t: &Tokens) -> Div {
+    div()
+        .w(DIALOG_W)
+        .p(px(20.))
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .bg(t.surface_raised)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_LG)
+        .shadow_lg()
+}
+
+/// Audit U-11: the veil under a dialog, from the theme (55 % dark, 28 % light).
+pub fn scrim(t: &Tokens) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(t.overlay)
+}
+
+pub const DIALOG_W: gpui_kit::Pixels = px(420.);
+
+/// Audit U-14: an explanation kept out of sight: an info mark whose tooltip holds the sentence.
+pub fn hint(id: &str, t: &Tokens, text: impl Into<SharedString>) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    div()
+        .id(SharedString::from(id.to_owned()))
+        .flex()
+        .child(icon("info", 14., t.text_faint))
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+        })
 }

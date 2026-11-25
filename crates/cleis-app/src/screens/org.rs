@@ -1052,7 +1052,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         ))
         .child(
             row(t, true)
-                .child(div().flex_1().child("Verification code"))
+                .child(div().flex_1().child("Two-step verification"))
                 .child(seg(
                     "code-req",
                     t,
@@ -1905,16 +1905,11 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     ),
             );
         }
-        d.child(
-            div()
-                .id("create-then")
-                .tooltip(tip(
-                    "The code it prints, with the machine's address, joins below",
-                ))
-                .text_size(TEXT_SM)
-                .text_color(t.text_muted)
-                .child("Then join with the code it prints."),
-        )
+        d.child(hint(
+            "create-then",
+            t,
+            "Then join below with the code it prints and the machine's address.",
+        ))
     } else {
         d.child(
             div().flex().justify_end().child(
@@ -2560,23 +2555,12 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 // ---------- Dialogs ----------
 
 fn card(t: &Tokens, title: &str) -> Div {
-    div()
-        .w(px(440.))
-        .p(px(20.))
-        .flex()
-        .flex_col()
-        .gap(px(12.))
-        .bg(t.surface_raised)
-        .border_1()
-        .border_color(t.line_strong)
-        .rounded(RADIUS_LG)
-        .shadow_lg()
-        .child(
-            div()
-                .text_size(TEXT_LG)
-                .font_weight(W_MEDIUM)
-                .child(title.to_owned()),
-        )
+    dialog_box(t).child(
+        div()
+            .text_size(TEXT_LG)
+            .font_weight(W_MEDIUM)
+            .child(title.to_owned()),
+    )
 }
 
 fn actions(
@@ -2617,15 +2601,8 @@ fn actions(
         )
 }
 
-fn overlay(body: Div) -> Div {
-    div()
-        .absolute()
-        .inset_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(gpui_kit::black().opacity(0.45))
-        .child(div().id("org-dialog").occlude().child(body))
+fn overlay(t: &Tokens, body: Div) -> Div {
+    scrim(t).child(div().id("org-dialog").occlude().child(body))
 }
 
 fn method_short(m: Method) -> &'static str {
@@ -2647,9 +2624,9 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             "{} · {}",
             o.m.name,
             if c.setup {
-                "two-step verification"
+                "set up two-step verification"
             } else {
-                "verification"
+                "two-step verification"
             }
         );
         let mut body = card(t, &title);
@@ -2698,11 +2675,11 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         } else if to_send {
             if c.method == Method::Email {
                 let email = o.me().map(|m| m.email.clone()).unwrap_or_default();
-                body = body.child(
-                    div()
-                        .text_color(t.text_muted)
-                        .child(format!("A code goes to {email} at each sign-in.")),
-                );
+                body = body.child(hint(
+                    "hint-email-code",
+                    t,
+                    format!("A code goes to {email} at each sign-in."),
+                ));
             } else if let Some(p) = &c.phone {
                 body = body.child(field(t, "Phone number", Input::new(p).id("srv-phone")));
             }
@@ -2732,11 +2709,11 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 .join(" ");
             let copy = secret.clone();
             body = body
-                .child(
-                    div()
-                        .text_color(t.text_muted)
-                        .child("Scan with your authenticator app, then type the code."),
-                )
+                .child(hint(
+                    "hint-srv-scan",
+                    t,
+                    "Scan with your authenticator app, then type the code.",
+                ))
                 .child(
                     div()
                         .flex()
@@ -2794,7 +2771,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                         )
                     }),
             );
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let Some(code) = &o.ui.invite_code {
         let copy = code.clone();
@@ -2838,7 +2815,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                         .test_support(),
                 ),
             );
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let (Some(f), Some(st)) = (&o.ui.invite, st) {
         let i_admins = o.can(Perm::Admins);
@@ -2910,7 +2887,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 Rc::new(|app, _, cx| app.send_invite(cx)),
                 cx,
             ));
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let Some(f) = &o.ui.new_space {
         let i_super = st.is_some_and(|s| s.me.role == SUPER_ADMIN);
@@ -2967,17 +2944,16 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 Rc::new(|app, _, cx| app.create_space_from_dialog(cx)),
                 cx,
             ));
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let Some(f) = &o.ui.new_role {
         let body = card(t, "New role")
             .child(field(t, "Name", Input::new(&f.name).id("role-name")))
-            .child(
-                div()
-                    .text_size(TEXT_SM)
-                    .text_color(t.text_muted)
-                    .child("Starts with Copy, fill; tick the rest in the table."),
-            )
+            .child(hint(
+                "hint-new-role",
+                t,
+                "Starts with Copy, fill; tick the rest in the table.",
+            ))
             .child(actions(
                 t,
                 "role-create",
@@ -2985,7 +2961,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 Rc::new(|app, _, cx| app.create_role_from_dialog(cx)),
                 cx,
             ));
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let (Some(r), Some(st)) = (&o.ui.rekey, st) {
         let sv = st.spaces.iter().find(|x| x.id == r.space)?;
@@ -3062,7 +3038,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 Rc::new(|app, _, cx| app.confirm_rekey(cx)),
                 cx,
             ));
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let Some((id, input)) = &o.ui.rename {
         let body = card(t, &format!("Rename “{}”", o.space_name(*id)))
@@ -3074,7 +3050,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 Rc::new(|app, _, cx| app.rename_from_dialog(cx)),
                 cx,
             ));
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let (Some(id), Some(st)) = (o.ui.delete_space, st) {
         let n = st.spaces.iter().find(|x| x.id == id).map_or(0, |x| x.items);
@@ -3126,7 +3102,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                             .test_support(),
                     ),
             );
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     if let Some(p) = &o.ui.restore {
         let p = p.clone();
@@ -3146,7 +3122,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 }),
                 cx,
             ));
-        return Some(overlay(body));
+        return Some(overlay(t, body));
     }
     None
 }
@@ -3869,7 +3845,7 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             div()
                                 .id("second-step")
                                 .flex_1()
-                                .tooltip(tip("Asked at sign-in, after the account key"))
+                                .tooltip(tip("Asked by the server at sign-in; the code on open (Security) is this computer's own"))
                                 .child("Two-step verification"),
                         )
                         .child(
@@ -3913,7 +3889,7 @@ pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .font_weight(W_MEDIUM)
             .child(div().flex_1().child("Device"))
             .child(div().w(px(200.)).child("Last active"))
-            .child(div().w(px(180.)).child("Verification code"))
+            .child(div().w(px(180.)).child("Two-step verification"))
             .child(div().w(px(100.))),
     );
     match &o.ui.devices {

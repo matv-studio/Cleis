@@ -281,6 +281,11 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
     act(cx, lh, |w, cx| {
         w.click(format!("msp-{hugo_member}-{acc}"), cx)
     });
+    // The menu stays open for several spaces; a click outside closes it (audit U-2).
+    act(cx, lh, |w, cx| w.click("set-Members", cx));
+    session(cx, &lea, |s| {
+        assert!(s.org.as_ref().unwrap().ui.menu.is_none());
+    });
     sync(cx, &lea);
     sync(cx, &hugo);
     sync(cx, &lea);

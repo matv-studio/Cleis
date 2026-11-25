@@ -245,7 +245,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         .space
         .map(space_name)
         .unwrap_or_else(|| "All spaces".into());
-    let mut menu = menu_box(t).top(px(32.)).right_0().w(px(200.)).child(
+    let mut menu = menu_box(t).top(px(32.)).right_0().w(px(220.)).child(
         menu_item("hs-all", t, None, "All spaces", false)
             .on_click(cx.listener(|this, _, _, cx| this.health_space(None, cx)))
             .test_support(),
@@ -285,7 +285,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         .find(|v| v.0 == ui.vault)
         .map(|v| v.1.clone())
         .unwrap_or_default();
-    let mut vmenu = menu_box(t).top(px(32.)).left_0().w(px(200.));
+    let mut vmenu = menu_box(t).top(px(32.)).left_0().w(px(220.));
     for (scope, name, ico, id) in vaults {
         let on = scope == ui.vault;
         vmenu = vmenu.child(

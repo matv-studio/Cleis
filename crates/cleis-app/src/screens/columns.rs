@@ -159,6 +159,10 @@ fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> i
         .when(!c.builtin, |d| {
             d.child(
                 icon_button(SharedString::from(format!("col-del-{i}")), t, "trash", true)
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Delete column")
+                            .build(window, cx)
+                    })
                     .invisible()
                     .group_hover("colrow", |s| s.visible())
                     .on_click(cx.listener(move |this, _, _, cx| {
