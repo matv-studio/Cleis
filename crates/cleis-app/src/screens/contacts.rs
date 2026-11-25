@@ -5,6 +5,7 @@ use crate::app::{CleisApp, Confirm, ConfirmAction, Session};
 use crate::contact_editor::ContactEditor;
 use crate::theme::*;
 use crate::ui::*;
+use cleis_core::column::{ColumnDef, Table};
 use cleis_core::contact_edit::{Field, List};
 use cleis_core::dedupe::{self, DuplicateGroup, Reason};
 use cleis_core::text::{fold, matches};
@@ -371,7 +372,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(
             side_item("cf-import", t, Some("upload"), "Import", None, false)
-                .tooltip(tip("vCard (.vcf)"))
+                .tooltip(tip("vCard (.vcf) or CSV (Google, Outlook)"))
                 .on_click(cx.listener(|this, _, _, cx| this.choose_vcard(cx)))
                 .test_support(),
         )
@@ -413,6 +414,106 @@ fn select(
     }
 }
 
+fn contact_col_width(c: &ColumnDef) -> f32 {
+    match c.id.0.as_str() {
+        "name" => 210.,
+        "company" | "phone" | "job_title" | "folder" => 150.,
+        "labels" | "website" => 160.,
+        "city" => 120.,
+        "birthday" => 100.,
+        "email" | "notes" => 0.,
+        _ => 150.,
+    }
+}
+
+fn contact_cell(
+    s: &Session,
+    c: &Contact,
+    col: &ColumnDef,
+    selected: bool,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> AnyElement {
+    let id = c.id;
+    let base = cell(contact_col_width(col));
+    match col.id.0.as_str() {
+        "name" => base
+            .gap(px(8.))
+            .child(avatar(t, &c.initials(), 22.))
+            .child(
+                div()
+                    .font_weight(W_MEDIUM)
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(c.display_name()),
+            )
+            .when(c.favorite, |d| d.child(icon("star", 12., t.warning_text)))
+            .into_any_element(),
+        "email" => {
+            let email = c.primary_email().unwrap_or_default();
+            base.text_color(t.text_muted)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(email.clone()),
+                )
+                .when(!email.is_empty(), |d| {
+                    d.child(
+                        icon_button(SharedString::from(format!("ce-{id}")), t, "copy", true)
+                            .when(!selected, |d| {
+                                d.invisible().group_hover("crow", |s| s.visible())
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.copy(email.clone(), "Email", cx);
+                            })),
+                    )
+                })
+                .into_any_element()
+        }
+        "labels" => base.child(labels_row(t, c)).into_any_element(),
+        "company" => base
+            .child(if c.company.is_empty() {
+                "—".to_owned()
+            } else {
+                c.company.clone()
+            })
+            .into_any_element(),
+        "birthday" => base
+            .text_color(t.text_muted)
+            .child(c.birthday.map(|b| b.display()).unwrap_or_default())
+            .into_any_element(),
+        "folder" => base
+            .text_color(t.text_muted)
+            .child(
+                s.spaces
+                    .iter()
+                    .find(|sp| sp.id == c.space)
+                    .map(|sp| sp.name.clone())
+                    .unwrap_or_default(),
+            )
+            .into_any_element(),
+        _ => {
+            let text = c
+                .cell(col)
+                .map(|v| v.display(&col.kind))
+                .unwrap_or_default();
+            let text =
+                if matches!(col.kind, cleis_core::column::ColumnKind::Secret) && !text.is_empty() {
+                    "••••••".to_owned()
+                } else {
+                    text
+                };
+            base.text_color(t.text_muted)
+                .child(div().overflow_hidden().text_ellipsis().child(text))
+                .into_any_element()
+        }
+    }
+}
+
 fn table(
     s: &Session,
     list: &[&Contact],
@@ -420,7 +521,15 @@ fn table(
     t: &Tokens,
     cx: &mut Context<CleisApp>,
 ) -> Div {
-    const W: [f32; 5] = [210., 150., 0., 150., 160.];
+    let folder = match s.contacts_ui.filter {
+        ContactFilter::Folder(f) => Some(f),
+        _ => None,
+    };
+    let cols: Vec<ColumnDef> =
+        cleis_core::column::visible_columns(&s.columns, Table::Contacts, folder)
+            .into_iter()
+            .cloned()
+            .collect();
     let mut head = div()
         .w_full()
         .h(px(30.))
@@ -431,11 +540,14 @@ fn table(
         .text_size(TEXT_XS)
         .font_weight(W_MEDIUM)
         .text_color(t.text_muted);
-    for (i, h) in ["Name ↑", "Company", "Email", "Phone", "Labels"]
-        .iter()
-        .enumerate()
-    {
-        head = head.child(cell(W[i]).when(i == 0, |d| d.text_color(t.text)).child(*h));
+    for c in &cols {
+        head = head.child(
+            cell(contact_col_width(c))
+                .when(c.id.0 == "name", |d| {
+                    d.text_color(t.text).child(format!("{} ↑", c.name))
+                })
+                .when(c.id.0 != "name", |d| d.child(c.name.clone())),
+        );
     }
     let mut rows = div()
         .id("contacts")
@@ -446,80 +558,24 @@ fn table(
     for c in list {
         let id = c.id;
         let selected = sel == Some(id);
-        let email = c.primary_email().unwrap_or_default();
-        rows = rows.child(
-            div()
-                .id(SharedString::from(format!("c-{id}")))
-                .group("crow")
-                .w_full()
-                .h(ROW_H)
-                .flex_none()
-                .flex()
-                .border_b_1()
-                .border_color(t.line)
-                .cursor_pointer()
-                .when(selected, |d| d.bg(t.selection))
-                .when(!selected, |d| d.hover(|s| s.bg(t.surface_hover)))
-                .on_click(cx.listener(select(id)))
-                .child(
-                    cell(W[0])
-                        .gap(px(8.))
-                        .child(avatar(t, &c.initials(), 22.))
-                        .child(
-                            div()
-                                .font_weight(W_MEDIUM)
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(c.display_name()),
-                        )
-                        .when(c.favorite, |d| d.child(icon("star", 12., t.warning_text))),
-                )
-                .child(cell(W[1]).child(if c.company.is_empty() {
-                    "—".to_owned()
-                } else {
-                    c.company.clone()
-                }))
-                .child(
-                    cell(W[2])
-                        .text_color(t.text_muted)
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(email.clone()),
-                        )
-                        .when(!email.is_empty(), |d| {
-                            d.child(
-                                icon_button(
-                                    SharedString::from(format!("ce-{id}")),
-                                    t,
-                                    "copy",
-                                    true,
-                                )
-                                .when(!selected, |d| {
-                                    d.invisible().group_hover("crow", |s| s.visible())
-                                })
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        this.copy(email.clone(), "Email", cx);
-                                    },
-                                )),
-                            )
-                        }),
-                )
-                .child(
-                    cell(W[3])
-                        .text_color(t.text_muted)
-                        .child(c.primary_phone().unwrap_or_default()),
-                )
-                .child(cell(W[4]).child(labels_row(t, c)))
-                .test_support(),
-        );
+        let mut row = div()
+            .id(SharedString::from(format!("c-{id}")))
+            .group("crow")
+            .w_full()
+            .h(ROW_H)
+            .flex_none()
+            .flex()
+            .border_b_1()
+            .border_color(t.line)
+            .cursor_pointer()
+            .when(selected, |d| d.bg(t.selection))
+            .when(!selected, |d| d.hover(|s| s.bg(t.surface_hover)))
+            .on_click(cx.listener(select(id)));
+        for col in &cols {
+            row = row.child(contact_cell(s, c, col, selected, t, cx));
+        }
+        rows = rows.child(row.test_support());
     }
-    let _ = s;
     div()
         .flex_1()
         .min_h_0()
@@ -644,6 +700,26 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         )),
                     ))
                 })
+                .child(
+                    div()
+                        .relative()
+                        .child(
+                            button("contact-columns", t, BtnKind::Ghost, false)
+                                .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
+                                .child(icon("columns", 16., t.text_muted))
+                                .child("Columns")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.toggle_columns_menu(Table::Contacts, cx)
+                                }))
+                                .test_support(),
+                        )
+                        .when_some(
+                            s.columns_menu
+                                .as_ref()
+                                .filter(|m| m.table == Table::Contacts),
+                            |d, m| d.child(deferred(super::columns::menu(s, m, t, cx))),
+                        ),
+                )
                 .child(div().flex_1())
                 .child(
                     div()
@@ -1235,6 +1311,29 @@ fn details(
                 boxed(t, ed, Field::Birthday, Input::new(&st).id("edit-birthday")),
             ))
         })
+        .children(ed.custom.iter().map(|(col, st)| {
+            let err = ed.custom_errors.get(&col.id).cloned();
+            field(
+                t,
+                &col.name,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .rounded(RADIUS_MD)
+                            .when(err.is_some(), |d| d.border_1().border_color(t.danger_text))
+                            .child(
+                                Input::new(st)
+                                    .id(SharedString::from(format!("ccustom-{}", col.id.0))),
+                            ),
+                    )
+                    .when_some(err, |d, e| {
+                        d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+                    }),
+            )
+        }))
         .child(field(t, "Labels", labels))
         .when(!c.linked_entries.is_empty(), |d| {
             d.child(field(t, "Linked items", linked_list(s, c, t, cx)))
@@ -1914,7 +2013,7 @@ impl CleisApp {
         .detach();
     }
 
-    /// Imports a .vcf file into the current folder (or the personal one).
+    /// Imports a .vcf or .csv file into the current folder (or the personal one).
     pub fn import_vcard(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let space = match s.contacts_ui.filter {
@@ -1934,7 +2033,21 @@ impl CleisApp {
                 return;
             }
         };
-        let new = cleis_core::vcard::parse(&text, space);
+        let is_csv = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("csv"));
+        let new = if is_csv {
+            match cleis_core::import_contacts::contacts_from_csv(&text, space) {
+                Ok(r) => r.contacts,
+                Err(e) => {
+                    s.toast = Some(format!("Not imported: {e}").into());
+                    cx.notify();
+                    return;
+                }
+            }
+        } else {
+            cleis_core::vcard::parse(&text, space)
+        };
         let n = new.len();
         match s.vault.put_contacts(&new) {
             Ok(()) => {

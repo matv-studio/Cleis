@@ -409,7 +409,11 @@ impl CleisApp {
                 vault.trashed_entries()?,
                 vault.contacts()?,
                 vault.spaces()?,
-                vault.vault_columns()?,
+                {
+                    let mut c = vault.vault_columns()?;
+                    c.extend(vault.contact_columns()?);
+                    c
+                },
                 vault.preferences()?,
             ))
         };

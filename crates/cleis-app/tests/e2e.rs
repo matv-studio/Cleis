@@ -920,3 +920,111 @@ fn vault_filter_and_cards(cx: &mut TestAppContext) {
         assert_eq!(s.visible.len(), s.entries.len());
     });
 }
+
+/// Scenario (screen 20 + 02): the Columns menu of the contacts adds a "Contract end" date
+/// column; the inspector writes it; "Company" is hidden.
+#[gpui_kit::test]
+fn contact_columns(cx: &mut TestAppContext) {
+    use cleis_core::column::{Table, Value};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    act(cx, h, |w, cx| w.click("contact-columns", cx));
+    act(cx, h, |w, cx| w.click("col-company", cx));
+    act(cx, h, |w, cx| w.click("col-new", cx));
+    act(cx, h, |w, cx| {
+        w.input("Contract end", cx);
+        w.click("kind-Date", cx);
+        w.click("col-create", cx);
+    });
+    let (col, first) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s
+            .columns
+            .iter()
+            .find(|c| c.name == "Contract end")
+            .expect("created");
+        assert_eq!(c.table, Table::Contacts);
+        assert!(
+            !s.columns
+                .iter()
+                .find(|c| c.table == Table::Contacts && c.id.0 == "company")
+                .unwrap()
+                .visible
+        );
+        (c.id.clone(), a.shown_contact().unwrap())
+    });
+    app.update(cx, |a, cx| {
+        if let Some(s) = a.session() {
+            s.columns_menu = None;
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let field: &'static str = format!("ccustom-{}", col.0).leak();
+    act(cx, h, |w, cx| {
+        w.click(field, cx);
+        w.input("2027-06-30", cx);
+        w.press("enter", cx);
+    });
+    let saved = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap();
+    let c = saved
+        .contacts()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id == first)
+        .unwrap();
+    assert_eq!(c.fields.get(&col), Some(&Value::Date("2027-06-30".into())));
+    assert!(saved.contact_columns().unwrap().iter().any(|c| c.id == col));
+}
+
+/// Scenario (screen 20): contacts imported from a Google Contacts CSV into the Clients folder.
+#[gpui_kit::test]
+fn import_contacts_csv(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let csv = dir.path().join("contacts.csv");
+    std::fs::write(
+        &csv,
+        "First Name,Last Name,E-mail 1 - Value,Phone 1 - Value,Organization Name\n\
+Hana,Example,hana@example-films.com,+33 1 99 00 44 55,Example Films\n\
+Yann,Sample,yann@example-legal.com,,Example Legal\n",
+    )
+    .unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    let clients = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.spaces.iter().find(|sp| sp.name == "Clients").unwrap().id
+    });
+    let folder: &'static str = format!("cf-folder-{clients}").leak();
+    act(cx, h, |w, cx| w.click(folder, cx));
+    app.update(cx, |a, cx| a.import_vcard(&csv, cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let new: Vec<_> = s.contacts.iter().filter(|c| c.space == clients).collect();
+        assert_eq!(new.len(), 2);
+        assert!(
+            new.iter()
+                .any(|c| c.display_name() == "Hana Example" && c.company == "Example Films")
+        );
+    });
+}

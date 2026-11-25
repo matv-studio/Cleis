@@ -18,6 +18,9 @@ pub struct ContactEditor {
     /// New label typed in the inspector (Labels › +).
     pub label: Entity<InputState>,
     pub errors: HashMap<Field, SharedString>,
+    /// Boxes of the custom contact columns of the contact's folder.
+    pub custom: Vec<(cleis_core::column::ColumnDef, Entity<InputState>)>,
+    pub custom_errors: HashMap<cleis_core::ColumnId, SharedString>,
     pending: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
@@ -97,6 +100,21 @@ impl CleisApp {
             .map(|f| (f, contact_edit::text(c, f)))
             .collect();
         let notes_text = c.notes.clone();
+        let custom_cols: Vec<(cleis_core::column::ColumnDef, String)> =
+            crate::editor::editable_custom(
+                &s.columns,
+                cleis_core::column::Table::Contacts,
+                c.space,
+            )
+            .into_iter()
+            .map(|col| {
+                let v = c
+                    .cell(&col)
+                    .map(|v| crate::editor::field_text(&v, &col.kind))
+                    .unwrap_or_default();
+                (col, v)
+            })
+            .collect();
         let focus = s.contacts_ui.focus_next.take();
         let mut inputs = HashMap::new();
         let mut subs = vec![];
@@ -115,6 +133,23 @@ impl CleisApp {
                 st.update(cx, |st, cx| st.focus(window, cx));
             }
             inputs.insert(f, st);
+        }
+        let mut custom = vec![];
+        for (col, v) in custom_cols {
+            let st = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(crate::editor::custom_placeholder(&col.kind))
+                    .default_value(v)
+            });
+            let cid = col.id.clone();
+            subs.push(
+                cx.subscribe_in(&st, window, move |this, _, ev: &InputEvent, _, cx| {
+                    if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                        this.commit_contact_custom(&cid, cx);
+                    }
+                }),
+            );
+            custom.push((col, st));
         }
         let notes = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -143,6 +178,8 @@ impl CleisApp {
                 notes,
                 label,
                 errors: HashMap::new(),
+                custom,
+                custom_errors: HashMap::new(),
                 pending: None,
                 _subs: subs,
             });
@@ -207,6 +244,46 @@ impl CleisApp {
             }
             Err(e) => {
                 ed.errors.insert(f, e.to_string().into());
+            }
+        }
+        cx.notify();
+    }
+
+    /// Writes a custom field of the shown contact, read with its column's type.
+    pub fn commit_contact_custom(&mut self, id: &cleis_core::ColumnId, cx: &mut Context<Self>) {
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        let Some(ed) = s.contacts_ui.editor.as_mut() else {
+            return;
+        };
+        let Some((col, st)) = ed.custom.iter().find(|(c, _)| &c.id == id) else {
+            return;
+        };
+        let text = st.read(cx).value().to_string();
+        let col = col.clone();
+        let contact = ed.contact;
+        let Some(c) = s.contacts.iter_mut().find(|c| c.id == contact) else {
+            return;
+        };
+        match cleis_core::column::Value::parse(&col.kind, &text) {
+            Ok(v) => {
+                ed.custom_errors.remove(id);
+                if c.fields.get(id).cloned() != v {
+                    match v {
+                        Some(v) => c.fields.insert(id.clone(), v),
+                        None => c.fields.remove(id),
+                    };
+                    c.updated = cleis_core::now();
+                    s.toast = Some(match s.vault.put_contact(c) {
+                        Ok(()) => "Saved".into(),
+                        Err(e) => format!("Not saved: {e}").into(),
+                    });
+                }
+            }
+            Err(_) => {
+                ed.custom_errors
+                    .insert(id.clone(), crate::editor::refused(&col.kind).into());
             }
         }
         cx.notify();

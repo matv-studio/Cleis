@@ -950,95 +950,99 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         ),
     )
     .flex_1();
-    let center =
-        div()
-            .flex_1()
-            .min_w_0()
-            .relative()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .h(px(44.))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(12.))
-                    .border_b_1()
-                    .border_color(t.line)
-                    .child(div().w(px(280.)).child(
-                        Input::new(&s.search).id("search").prefix(icon(
+    let center = div()
+        .flex_1()
+        .min_w_0()
+        .relative()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .h(px(44.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(12.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(
+                    div()
+                        .w(px(280.))
+                        .child(Input::new(&s.search).id("search").prefix(icon(
                             "search",
                             16.,
                             t.text_muted,
-                        )),
-                    ))
-                    .child(
-                        div()
-                            .relative()
-                            .child(
-                                button("filter", t, BtnKind::Ghost, false)
-                                    .when(s.filter_menu || s.vault_filter.count() > 0, |d| {
-                                        d.bg(t.surface_active)
-                                    })
-                                    .child(icon("filter", 16., t.text_muted))
-                                    .child(match s.vault_filter.count() {
-                                        0 => "Filter".to_owned(),
-                                        n => format!("Filter · {n}"),
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        if let Some(s) = this.session() {
-                                            s.filter_menu = !s.filter_menu;
-                                            s.columns_menu = None;
-                                        }
-                                        cx.notify();
-                                    }))
-                                    .test_support(),
-                            )
-                            .when(s.filter_menu, |d| {
-                                d.child(gpui_kit::deferred(filter_menu(s, t, cx)))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .child(
-                                button("columns", t, BtnKind::Ghost, false)
-                                    .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
-                                    .child(icon("columns", 16., t.text_muted))
-                                    .child("Columns")
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.toggle_columns_menu(cx)),
-                                    )
-                                    .test_support(),
-                            )
-                            .when_some(s.columns_menu.as_ref(), |d, m| {
-                                d.child(gpui_kit::deferred(super::columns::menu(s, m, t, cx)))
-                            }),
-                    )
-                    .child(div().flex_1())
-                    .child(view_toggle(s.vault_cards, t, cx)),
-            )
-            .when(!s.vault_cards, |d| d.child(head).child(list))
-            .when(s.vault_cards, |d| d.child(vault_cards(s, t, cx)))
-            .child(
-                div()
-                    .h(ROW_H)
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .px(px(12.))
-                    .text_size(TEXT_SM)
-                    .text_color(t.text_muted)
-                    .child(div().flex_1().child(format!("{count} items")))
-                    .child(
-                        div()
-                            .font_weight(W_MEDIUM)
-                            .text_color(t.text)
-                            .child(crate::format::money_cents(total, &s.prefs.currency)),
-                    ),
-            );
+                        ))),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .child(
+                            button("filter", t, BtnKind::Ghost, false)
+                                .when(s.filter_menu || s.vault_filter.count() > 0, |d| {
+                                    d.bg(t.surface_active)
+                                })
+                                .child(icon("filter", 16., t.text_muted))
+                                .child(match s.vault_filter.count() {
+                                    0 => "Filter".to_owned(),
+                                    n => format!("Filter · {n}"),
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if let Some(s) = this.session() {
+                                        s.filter_menu = !s.filter_menu;
+                                        s.columns_menu = None;
+                                    }
+                                    cx.notify();
+                                }))
+                                .test_support(),
+                        )
+                        .when(s.filter_menu, |d| {
+                            d.child(gpui_kit::deferred(filter_menu(s, t, cx)))
+                        }),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .child(
+                            button("columns", t, BtnKind::Ghost, false)
+                                .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
+                                .child(icon("columns", 16., t.text_muted))
+                                .child("Columns")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.toggle_columns_menu(cleis_core::column::Table::Vault, cx)
+                                }))
+                                .test_support(),
+                        )
+                        .when_some(
+                            s.columns_menu
+                                .as_ref()
+                                .filter(|m| m.table == cleis_core::column::Table::Vault),
+                            |d, m| d.child(gpui_kit::deferred(super::columns::menu(s, m, t, cx))),
+                        ),
+                )
+                .child(div().flex_1())
+                .child(view_toggle(s.vault_cards, t, cx)),
+        )
+        .when(!s.vault_cards, |d| d.child(head).child(list))
+        .when(s.vault_cards, |d| d.child(vault_cards(s, t, cx)))
+        .child(
+            div()
+                .h(ROW_H)
+                .flex_none()
+                .flex()
+                .items_center()
+                .px(px(12.))
+                .text_size(TEXT_SM)
+                .text_color(t.text_muted)
+                .child(div().flex_1().child(format!("{count} items")))
+                .child(
+                    div()
+                        .font_weight(W_MEDIUM)
+                        .text_color(t.text)
+                        .child(crate::format::money_cents(total, &s.prefs.currency)),
+                ),
+        );
     div()
         .flex_1()
         .min_h_0()

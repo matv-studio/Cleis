@@ -139,6 +139,7 @@ pub fn reload(s: &mut Session) -> cleis_store::Result<()> {
     s.contacts = s.vault.contacts()?;
     s.spaces = s.vault.spaces()?;
     s.columns = s.vault.vault_columns()?;
+    s.columns.extend(s.vault.contact_columns()?);
     s.prefs = s.vault.preferences()?;
     s.editor = None;
     s.contacts_ui.editor = None;

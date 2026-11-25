@@ -301,6 +301,21 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
         .find(|s| s.for_contacts)
         .map(|s| s.id)
         .unwrap_or(home);
+    // A custom contact column, as in mockup 20 (VAT number).
+    let mut ccols = v.contact_columns()?;
+    let vat = cleis_core::column::add_custom(
+        &mut ccols,
+        cleis_core::column::Table::Contacts,
+        "VAT number",
+        cleis_core::column::ColumnKind::Text,
+        cleis_core::column::ColumnScope::AllSpaces,
+    )
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    // Shown in the inspector only, as in the mockup.
+    if let Some(c) = ccols.iter_mut().find(|c| c.id == vat) {
+        c.visible = false;
+    }
+    v.set_contact_columns(&ccols)?;
     let mut cs = vec![];
     for (g, f, co, title, email, phone, city, labels, fav) in PEOPLE {
         let mut c = Contact::person(contacts_space, g, f);
@@ -320,10 +335,8 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
         if *g == "Camille" {
             c.birthday = PartialDate::parse("--0312");
             c.notes = "Quotes within 48 h · prefers email".into();
-            c.fields.insert(
-                cleis_core::ColumnId::builtin("vat"),
-                Value::Text("FR00 999999999".into()),
-            );
+            c.fields
+                .insert(vat.clone(), Value::Text("FR00 999999999".into()));
         }
         cs.push(c);
     }

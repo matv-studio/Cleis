@@ -158,7 +158,7 @@ fn main() {
                         if let Some(s) = app.session() {
                             s.selected = None;
                         }
-                        app.toggle_columns_menu(cx);
+                        app.toggle_columns_menu(cleis_core::column::Table::Vault, cx);
                         if m == "new-column" {
                             app.start_new_column(window, cx);
                             app.demo_new_column(window, cx);

@@ -245,7 +245,7 @@ pub(crate) fn cp1252(b: u8) -> char {
 
 /// Picks the separator that occurs most in the header row, ignoring quoted text (a header
 /// such as `"Service, app"` must not turn a `;` file into a `,` one).
-fn sniff_delimiter(sample: &str) -> u8 {
+pub(crate) fn sniff_delimiter(sample: &str) -> u8 {
     let mut counts = [0usize; 3];
     let mut quoted = false;
     for c in sample.chars() {

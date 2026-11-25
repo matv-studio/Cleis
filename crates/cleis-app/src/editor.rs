@@ -84,16 +84,17 @@ impl CleisApp {
             .collect();
         let has_totp = e.totp.is_some();
         let space = e.space;
-        let custom_cols: Vec<(ColumnDef, String)> = editable_custom(&s.columns, space)
-            .into_iter()
-            .map(|c| {
-                let v = e
-                    .cell(&c)
-                    .map(|v| field_text(&v, &c.kind))
-                    .unwrap_or_default();
-                (c, v)
-            })
-            .collect();
+        let custom_cols: Vec<(ColumnDef, String)> =
+            editable_custom(&s.columns, Table::Vault, space)
+                .into_iter()
+                .map(|c| {
+                    let v = e
+                        .cell(&c)
+                        .map(|v| field_text(&v, &c.kind))
+                        .unwrap_or_default();
+                    (c, v)
+                })
+                .collect();
         let mut inputs = HashMap::new();
         let mut subs = vec![];
         let mut totp = None;
@@ -339,10 +340,14 @@ impl CleisApp {
 }
 
 /// Custom vault columns that apply to a space and can be typed into (formulas are computed).
-pub fn editable_custom(cols: &[ColumnDef], space: cleis_core::SpaceId) -> Vec<ColumnDef> {
+pub fn editable_custom(
+    cols: &[ColumnDef],
+    table: Table,
+    space: cleis_core::SpaceId,
+) -> Vec<ColumnDef> {
     let mut v: Vec<ColumnDef> = cols
         .iter()
-        .filter(|c| c.table == Table::Vault && !c.builtin)
+        .filter(|c| c.table == table && !c.builtin)
         .filter(|c| match c.scope {
             ColumnScope::AllSpaces => true,
             ColumnScope::Space(sp) => sp == space,
@@ -355,14 +360,14 @@ pub fn editable_custom(cols: &[ColumnDef], space: cleis_core::SpaceId) -> Vec<Co
 }
 
 /// Text put in a custom field's box: dates stay ISO so they read back unchanged.
-fn field_text(v: &Value, kind: &ColumnKind) -> String {
+pub fn field_text(v: &Value, kind: &ColumnKind) -> String {
     match v {
         Value::Date(d) => d.clone(),
         _ => v.display(kind),
     }
 }
 
-fn custom_placeholder(kind: &ColumnKind) -> &'static str {
+pub fn custom_placeholder(kind: &ColumnKind) -> &'static str {
     match kind {
         ColumnKind::Date => "2026-12-03",
         ColumnKind::Number { .. } => "0",
@@ -375,7 +380,7 @@ fn custom_placeholder(kind: &ColumnKind) -> &'static str {
     }
 }
 
-fn refused(kind: &ColumnKind) -> String {
+pub fn refused(kind: &ColumnKind) -> String {
     match kind {
         ColumnKind::Date => "Not a date".into(),
         ColumnKind::Number { .. } => "Not a number".into(),

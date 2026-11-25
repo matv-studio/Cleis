@@ -14,6 +14,7 @@ pub mod formula;
 pub mod generator;
 pub mod health;
 pub mod ids;
+pub mod import_contacts;
 pub mod import_csv;
 pub mod journal;
 pub mod money;

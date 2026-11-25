@@ -15,6 +15,8 @@ use gpui_kit::{Context, Div, Entity, SharedString, Window, div, px};
 
 pub struct ColumnsMenu {
     pub creating: Option<NewColumn>,
+    /// Vault or contacts (the same menu serves both tabs).
+    pub table: Table,
 }
 
 pub struct NewColumn {
@@ -173,11 +175,7 @@ fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> i
 }
 
 pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let mut cols: Vec<&ColumnDef> = s
-        .columns
-        .iter()
-        .filter(|c| c.table == Table::Vault)
-        .collect();
+    let mut cols: Vec<&ColumnDef> = s.columns.iter().filter(|c| c.table == m.table).collect();
     cols.sort_by_key(|c| c.order);
     let mut list = div()
         .w(px(260.))
@@ -377,27 +375,34 @@ impl CleisApp {
             .and_then(|m| m.creating.as_mut())
     }
 
-    pub fn toggle_columns_menu(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_columns_menu(&mut self, table: Table, cx: &mut Context<Self>) {
         if let Some(s) = self.session() {
             s.columns_menu = match s.columns_menu {
                 Some(_) => None,
-                None => Some(ColumnsMenu { creating: None }),
+                None => Some(ColumnsMenu {
+                    creating: None,
+                    table,
+                }),
             };
+            s.filter_menu = false;
         }
         cx.notify();
     }
 
     fn save_columns(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let vault_cols: Vec<ColumnDef> = s
-            .columns
-            .iter()
-            .filter(|c| c.table == Table::Vault)
-            .cloned()
-            .collect();
-        // The inspector's boxes follow the custom columns.
+        let of = |t: Table| -> Vec<ColumnDef> {
+            s.columns.iter().filter(|c| c.table == t).cloned().collect()
+        };
+        let (vault_cols, contact_cols) = (of(Table::Vault), of(Table::Contacts));
+        // The inspectors' boxes follow the custom columns.
         s.editor = None;
-        if let Err(e) = s.vault.set_vault_columns(&vault_cols) {
+        s.contacts_ui.editor = None;
+        let r = s
+            .vault
+            .set_vault_columns(&vault_cols)
+            .and_then(|()| s.vault.set_contact_columns(&contact_cols));
+        if let Err(e) = r {
             s.toast = Some(format!("Columns not saved: {e}").into());
         }
         cx.notify();
@@ -413,11 +418,10 @@ impl CleisApp {
 
     pub fn reorder_column(&mut self, moved: &ColumnId, onto: &ColumnId, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let mut ordered: Vec<&ColumnDef> = s
-            .columns
-            .iter()
-            .filter(|c| c.table == Table::Vault)
-            .collect();
+        let Some(table) = s.columns.iter().find(|c| &c.id == moved).map(|c| c.table) else {
+            return;
+        };
+        let mut ordered: Vec<&ColumnDef> = s.columns.iter().filter(|c| c.table == table).collect();
         ordered.sort_by_key(|c| c.order);
         let Some(to) = ordered.iter().position(|c| &c.id == onto) else {
             return;
@@ -470,6 +474,13 @@ impl CleisApp {
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
+        let Some(table) = s.columns_menu.as_ref().map(|m| m.table) else {
+            return;
+        };
+        let contacts_folder = match &s.contacts_ui.filter {
+            crate::screens::contacts::ContactFilter::Folder(f) => Some(*f),
+            _ => None,
+        };
         let Some(n) = s.columns_menu.as_mut().and_then(|m| m.creating.as_mut()) else {
             return;
         };
@@ -477,6 +488,8 @@ impl CleisApp {
         let extra = n.extra.read(cx).value().to_string();
         let scope = if n.all_spaces {
             ColumnScope::AllSpaces
+        } else if table == Table::Contacts {
+            ColumnScope::Space(contacts_folder.unwrap_or_else(|| s.vault.home_space()))
         } else {
             match s.filter {
                 crate::app::Filter::Space(sp) => ColumnScope::Space(sp),
@@ -484,7 +497,7 @@ impl CleisApp {
             }
         };
         let result = kind_from(NEW_KINDS[n.kind].0, &extra, &s.prefs.currency)
-            .and_then(|k| add_custom(&mut s.columns, Table::Vault, &name, k, scope));
+            .and_then(|k| add_custom(&mut s.columns, table, &name, k, scope));
         match result {
             Ok(_) => {
                 if let Some(m) = s.columns_menu.as_mut() {
