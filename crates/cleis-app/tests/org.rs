@@ -542,6 +542,8 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| {
         w.click("create-name", cx);
         w.input("Example Studio", cx);
+        w.click("create-me", cx);
+        w.input("Lea Martin", cx);
         w.click("create-org", cx);
     });
     for _ in 0..50 {
@@ -562,6 +564,8 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
         assert!(o.m.address.starts_with("127.0.0.1:"));
         assert!(o.local.host_dir.is_some());
         assert!(o.error.is_none(), "{:?}", o.error);
+        // Audit L-10: the name typed, not the computer's account.
+        assert_eq!(o.me().map(|m| m.name.as_str()), Some("Lea Martin"));
         assert_eq!(
             o.role().map(|r| r.id.clone()).as_deref(),
             Some(cleis_core::org::SUPER_ADMIN)

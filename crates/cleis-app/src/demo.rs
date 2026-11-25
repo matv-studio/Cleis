@@ -626,8 +626,9 @@ pub fn org(s: &mut crate::app::Session) {
         208,
         y(18, 2),
         0,
+        // Audit L-15: as the app records it (vCard export of shared contacts).
         Action::Exported,
-        "General (5 items)",
+        "5 contacts",
         "General",
         "MAC-LEA · macOS 15",
     ));
@@ -727,7 +728,17 @@ pub fn org(s: &mut crate::app::Session) {
         methods: vec![Method::AuthenticatorApp, Method::Email, Method::Google],
         providers: vec![],
     };
-    let names = spaces.iter().map(|x| (x.0, x.1.clone())).collect();
+    // The organization's contact folders belong to it too (audit L-13).
+    let names = spaces
+        .iter()
+        .map(|x| (x.0, x.1.clone()))
+        .chain(
+            s.spaces
+                .iter()
+                .filter(|x| x.kind == SpaceKind::Organization && x.for_contacts)
+                .map(|x| (x.id, x.name.clone())),
+        )
+        .collect();
     let ui = crate::screens::org::OrgUi {
         devices: Some(vec![
             DeviceView {

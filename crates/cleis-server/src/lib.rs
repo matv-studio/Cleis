@@ -452,6 +452,36 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// Sends an invitation by e-mail when `[smtp]` is set up (blocking; audit L-17). A test
+    /// server keeps it in its outbox, as codes.
+    pub fn deliver_invite(&self, to: &str, address: &str, code: &str) -> Result<(), String> {
+        if let Ok(mut o) = self.outbox.lock()
+            && let Some(v) = o.as_mut()
+        {
+            v.push(delivery::Sent {
+                to: delivery::To::Email(to.to_owned()),
+                code: code.to_owned(),
+            });
+            return Ok(());
+        }
+        let cfg = self.config.smtp.as_ref().ok_or("e-mail is not set up")?;
+        let org = {
+            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            String::from_utf8(
+                db::meta_get(&conn, "org_name")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+            )
+            .unwrap_or_default()
+        };
+        delivery::send_invite(cfg, &org, to, address, code)
+    }
+
+    pub fn emails_invites(&self) -> bool {
+        self.config.smtp.is_some() || self.outbox.lock().is_ok_and(|o| o.is_some())
+    }
+
     /// Sends a code by e-mail or SMS (blocking: call from a blocking task).
     pub fn deliver(&self, to: &delivery::To, code: &str) -> Result<(), String> {
         if let Ok(mut o) = self.outbox.lock()

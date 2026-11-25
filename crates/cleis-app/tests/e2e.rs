@@ -1359,9 +1359,26 @@ fn biometric_unlock(cx: &mut TestAppContext) {
     });
     *FAKE.lock().unwrap() = Some(true);
     act(cx, h, |w, cx| w.click("bio", cx));
+    // Audit L-19: a new master password offers to turn the device key off.
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Security", cx));
-    act(cx, h, |w, cx| w.click("bio", cx));
+    act(cx, h, |w, cx| w.click("chpw", cx));
+    act(cx, h, |w, cx| {
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.click("pw-new", cx);
+        w.input("A-new long pass 2026", cx);
+        w.click("pw-confirm", cx);
+        w.input("A-new long pass 2026", cx);
+        w.click("chpw-ok", cx);
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.confirm.is_some(), "turn the device key off?");
+    });
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
     assert!(!cleis_app::bio::enabled(&path));
     *FAKE.lock().unwrap() = None;
 }
@@ -1609,5 +1626,54 @@ fn health_by_vault(cx: &mut TestAppContext) {
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert!(!s.health.vault_menu);
+    });
+}
+
+/// Audit L-6: the server's address is changed on Settings › Server (its key stays pinned);
+/// L-18: Activity can be hidden from Preferences › Tabs.
+#[gpui_kit::test]
+fn server_address_and_activity_tab(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Server", cx));
+    act(cx, h, |w, cx| w.click("server-address-value", cx));
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input("not an address", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input("10.0.0.20:8443", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let o = s.org.as_ref().unwrap();
+        assert_eq!(o.m.address, "10.0.0.20:8443");
+        assert!(o.ui.address.is_none());
+        assert!(!o.m.pins.is_empty(), "same key, still pinned");
+    });
+
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("tab-activity", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.prefs.tabs.activity);
     });
 }

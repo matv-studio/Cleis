@@ -412,7 +412,29 @@ fn preferences(
                             |p| p.tabs.health = !p.tabs.health,
                             cx,
                         )),
-                ),
+                )
+                // Audit L-18 (D-40): Activity can be hidden too, when an organization shows it.
+                .when(s.org.is_some(), |d| {
+                    d.child(
+                        row(t, false)
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(icon("journal", 16., t.text_muted))
+                                    .child("Activity"),
+                            )
+                            .child(toggle(
+                                "tab-activity",
+                                t,
+                                p.tabs.activity,
+                                |p| p.tabs.activity = !p.tabs.activity,
+                                cx,
+                            )),
+                    )
+                }),
         )
         .child(
             section(t)
@@ -1229,6 +1251,9 @@ impl CleisApp {
         if s.scope != scope {
             s.scope = scope;
             s.refilter();
+        }
+        if !s.prefs.tabs.activity && s.tab == crate::app::Tab::Activity {
+            s.tab = crate::app::Tab::Vault;
         }
         if let Err(e) = s.vault.set_preferences(&s.prefs) {
             s.toast = Some(format!("Not saved: {e}").into());

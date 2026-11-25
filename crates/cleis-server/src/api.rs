@@ -2018,33 +2018,54 @@ async fn invite(
     if !email.contains('@') {
         return Err(ApiErr::bad("Enter an e-mail address."));
     }
-    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
-    if !db::roles(&conn).iter().any(|r| r.id == req.role) {
-        return Err(ApiErr::bad("No such role."));
+    let (id, code) = {
+        let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+        if !db::roles(&conn).iter().any(|r| r.id == req.role) {
+            return Err(ApiErr::bad("No such role."));
+        }
+        for s in &req.spaces {
+            guard_reserved(&conn, &caller, *s)?;
+        }
+        if members(&conn)?
+            .iter()
+            .any(|m| m.email.eq_ignore_ascii_case(email))
+        {
+            return Err(ApiErr::bad("Already a member."));
+        }
+        let made = create_invite(
+            &conn,
+            &app.cert,
+            req.name.trim(),
+            email,
+            &req.role,
+            &req.spaces,
+            Some(caller.id),
+            now(),
+        )?;
+        let mut e = caller.event(Action::Invited);
+        e.note = email.to_owned();
+        app.record(&conn, e)?;
+        made
+    };
+    let emailed = mail_invite(&app, email, &req.address, &code).await;
+    Ok(Json(InviteReply { id, code, emailed }))
+}
+
+/// Audit L-17: the invitation goes by e-mail when the server can send one and knows how members
+/// reach it; otherwise the admin passes the code on.
+async fn mail_invite(app: &Arc<App>, to: &str, address: &str, code: &str) -> bool {
+    if address.trim().is_empty() || !app.emails_invites() {
+        return false;
     }
-    for s in &req.spaces {
-        guard_reserved(&conn, &caller, *s)?;
-    }
-    if members(&conn)?
-        .iter()
-        .any(|m| m.email.eq_ignore_ascii_case(email))
-    {
-        return Err(ApiErr::bad("Already a member."));
-    }
-    let (id, code) = create_invite(
-        &conn,
-        &app.cert,
-        req.name.trim(),
-        email,
-        &req.role,
-        &req.spaces,
-        Some(caller.id),
-        now(),
-    )?;
-    let mut e = caller.event(Action::Invited);
-    e.note = email.to_owned();
-    app.record(&conn, e)?;
-    Ok(Json(InviteReply { id, code }))
+    let (app, to, address, code) = (
+        app.clone(),
+        to.to_owned(),
+        address.trim().to_owned(),
+        code.to_owned(),
+    );
+    tokio::task::spawn_blocking(move || app.deliver_invite(&to, &address, &code))
+        .await
+        .is_ok_and(|r| r.is_ok())
 }
 
 async fn revoke_invite(
@@ -2062,28 +2083,38 @@ async fn revoke_invite(
 async fn renew_invite(
     State(app): State<Arc<App>>,
     caller: Caller,
-    Json(req): Json<IdOnly>,
+    Json(req): Json<RenewInvite>,
 ) -> Res<InviteReply> {
     caller.can(Perm::Manage)?;
     let token: [u8; 10] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
-    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
-    guard_invite(&conn, &caller, &req.id.to_string())?;
-    let t = now();
-    if conn.execute(
-        "UPDATE invites SET token_hash = ?2, created = ?3, expires = ?4 WHERE id = ?1",
-        params![
-            req.id.to_string(),
-            &sha256(&token)[..],
-            t,
-            t + INVITE_DAYS * 86_400
-        ],
-    )? != 1
-    {
-        return Err(ApiErr::not_found("No such invitation."));
-    }
+    let email: String = {
+        let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+        guard_invite(&conn, &caller, &req.id.to_string())?;
+        let t = now();
+        if conn.execute(
+            "UPDATE invites SET token_hash = ?2, created = ?3, expires = ?4 WHERE id = ?1",
+            params![
+                req.id.to_string(),
+                &sha256(&token)[..],
+                t,
+                t + INVITE_DAYS * 86_400
+            ],
+        )? != 1
+        {
+            return Err(ApiErr::not_found("No such invitation."));
+        }
+        conn.query_row(
+            "SELECT email FROM invites WHERE id = ?1",
+            [req.id.to_string()],
+            |r| r.get(0),
+        )?
+    };
+    let code = crate::code_for(token, &app.cert);
+    let emailed = mail_invite(&app, &email, &req.address, &code).await;
     Ok(Json(InviteReply {
         id: req.id,
-        code: crate::code_for(token, &app.cert),
+        code,
+        emailed,
     }))
 }
 

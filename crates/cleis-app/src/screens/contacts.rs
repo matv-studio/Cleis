@@ -262,35 +262,56 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .test_support(),
         );
     }
+    // Audit L-13: one group per organization, under its name (D-69); folders no membership
+    // claims under "Shared".
     let org: Vec<_> = folders(SpaceKind::Organization).collect();
-    let org_name = s
-        .spaces
-        .iter()
-        .find(|sp| sp.kind == SpaceKind::Organization && !sp.for_contacts)
-        .map(|sp| sp.name.split(" — ").next().unwrap_or(&sp.name).to_owned())
-        .unwrap_or_else(|| "Shared".into());
-    side = side.child(
-        group_head(t, &org_name).child(
-            icon_button("new-folder", t, "plus", true)
-                .tooltip(tip("New folder"))
-                .on_click(cx.listener(|this, _, window, cx| this.start_new_folder(window, cx)))
-                .test_support(),
-        ),
-    );
-    for sp in org {
-        let id = sp.id;
-        side = side.child(
-            side_item(
-                format!("cf-folder-{}", sp.id),
-                t,
-                Some("folder"),
-                sp.name.clone(),
-                Some(count(sp.id)),
-                *f == ContactFilter::Folder(id),
+    let mut groups: Vec<(String, Vec<&cleis_store::SpaceInfo>)> = s
+        .all_orgs()
+        .map(|o| {
+            (
+                o.m.name.clone(),
+                org.iter()
+                    .copied()
+                    .filter(|sp| o.names.contains_key(&sp.id))
+                    .collect(),
             )
-            .on_click(cx.listener(set(ContactFilter::Folder(id))))
-            .test_support(),
-        );
+        })
+        .collect();
+    let orphans: Vec<_> = org
+        .iter()
+        .copied()
+        .filter(|sp| s.org_of(sp.id).is_none())
+        .collect();
+    if !orphans.is_empty() || groups.is_empty() {
+        groups.push(("Shared".into(), orphans));
+    }
+    for (gi, (name, spaces)) in groups.into_iter().enumerate() {
+        let head = group_head(t, &name);
+        side = side.child(if gi == 0 {
+            head.child(
+                icon_button("new-folder", t, "plus", true)
+                    .tooltip(tip("New folder"))
+                    .on_click(cx.listener(|this, _, window, cx| this.start_new_folder(window, cx)))
+                    .test_support(),
+            )
+        } else {
+            head
+        });
+        for sp in spaces {
+            let id = sp.id;
+            side = side.child(
+                side_item(
+                    format!("cf-folder-{}", sp.id),
+                    t,
+                    Some("folder"),
+                    sp.name.clone(),
+                    Some(count(sp.id)),
+                    *f == ContactFilter::Folder(id),
+                )
+                .on_click(cx.listener(set(ContactFilter::Folder(id))))
+                .test_support(),
+            );
+        }
     }
     if let Some(input) = &ui.new_folder {
         side = side.child(

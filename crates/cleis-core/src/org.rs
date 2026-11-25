@@ -959,12 +959,26 @@ pub struct NewInvite {
     pub email: String,
     pub role: String,
     pub spaces: Vec<SpaceId>,
+    /// The server's address as members reach it: put in the invitation e-mail (audit L-17).
+    #[serde(default)]
+    pub address: String,
+}
+
+/// A new code for an invitation (Resend).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RenewInvite {
+    pub id: uuid::Uuid,
+    #[serde(default)]
+    pub address: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InviteReply {
     pub id: uuid::Uuid,
     pub code: String,
+    /// Sent by e-mail by the server (its `[smtp]` is set up).
+    #[serde(default)]
+    pub emailed: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

@@ -248,6 +248,7 @@ fn organization_flow() {
                 email: "hugo@example-studio.com".into(),
                 role: "read_only".into(),
                 spaces: vec![general],
+                address: String::new(),
             },
         )
         .unwrap();
@@ -270,6 +271,7 @@ fn organization_flow() {
                 email: "x@example-studio.com".into(),
                 role: "member".into(),
                 spaces: vec![],
+                address: String::new(),
             },
         )
         .unwrap_err();
@@ -914,6 +916,38 @@ max_token_age = 3_000_000_000
     assert_eq!(st.methods.len(), 4);
     assert_eq!(st.providers[0].method, Method::Google);
 
+    // Audit L-17: with [smtp] set up, an invitation goes by e-mail, and again on Resend.
+    let inv: InviteReply = lea
+        .client
+        .call(
+            "/v1/invites",
+            &NewInvite {
+                name: "Noa".into(),
+                email: "noa@example-studio.com".into(),
+                role: "member".into(),
+                spaces: vec![],
+                address: "vault.example-studio.lan:8443".into(),
+            },
+        )
+        .unwrap();
+    assert!(inv.emailed);
+    let again: InviteReply = lea
+        .client
+        .call(
+            "/v1/invites/renew",
+            &RenewInvite {
+                id: inv.id,
+                address: "vault.example-studio.lan:8443".into(),
+            },
+        )
+        .unwrap();
+    assert!(again.emailed);
+    let sent = app.sent_codes();
+    for c in [&inv.code, &again.code] {
+        assert!(sent.iter().any(|s| s.code == *c
+            && s.to == cleis_server::delivery::To::Email("noa@example-studio.com".into())));
+    }
+
     // Not allowed by the policy yet.
     let start = |m: Method, target: &str| CodeStart {
         method: m,
@@ -1041,6 +1075,7 @@ fn admin_delegations() {
                 email: email.into(),
                 role: role.into(),
                 spaces: vec![],
+                address: String::new(),
             },
         )
     };

@@ -728,6 +728,24 @@ impl CleisApp {
                         s.security.dialog = None;
                         this.update_prefs(|p| p.password_changed = Some(cleis_core::now()), cx);
                         this.toast("Master password changed", cx);
+                        // Audit L-19: the device key still opens the vault; offer to drop it.
+                        let path = this.path.clone();
+                        if crate::bio::enabled(&path) {
+                            let name = crate::bio::name();
+                            this.ask(
+                                crate::app::Confirm {
+                                    title: format!("Turn off {name} on this device?").into(),
+                                    body: format!(
+                                        "{name} still opens the vault without the new password. \
+                                         Turn it off if the old one may be known."
+                                    )
+                                    .into(),
+                                    button: "Turn off".into(),
+                                    action: crate::app::ConfirmAction::DropBiometric,
+                                },
+                                cx,
+                            );
+                        }
                     }
                     other => {
                         if let Some(SecDialog::ChangePassword { error, busy, .. }) =

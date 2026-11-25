@@ -62,6 +62,7 @@ pub enum ConfirmAction {
     LeaveOrg,
     RotateKey,
     DisconnectPlace,
+    DropBiometric,
 }
 
 pub struct Welcome {

@@ -312,6 +312,13 @@ impl CleisApp {
             ConfirmAction::LeaveOrg => self.org_leave(cx),
             ConfirmAction::RotateKey => self.org_rotate(cx),
             ConfirmAction::DisconnectPlace => self.disconnect_sync(cx),
+            ConfirmAction::DropBiometric => {
+                crate::bio::disable(&self.path);
+                self.toast(
+                    format!("{} turned off on this device", crate::bio::name()),
+                    cx,
+                );
+            }
             ConfirmAction::EmptyTrash => {
                 let ids: Vec<_> = s.trash.iter().map(|e| e.id).collect();
                 let mut failed = 0;

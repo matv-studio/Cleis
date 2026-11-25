@@ -64,6 +64,8 @@ pub struct JoinForm {
     pub busy: bool,
     /// Create an organization: its name, and where the server runs (D-63).
     pub org_name: Option<Entity<InputState>>,
+    /// Your name as the new organization's first member (audit L-10).
+    pub creator: Option<Entity<InputState>>,
     pub elsewhere: bool,
 }
 
@@ -74,6 +76,8 @@ pub struct OrgUi {
     pub invite: Option<InviteForm>,
     /// Code of the invitation just made, shown with a copy button.
     pub invite_code: Option<String>,
+    /// Where the server e-mailed the invitation, if it did.
+    pub invite_sent: Option<String>,
     pub new_space: Option<SpaceForm>,
     pub new_role: Option<RoleForm>,
     pub rekey: Option<RekeyForm>,
@@ -99,6 +103,8 @@ pub struct OrgUi {
     pub profile: Option<(Entity<InputState>, Entity<InputState>)>,
     /// Settings › Spaces: renaming one (its name box), deleting one (confirmation).
     pub rename: Option<(SpaceId, Entity<InputState>)>,
+    /// Server page: the address being changed (audit L-6), and its subscription.
+    pub address: Option<(Entity<InputState>, Subscription)>,
     /// Space to reserve once its re-encryption to end-to-end is done.
     pub reserve_after: Option<SpaceId>,
     pub delete_space: Option<SpaceId>,
@@ -110,7 +116,7 @@ pub struct OrgUi {
 impl OrgUi {
     /// Escape: the open menu first, then the open dialog. Returns whether one was open.
     pub fn close_top(&mut self) -> bool {
-        if self.menu.take().is_some() {
+        if self.menu.take().is_some() || self.address.take().is_some() {
             return true;
         }
         let open = self.invite.is_some()
@@ -1732,12 +1738,26 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     d.child(
                         row(t, true)
                             .child(div().flex_1().child("Address"))
-                            .child(
-                                div()
+                            .child(match &o.ui.address {
+                                Some((input, _)) => div()
+                                    .w(px(260.))
+                                    .child(Input::new(input).id("server-address"))
+                                    .into_any_element(),
+                                None => div()
+                                    .id("server-address-value")
                                     .font_family(FONT_MONO)
                                     .text_color(t.text_muted)
-                                    .child(o.m.address.clone()),
-                            )
+                                    .cursor_pointer()
+                                    .tooltip(tip(
+                                        "Change it when the server moved (same server, same key)",
+                                    ))
+                                    .child(o.m.address.clone())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.edit_server_address(window, cx)
+                                    }))
+                                    .test_support()
+                                    .into_any_element(),
+                            })
                             .child(status),
                     )
                 })
@@ -1846,6 +1866,9 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             Some("Shared spaces for a team: Cleis runs its server for you."),
         ))
         .child(field(t, "Name", Input::new(name).id("create-name")))
+        .when_some(j.creator.as_ref().filter(|_| !j.elsewhere), |d, c| {
+            d.child(field(t, "Your name", Input::new(c).id("create-me")))
+        })
         .child(
             div()
                 .id("create-where")
@@ -1904,9 +1927,21 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             return;
                         };
                         let n = name.read(cx).value().trim().to_owned();
-                        if n.is_empty() {
+                        let me = this
+                            .join_form_mut()
+                            .and_then(|j| j.creator.clone())
+                            .map(|c| c.read(cx).value().trim().to_owned())
+                            .unwrap_or_default();
+                        let missing = if n.is_empty() {
+                            Some("Name the organization")
+                        } else if me.is_empty() {
+                            Some("Enter your name")
+                        } else {
+                            None
+                        };
+                        if let Some(why) = missing {
                             if let Some(j) = this.join_form_mut() {
-                                j.error = Some("Name the organization".into());
+                                j.error = Some(why.into());
                             }
                             cx.notify();
                             return;
@@ -1915,7 +1950,7 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             this.toast("Not in the demo", cx);
                             return;
                         }
-                        this.org_create_here(n, cx);
+                        this.org_create_here(n, me, cx);
                     }))
                     .test_support(),
             ),
@@ -2767,7 +2802,15 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             .child(
                 div()
                     .text_color(t.text_muted)
-                    .child("Send this code with the server address. Valid 7 days, once."),
+                    .child(match &o.ui.invite_sent {
+                        // Audit L-17: the server sent it.
+                        Some(to) => {
+                            format!("Sent to {to} with the server address. Valid 7 days, once.")
+                        }
+                        None => {
+                            "Send this code with the server address. Valid 7 days, once.".into()
+                        }
+                    }),
             )
             .child(
                 value_box(t)
@@ -3036,10 +3079,24 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
     if let (Some(id), Some(st)) = (o.ui.delete_space, st) {
         let n = st.spaces.iter().find(|x| x.id == id).map_or(0, |x| x.items);
         let body = card(t, &format!("Delete “{}”?", o.space_name(id)))
-            .child(div().text_color(t.text_muted).child(format!(
-                "Its {n} item{} are erased for every member. A backup of the organization keeps them.",
-                if n == 1 { "" } else { "s" }
-            )))
+            .child(div().text_color(t.text_muted).child({
+                // Audit L-16: say whether a backup really keeps them.
+                let last = s
+                    .vault
+                    .path()
+                    .and_then(|p| crate::org::org_backups(&p, &o.m).first().map(|b| b.2));
+                format!(
+                    "Its {n} item{} are erased for every member. {}",
+                    if n == 1 { "" } else { "s" },
+                    match last {
+                        Some(ts) => format!(
+                            "The last backup of the organization, {}, keeps them.",
+                            crate::format::date(ts)
+                        ),
+                        None => "No backup of the organization was made on this computer.".into(),
+                    }
+                )
+            }))
             .child(
                 div()
                     .pt(px(8.))
@@ -3107,6 +3164,7 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
     let name = make("", window, cx);
     let email = make("", window, cx);
     let org_name = make("Example Studio", window, cx);
+    let creator = make("Lea Martin", window, cx);
     let subs = [&address, &code]
         .into_iter()
         .map(|e| {
@@ -3124,6 +3182,7 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
             name: Some(name),
             email: Some(email),
             org_name: Some(org_name),
+            creator: Some(creator),
             ..Default::default()
         },
         subs,
@@ -3382,6 +3441,7 @@ impl CleisApp {
             email,
             role: f.role.clone(),
             spaces: f.spaces.iter().copied().collect(),
+            address: o.m.address.clone(),
         };
         self.org_invite(req, cx);
     }
@@ -3633,14 +3693,15 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                     .and_then(|s| {
                         s.spaces
                             .iter()
-                            .find(|x| o.names.get(&x.id).is_some_and(|n| n == "Accounting"))
+                            // Audit L-15: a change the server allows (Design to end-to-end).
+                            .find(|x| o.names.get(&x.id).is_some_and(|n| n == "Design"))
                     })
                     .map(|x| x.id);
                 if let Some(id) = acc {
-                    o.ui.changes = vec![(id, SpaceMode::Standard)];
+                    o.ui.changes = vec![(id, SpaceMode::EndToEnd)];
                     o.ui.rekey = Some(RekeyForm {
                         space: id,
-                        to: SpaceMode::Standard,
+                        to: SpaceMode::EndToEnd,
                         backup_first: true,
                     });
                 }
@@ -4102,6 +4163,54 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 }
 
 impl CleisApp {
+    /// Audit L-6: the server's address changes (new IP, new name); its pinned key does not, so
+    /// another server at that address is refused.
+    pub fn edit_server_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let current = o.m.address.clone();
+        let input = cx.new(|cx| InputState::new(window, cx));
+        input.update(cx, |i, cx| {
+            i.set_value(current, window, cx);
+            i.focus(window, cx);
+        });
+        let sub = cx.subscribe_in(
+            &input,
+            window,
+            |this, input, ev: &gpui_kit::component::input::InputEvent, _, cx| {
+                if let gpui_kit::component::input::InputEvent::PressEnter { .. } = ev {
+                    let value = input.read(cx).value().trim().to_string();
+                    this.set_server_address(&value, cx);
+                }
+            },
+        );
+        if let Some(o) = org_mut(self) {
+            o.ui.address = Some((input, sub));
+        }
+        cx.notify();
+    }
+
+    pub fn set_server_address(&mut self, value: &str, cx: &mut Context<Self>) {
+        let ok = value
+            .rsplit_once(':')
+            .is_some_and(|(h, p)| !h.is_empty() && !h.contains('/') && p.parse::<u16>().is_ok());
+        if !ok {
+            self.toast("host:port, e.g. vault.example-studio.lan:8443", cx);
+            return;
+        }
+        let Some(s) = self.session() else { return };
+        if let Some(o) = s.org.as_mut() {
+            o.ui.address = None;
+            if o.m.address != value {
+                o.m.address = value.to_owned();
+                o.token = None;
+                o.error = None;
+                o.again = true;
+                crate::org::save_memberships(s);
+            }
+        }
+        cx.notify();
+    }
+
     pub fn open_rename(&mut self, id: SpaceId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(o) = org_mut(self) else { return };
         let name = o.space_name(id);

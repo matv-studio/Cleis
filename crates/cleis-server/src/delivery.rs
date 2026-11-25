@@ -23,15 +23,45 @@ pub fn text(org: &str, code: &str) -> String {
 }
 
 pub fn send_email(cfg: &Smtp, org: &str, to: &str, code: &str) -> Result<(), String> {
+    send_mail(cfg, to, &format!("Cleis code: {code}"), text(org, code))
+}
+
+/// The invitation's text: what to type in Cleis (audit L-17).
+pub fn invite_text(org: &str, address: &str, code: &str) -> String {
+    format!(
+        "You are invited to {org} in Cleis.\n\n\
+         In Cleis, choose \"Join an organization\" and enter:\n\
+         Server: {address}\n\
+         Invitation code: {code}\n\n\
+         The code works once and expires in 7 days."
+    )
+}
+
+pub fn send_invite(
+    cfg: &Smtp,
+    org: &str,
+    to: &str,
+    address: &str,
+    code: &str,
+) -> Result<(), String> {
+    send_mail(
+        cfg,
+        to,
+        &format!("Invitation to {org} (Cleis)"),
+        invite_text(org, address, code),
+    )
+}
+
+fn send_mail(cfg: &Smtp, to: &str, subject: &str, body: String) -> Result<(), String> {
     use lettre::message::header::ContentType;
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::{Message, SmtpTransport, Transport};
     let msg = Message::builder()
         .from(cfg.from.parse().map_err(|e| format!("from: {e}"))?)
         .to(to.parse().map_err(|e| format!("{to}: {e}"))?)
-        .subject(format!("Cleis code: {code}"))
+        .subject(subject)
         .header(ContentType::TEXT_PLAIN)
-        .body(text(org, code))
+        .body(body)
         .map_err(|e| e.to_string())?;
     let builder = match cfg.security.as_str() {
         "tls" => SmtpTransport::relay(&cfg.host),

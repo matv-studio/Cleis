@@ -719,7 +719,7 @@ impl CleisApp {
 
     /// Creates an organization whose server runs on this computer, and joins it as its first
     /// administrator (D-63).
-    pub fn org_create_here(&mut self, name: String, cx: &mut Context<Self>) {
+    pub fn org_create_here(&mut self, name: String, me: String, cx: &mut Context<Self>) {
         let Some(exe) = crate::host::server_exe() else {
             if let Some(s) = self.session() {
                 s.join.error = Some("cleis-server is not beside Cleis".into());
@@ -732,9 +732,6 @@ impl CleisApp {
         let signing = SigningKeyPair::from_secret_bytes(*s.vault.signing_key().secret_bytes());
         s.join.busy = true;
         s.join.error = None;
-        let me = std::env::var("USERNAME")
-            .or_else(|_| std::env::var("USER"))
-            .unwrap_or_else(|_| "Administrator".into());
         let dir = crate::host::default_dir();
         let task = cx.background_spawn(async move {
             let port = crate::host::free_port();
@@ -1527,12 +1524,14 @@ impl CleisApp {
     // ---------- Admin actions ----------
 
     pub fn org_invite(&mut self, req: NewInvite, cx: &mut Context<Self>) {
+        let to = req.email.clone();
         self.org_request::<_, InviteReply>(
             "/v1/invites",
             req,
-            |app, r, cx| {
+            move |app, r, cx| {
                 if let (Ok(r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
                     o.ui.invite_code = Some(r.code);
+                    o.ui.invite_sent = r.emailed.then_some(to);
                 }
                 cx.notify();
             },
@@ -1674,12 +1673,26 @@ impl CleisApp {
 
     pub fn org_invite_action(&mut self, id: uuid::Uuid, renew: bool, cx: &mut Context<Self>) {
         if renew {
+            let (address, to) = self
+                .session()
+                .and_then(|s| s.org.as_ref())
+                .map(|o| {
+                    let to = o
+                        .state
+                        .as_ref()
+                        .and_then(|st| st.invites.iter().find(|i| i.id == id))
+                        .map(|i| i.email.clone())
+                        .unwrap_or_default();
+                    (o.m.address.clone(), to)
+                })
+                .unwrap_or_default();
             self.org_request::<_, InviteReply>(
                 "/v1/invites/renew",
-                IdOnly { id },
-                |app, r, cx| {
+                RenewInvite { id, address },
+                move |app, r, cx| {
                     if let (Ok(r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
                         o.ui.invite_code = Some(r.code);
+                        o.ui.invite_sent = r.emailed.then_some(to);
                     }
                     cx.notify();
                 },
