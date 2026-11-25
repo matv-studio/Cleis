@@ -315,6 +315,7 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
     }
     div()
         .absolute()
+        .occlude()
         .top(px(36.))
         .left_0()
         .child(row)

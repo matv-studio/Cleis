@@ -353,3 +353,44 @@ pub fn keys(t: &Tokens, ks: &[&str]) -> Div {
     }
     d
 }
+
+/// `.menu`: floating list (absolute; place it under its button).
+pub fn menu_box(t: &Tokens) -> Div {
+    div()
+        .absolute()
+        // Clicks on the menu must not reach what lies under it.
+        .occlude()
+        .min_w(px(180.))
+        .p(px(4.))
+        .flex()
+        .flex_col()
+        .bg(t.surface_raised)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD)
+        .shadow_lg()
+}
+
+/// `.menu-item`.
+pub fn menu_item(
+    id: impl Into<SharedString>,
+    t: &Tokens,
+    icon_name: Option<&str>,
+    label: impl Into<SharedString>,
+    danger: bool,
+) -> Stateful<Div> {
+    let fg = if danger { t.danger_text } else { t.text };
+    div()
+        .id(ElementId::Name(id.into()))
+        .h(px(28.))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(RADIUS_SM)
+        .cursor_pointer()
+        .text_color(fg)
+        .hover(|d| d.bg(t.surface_hover))
+        .when_some(icon_name, |d, n| d.child(icon(n, 14., fg)))
+        .child(label.into())
+}

@@ -1,0 +1,7 @@
+Site/app,ID,MDP,URL,Abonnement,Prix (mensuel),N° de licences,Cout total,En +
+Figma,design@example-studio.com,s3cret-Figma!,https://figma.com,actif,15 €,4,60 €,Compte équipe
+Example Hosting,admin@example-studio.com,hx-2026-pass,example-hosting.com,actif,"9,99 €",1,"9,99 €",
+Example Mail,team@example-studio.com,mail-Pass-99,mail.example-mail.com,gratuit,,,,Boîte partagée
+Example Fonts,design@example-studio.com,fonts-Key-42,example-fonts.com,en cours,quinze euros,2,,
+Example Storage,studio@example-studio.com,st0rage!,example-storage.com,off,4 €,deux,,Ancien compte
+,ops@example-studio.com,ops-pass,example-status.com,actif,,,,

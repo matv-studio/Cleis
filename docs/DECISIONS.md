@@ -185,6 +185,20 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Limites de cette version : macOS sans lecture du champ ni de l'adresse (auto-type classique, non
     essayé faute de Mac) ; pas d'icône de zone de notification : Cleis doit rester ouvert ; Linux sans
     détection (développement seulement).
+- **D-54 Colonnes et import** (25/11/2026, écrans 02 et 14) :
+  - Menu *Columns* : clic = afficher / masquer, glisser = réordonner (déposer sur une colonne de l'autre
+    groupe l'affiche ou la masque aussi), corbeille au survol pour une colonne personnalisée. Les valeurs
+    des colonnes personnalisées se saisissent dans l'inspecteur, lues selon le type (date, nombre, prix,
+    liste…) ; une valeur refusée garde le champ en rouge et n'est pas écrite. Formules : calculées, non
+    saisissables.
+  - Import : étapes 1 (Fichier) et 3 (Vérification) ajoutées aux maquettes (14a, 14c). Une colonne Cleis
+    ne reçoit qu'une colonne du fichier (la précédente passe à *Skip*). Un élément déjà présent (même
+    espace, même nom et identifiant, sans tenir compte des accents ni de la casse) est ignoré par défaut.
+  - Page *Import & export* sous *My account* tant que le serveur n'existe pas (dans les maquettes elle
+    est dans le groupe de l'organisation). L'export chiffré reste grisé jusqu'à *Sync & backups*.
+  - Quick Access sous Windows : plus d'appui simulé sur Alt (GPUI et la reprise de Cleis) ; il arrivait
+    à l'appli au premier plan, qui affichait ses touches d'accès et gardait le clavier (essai Bloc-notes
+    du 25/11/2026). Reprise par une touche F22 factice, comme Chromium.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).

@@ -1,5 +1,6 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
-//! [--quick-access] [--menu columns|new-column] [--try-autofill]`
+//! [--quick-access] [--menu columns|new-column]
+//! [--import FILE [--review]] [--try-autofill]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -63,6 +64,8 @@ fn main() {
     let page = value("--page");
     let quick_access = flag("--quick-access") && unlocked;
     let menu = value("--menu").filter(|_| unlocked);
+    let import = value("--import").filter(|_| unlocked);
+    let review = flag("--review");
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
@@ -88,7 +91,8 @@ fn main() {
                 ..Default::default()
             };
             let path = path.clone();
-            let (tab, page, menu) = (tab.clone(), page.clone(), menu.clone());
+            let (tab, page, menu, import) =
+                (tab.clone(), page.clone(), menu.clone(), import.clone());
             gpui_kit::open_window(opts, cx, move |window, cx| {
                 cx.new(|cx| {
                     let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
@@ -114,9 +118,17 @@ fn main() {
                                     "autofill" => "Autofill",
                                     "sync" => "Sync & backups",
                                     "security" => "Security",
+                                    "import" => "Import & export",
                                     _ => "Preferences",
                                 };
                             }
+                        }
+                    }
+                    if let Some(f) = import.as_deref() {
+                        // Screen 14 for screenshots: `--import FILE [--review]`.
+                        cleis_app::screens::import::preload(&mut app, f.into(), cx);
+                        if review && let Some(s) = app.session() {
+                            s.import.step = 3;
                         }
                     }
                     if let Some(m) = menu.as_deref() {

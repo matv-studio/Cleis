@@ -92,6 +92,8 @@ pub struct Session {
     pub confirm: Option<Confirm>,
     /// Columns menu of the vault (screen 02).
     pub columns_menu: Option<crate::screens::columns::ColumnsMenu>,
+    /// Settings › Import & export, kept while moving between pages.
+    pub import: crate::screens::import::ImportState,
 }
 
 impl Session {
@@ -395,6 +397,7 @@ impl CleisApp {
             history_tab: false,
             confirm: None,
             columns_menu: None,
+            import: Default::default(),
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);

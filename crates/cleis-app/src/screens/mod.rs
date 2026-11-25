@@ -1,6 +1,7 @@
 pub mod columns;
 pub mod contacts;
 pub mod health;
+pub mod import;
 pub mod inspector;
 pub mod main;
 pub mod quick_access;

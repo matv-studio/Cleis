@@ -1,7 +1,7 @@
 //! CSV import (screen 14): reads exports from Notion, spreadsheets, browsers and other
 //! password managers, proposes a column mapping, and builds entries.
 
-use crate::column::Value;
+use crate::column::{ColumnDef, Value};
 use crate::entry::{Entry, Subscription};
 use crate::ids::{ColumnId, SpaceId};
 use crate::money::{Money, Period, period_hint};
@@ -449,8 +449,15 @@ pub struct Outcome {
     pub warnings: Vec<(usize, String)>,
 }
 
-/// Builds entries with the (possibly user-edited) mappings.
-pub fn build(p: &Preview, mappings: &[Mapping], space: SpaceId, currency: &str) -> Outcome {
+/// Builds entries with the (possibly user-edited) mappings. Values for custom columns are read
+/// with the column's type (`cols`).
+pub fn build(
+    p: &Preview,
+    mappings: &[Mapping],
+    space: SpaceId,
+    currency: &str,
+    cols: &[ColumnDef],
+) -> Outcome {
     let mut out = Outcome::default();
     for (ri, row) in p.rows.iter().enumerate() {
         let line = ri + 2;
@@ -510,9 +517,21 @@ pub fn build(p: &Preview, mappings: &[Mapping], space: SpaceId, currency: &str) 
                         .warnings
                         .push((line, format!("{}: date “{v}” not understood", m.header))),
                 },
-                Target::Custom(id) => {
-                    e.fields.insert(id.clone(), Value::Text(v.to_owned()));
-                }
+                Target::Custom(id) => match cols.iter().find(|c| &c.id == id) {
+                    Some(c) => match Value::parse(&c.kind, v) {
+                        Ok(Some(val)) => {
+                            e.fields.insert(id.clone(), val);
+                        }
+                        Ok(None) => {}
+                        Err(_) => out.warnings.push((
+                            line,
+                            format!("{}: “{v}” does not fit the column {}", m.header, c.name),
+                        )),
+                    },
+                    None => {
+                        e.fields.insert(id.clone(), Value::Text(v.to_owned()));
+                    }
+                },
                 Target::Skip => {}
             }
         }
@@ -530,6 +549,47 @@ pub fn build(p: &Preview, mappings: &[Mapping], space: SpaceId, currency: &str) 
     }
     out
 }
+
+/// Items of `new` already in `existing`: same space, name and username (letter case and
+/// accents ignored).
+pub fn already_there(new: &[Entry], existing: &[Entry]) -> Vec<bool> {
+    let key = |e: &Entry| (e.space, fold(&e.name), fold(&e.username));
+    let have: std::collections::HashSet<_> = existing.iter().map(key).collect();
+    new.iter().map(|e| have.contains(&key(e))).collect()
+}
+
+/// Display names of the import targets, in menu order.
+pub fn target_label(t: &Target) -> &'static str {
+    match t {
+        Target::Name => "Name",
+        Target::Username => "Username",
+        Target::Password => "Password",
+        Target::Website => "Website",
+        Target::Notes => "Notes",
+        Target::Totp => "2FA code",
+        Target::Subscription => "Subscription",
+        Target::Price => "Price",
+        Target::Licenses => "Licenses",
+        Target::Renewal => "Renewal",
+        Target::Custom(_) => "Custom",
+        Target::Skip => "Skip",
+    }
+}
+
+/// Built-in targets offered in the mapping menu (custom columns are added after them).
+pub const TARGETS: [Target; 11] = [
+    Target::Name,
+    Target::Username,
+    Target::Password,
+    Target::Website,
+    Target::Notes,
+    Target::Totp,
+    Target::Subscription,
+    Target::Price,
+    Target::Licenses,
+    Target::Renewal,
+    Target::Skip,
+];
 
 #[cfg(test)]
 mod tests {
@@ -560,7 +620,7 @@ Webflow,design@example-studio.com,wf,webflow.com,en cours,\"29,00 €\",1,29 €
             ]
         );
         assert_eq!(p.mappings[2].sample, "••••••••");
-        let o = build(&p, &p.mappings, SpaceId::new(), "EUR");
+        let o = build(&p, &p.mappings, SpaceId::new(), "EUR", &[]);
         assert_eq!(o.entries.len(), 3, "{:?}", o.warnings);
         let f = &o.entries[0];
         assert_eq!(
@@ -584,7 +644,7 @@ Webflow,design@example-studio.com,wf,webflow.com,en cours,\"29,00 €\",1,29 €
             preview("name;login_username;login_password;renewal\nBank;0042 1187;x;03/12/2026\n")
                 .unwrap();
         assert_eq!(p.delimiter, b';');
-        let o = build(&p, &p.mappings, SpaceId::new(), "EUR");
+        let o = build(&p, &p.mappings, SpaceId::new(), "EUR", &[]);
         assert_eq!(o.entries[0].renewal.as_deref(), Some("2026-12-03"));
         assert_eq!(parse_date("2026-12-03").as_deref(), Some("2026-12-03"));
         assert_eq!(parse_date("12/31/2026").as_deref(), Some("2026-12-31"));

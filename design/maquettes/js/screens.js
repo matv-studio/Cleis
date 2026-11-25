@@ -552,6 +552,46 @@ function importCsv() {
 }
 
 
+// ---------- 14b. Import: choose a file ----------
+const importSteps = (n) => {
+  const st = (k, label) => `<span class="step ${k < n ? 'done' : k === n ? 'is-active' : ''}"><b>${k < n ? i('check') : k}</b>${label}</span>`;
+  return `<div class="steps">${st(1, 'File')}<span class="line"></span>${st(2, 'Columns')}<span class="line"></span>${st(3, 'Review')}</div>`;
+};
+function importFichier() {
+  return settings('Import & export', `
+    <div class="page-head"><h1>Import</h1>${importSteps(1)}</div>
+    <div class="dropzone" style="padding:var(--s-6) var(--s-4);flex-direction:column;justify-content:center">
+      ${i('upload')}
+      <span style="color:var(--text-muted)" title="Notion, Excel, Google Sheets, Bitwarden, 1Password, Chrome, Firefox (CSV)">Drop a CSV file here</span>
+      <button class="btn">Choose a file</button>
+    </div>
+    <div class="section">${sectionTitle('Export')}
+      <div class="row"><span class="row-label" title="Readable only with the password you choose">Encrypted export</span><button class="btn btn--sm">${i('download')}Export</button></div>
+    </div>`);
+}
+
+// ---------- 14c. Import: review ----------
+function importRevue() {
+  const w = (line, msg) => `<tr><td class="num muted" style="width:64px">${line}</td><td>${msg}</td></tr>`;
+  return settings('Import & export', `
+    <div class="page-head"><h1>Import</h1>${importSteps(3)}</div>
+    <div class="section">
+      <div class="row" style="border:0;padding-top:0"><span class="row-label">${i('file')}notion-export.csv</span><span class="muted" style="font-size:var(--text-sm)">into General</span></div>
+      <div class="grid-3">
+        <div class="field"><span class="label">New items</span><span style="font-size:var(--text-xl);font-weight:var(--weight-strong)">84</span></div>
+        <div class="field"><span class="label" title="Same name and username as an item already in the space">Already in the vault</span><span style="font-size:var(--text-xl);font-weight:var(--weight-strong)">2</span></div>
+        <div class="field"><span class="label">Warnings</span><span style="font-size:var(--text-xl);font-weight:var(--weight-strong);color:var(--warning-text)">3</span></div>
+      </div>
+      <div class="row"><span class="row-label" title="Skipped items are not imported">Skip items already in the vault</span><span class="switch on"></span></div>
+    </div>
+    <div class="section" style="padding-bottom:var(--s-2)">${sectionTitle('Warnings', 'The rest of each row is imported.')}
+      <table class="table"><thead><tr><th class="num">Row</th><th>Message</th></tr></thead><tbody>
+        ${w(12, 'Price “quinze euros” not understood')}${w(31, 'Renewal date “fin mars” not understood')}${w(57, 'No name: the website is used')}
+      </tbody></table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:var(--s-2)"><button class="btn btn--ghost">Back</button><button class="btn btn--primary">Import 84 items</button></div>`);
+}
+
 // ---------- 16. Autofill (my account) ----------
 function remplissage(scroll = 0) {
   const lk = (c, app, prog, item, sp) => `<tr><td><span class="site"><span class="site-ico">${c}</span><span class="site-name">${app}</span></span></td><td class="muted"><span class="code">${prog}</span></td><td>${item}</td><td class="muted">${sp}</td><td style="text-align:right"><button class="icon-btn icon-btn--sm" aria-label="Unlink" title="Unlink">${i('x')}</button></td></tr>`;
@@ -808,7 +848,9 @@ export const SCREENS = {
   '11-journal': ['Activity log', journal],
   '12-sante': ['Health report', sante],
   '13-sauvegardes': ['Sync & backups — organization', sauvegardes],
+  '14a-import-fichier': ['Import: file', importFichier],
   '14-import': ['CSV import', importCsv],
+  '14c-import-revue': ['Import: review', importRevue],
   '15-preferences': ['Preferences', preferences],
   '16-remplissage': ['Autofill', remplissage],
   '17-acces-rapide': ['Quick Access', accesRapide],

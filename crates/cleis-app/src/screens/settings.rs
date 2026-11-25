@@ -12,11 +12,13 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, div, px};
 
-const PAGES: [(&str, &str); 4] = [
+const PAGES: [(&str, &str); 5] = [
     ("lock", "Security"),
     ("gear", "Preferences"),
     ("fill", "Autofill"),
     ("sync", "Sync & backups"),
+    // In the organisation group of the mockups; under My account until the server exists (D-54).
+    ("upload", "Import & export"),
 ];
 
 pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -73,6 +75,7 @@ pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
     }
     let body = match s.settings_page {
         "Autofill" => autofill(s, af, t, cx),
+        "Import & export" => super::import::page(s, t, cx),
         "Security" => security(&s.prefs, t, cx),
         "Sync & backups" => div()
             .child(

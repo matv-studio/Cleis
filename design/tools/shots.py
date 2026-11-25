@@ -7,7 +7,7 @@ names = sys.argv[1].split(',') if len(sys.argv) > 1 and sys.argv[1] != 'all' els
 themes = sys.argv[2].split(',') if len(sys.argv) > 2 else ['dark','light']
 import re, pathlib
 src = (pathlib.Path(__file__).resolve().parents[1] / 'maquettes/js/screens.js').read_text()
-allnames = re.findall(r"'(\d\d-[a-z0-9-]+)':", src)
+allnames = re.findall(r"'(\d\d[a-z]?-[a-z0-9-]+)':", src)
 names = names or allnames
 out = pathlib.Path(__file__).resolve().parents[2] / 'target/captures'; out.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as p:

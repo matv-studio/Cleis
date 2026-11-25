@@ -11,7 +11,7 @@ fn import(bytes: &[u8]) -> (Vec<Target>, cleis_core::import_csv::Outcome) {
     let text = decode(bytes);
     let p = preview(&text).expect("preview");
     let t = p.mappings.iter().map(|m| m.target.clone()).collect();
-    let o = build(&p, &p.mappings, SpaceId::new(), "EUR");
+    let o = build(&p, &p.mappings, SpaceId::new(), "EUR", &[]);
     (t, o)
 }
 

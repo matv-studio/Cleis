@@ -477,3 +477,64 @@ fn custom_column_add_fill_hide_delete(cx: &mut TestAppContext) {
         assert!(s.columns.iter().all(|c| c.id != col));
     });
 }
+
+/// Scenario (screen 14): import a Notion CSV export into the vault; a Cleis column picked twice
+/// leaves the first file column skipped; an item already in the vault is not imported again.
+#[gpui_kit::test]
+fn import_notion_csv(cx: &mut TestAppContext) {
+    use cleis_core::import_csv::Target;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let csv = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../design/tools/notion-export.csv");
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let before = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.entries.len(),
+        _ => panic!(),
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Import & export", cx));
+    app.update(cx, |a, cx| a.load_import(&csv, cx));
+    cx.run_until_parked();
+
+    // "En +" → Name: "Site/app" (Name) becomes Skip; then back.
+    act(cx, h, |w, cx| w.click("map-8", cx));
+    act(cx, h, |w, cx| w.click("map-8-0", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let m = &s.import.file.as_ref().unwrap().mappings;
+        assert_eq!(m[8].target, Target::Name);
+        assert_eq!(m[0].target, Target::Skip);
+    });
+    act(cx, h, |w, cx| w.click("map-0", cx));
+    act(cx, h, |w, cx| w.click("map-0-0", cx));
+    act(cx, h, |w, cx| w.click("map-8", cx));
+    act(cx, h, |w, cx| w.click("map-8-4", cx)); // Notes
+    act(cx, h, |w, cx| w.click("import-continue", cx));
+    act(cx, h, |w, cx| w.click("import-run", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.entries.len(), before + 5, "Figma already there, skipped");
+        assert_eq!(s.tab, Tab::Vault);
+        let e = s
+            .entries
+            .iter()
+            .find(|e| e.name == "Example Hosting")
+            .unwrap();
+        assert_eq!(e.price.as_ref().unwrap().yearly_cents(), 11_988);
+        assert!(s.entries.iter().any(|e| e.name == "example-status.com"));
+    });
+    let saved = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap()
+        .entries()
+        .unwrap();
+    assert_eq!(saved.len(), before + 5);
+}
