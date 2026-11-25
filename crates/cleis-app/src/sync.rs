@@ -54,6 +54,8 @@ pub struct SyncConfig {
     pub remote: Option<crate::remote::RemotePlace>,
     /// This device: its place secret is its own (audit L-8).
     pub device: String,
+    /// GitHub: when this device last pruned the branch's history (audit L-9).
+    pub last_prune: Option<i64>,
     /// Last try, successful or not: paces automatic syncs (not saved).
     #[serde(skip)]
     pub last_attempt: Option<i64>,
@@ -68,6 +70,7 @@ impl Default for SyncConfig {
             place: None,
             provider: Provider::Folder,
             auto: true,
+            last_prune: None,
             keep: 30,
             last_sync: None,
             last_error: None,
@@ -346,13 +349,43 @@ impl CleisApp {
                     }
                 }
             }
+            let ok = outcome.is_ok();
             this.update(cx, |app, cx| {
                 if let Some(s) = app.session() {
                     s.sync.busy = false;
                 }
                 app.sync_done(quiet, outcome, cx);
+                if ok {
+                    app.prune_place(cx);
+                }
             })
             .ok();
+        })
+        .detach();
+    }
+
+    /// Audit L-9: once a week, the GitHub branch keeps only its last versions.
+    fn prune_place(&mut self, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let now = cleis_core::now();
+        let due = s
+            .sync
+            .last_prune
+            .is_none_or(|t| now - t >= crate::remote::PRUNE_EVERY_DAYS * 86_400);
+        let Some(remote) = s.sync.remote.clone().filter(|_| due) else {
+            return;
+        };
+        if !matches!(remote, crate::remote::RemotePlace::GitHub { .. }) {
+            return;
+        }
+        let secret = s.sync.secret(&s.vault);
+        s.sync.last_prune = Some(now);
+        save_config(&path, &s.sync);
+        cx.background_spawn(async move {
+            if let Err(e) = crate::remote::prune(&remote, &secret, crate::remote::KEEP_VERSIONS) {
+                eprintln!("GitHub history not pruned: {e}");
+            }
         })
         .detach();
     }

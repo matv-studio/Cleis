@@ -216,6 +216,8 @@ pub fn write_atomic(to: &Path, bytes: &[u8]) -> Result<(), String> {
 
 struct GitHub {
     url: String,
+    /// `{api}/repos/{owner}/{name}`.
+    root: String,
     branch: String,
     token: String,
     agent: ureq::Agent,
@@ -241,13 +243,14 @@ impl GitHub {
         }
         let path = path.trim_matches('/');
         let enc: Vec<String> = path.split('/').map(pct).collect();
+        let root = format!(
+            "{}/repos/{}",
+            api.trim_end_matches('/'),
+            repo.trim_matches('/')
+        );
         Ok(Self {
-            url: format!(
-                "{}/repos/{}/contents/{}",
-                api.trim_end_matches('/'),
-                repo.trim_matches('/'),
-                enc.join("/")
-            ),
+            url: format!("{root}/contents/{}", enc.join("/")),
+            root,
             branch: branch.to_owned(),
             token: token.to_owned(),
             agent: ureq::Agent::config_builder()
@@ -328,6 +331,175 @@ impl GitHub {
     }
 }
 
+// ---------- Pruning the GitHub history (audit L-9, D-72) ----------
+
+/// Versions of the branch kept when it is pruned.
+pub const KEEP_VERSIONS: usize = 30;
+/// Days between two prunings.
+pub const PRUNE_EVERY_DAYS: i64 = 7;
+
+/// What pruning needs from a Git host.
+trait GitHistory {
+    fn head(&self) -> Result<String, RemoteError>;
+    /// Newest first: `(sha, tree, message)`.
+    fn history(&self, n: usize) -> Result<Vec<(String, String, String)>, RemoteError>;
+    fn commit(
+        &self,
+        tree: &str,
+        message: &str,
+        parent: Option<&str>,
+    ) -> Result<String, RemoteError>;
+    fn force(&self, sha: &str) -> Result<(), RemoteError>;
+}
+
+/// Rewrites the branch to its last `keep` commits (same trees and messages, no older parent):
+/// each sync adds the whole vault, so the repository would grow without end. Nothing happens
+/// when the branch is short, or when another device wrote meanwhile (next time).
+fn prune_with(git: &impl GitHistory, keep: usize) -> Result<bool, RemoteError> {
+    let head = git.head()?;
+    let hist = git.history(keep + 1)?;
+    if keep == 0 || hist.len() <= keep || hist.first().map(|c| &c.0) != Some(&head) {
+        return Ok(false);
+    }
+    let mut parent: Option<String> = None;
+    for (_, tree, message) in hist[..keep].iter().rev() {
+        parent = Some(git.commit(tree, message, parent.as_deref())?);
+    }
+    if git.head()? != head {
+        return Ok(false);
+    }
+    match parent {
+        Some(p) => git.force(&p).map(|()| true),
+        None => Ok(false),
+    }
+}
+
+/// Prunes a GitHub place's branch (other places: nothing to do).
+pub fn prune(place: &RemotePlace, secret: &Secret, keep: usize) -> Result<bool, RemoteError> {
+    match place {
+        RemotePlace::GitHub {
+            repo,
+            path,
+            branch,
+            api,
+        } => prune_with(&GitHub::new(api, repo, path, branch, &secret.token)?, keep),
+        RemotePlace::Sftp { .. } => Ok(false),
+    }
+}
+
+impl GitHub {
+    fn call(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, RemoteError> {
+        let req = |r: ureq::RequestBuilder<ureq::typestate::WithoutBody>| {
+            r.header("Authorization", &format!("Bearer {}", self.token))
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("User-Agent", "Cleis")
+        };
+        let res = match (method, body) {
+            ("GET", _) => req(self.agent.get(url)).call(),
+            ("POST", Some(b)) => {
+                let r = self.agent.post(url);
+                r.header("Authorization", &format!("Bearer {}", self.token))
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .header("User-Agent", "Cleis")
+                    .send_json(&b)
+            }
+            (_, b) => {
+                let r = self.agent.patch(url);
+                r.header("Authorization", &format!("Bearer {}", self.token))
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .header("User-Agent", "Cleis")
+                    .send_json(&b.unwrap_or_default())
+            }
+        };
+        let mut r = res.map_err(|e| e.to_string())?;
+        let status = r.status().as_u16();
+        let bytes = r.body_mut().read_to_vec().unwrap_or_default();
+        if !(200..300).contains(&status) {
+            return Err(github_error(status, &bytes));
+        }
+        serde_json::from_slice(&bytes).map_err(|e| RemoteError::Other(e.to_string()))
+    }
+}
+
+impl GitHistory for GitHub {
+    fn head(&self) -> Result<String, RemoteError> {
+        let v = self.call(
+            "GET",
+            &format!("{}/git/ref/heads/{}", self.root, pct(&self.branch)),
+            None,
+        )?;
+        Ok(v["object"]["sha"].as_str().unwrap_or_default().to_owned())
+    }
+
+    fn history(&self, n: usize) -> Result<Vec<(String, String, String)>, RemoteError> {
+        let v = self.call(
+            "GET",
+            &format!(
+                "{}/commits?sha={}&per_page={}",
+                self.root,
+                pct(&self.branch),
+                n.min(100)
+            ),
+            None,
+        )?;
+        Ok(v.as_array()
+            .map(|a| {
+                a.iter()
+                    .map(|c| {
+                        (
+                            c["sha"].as_str().unwrap_or_default().to_owned(),
+                            c["commit"]["tree"]["sha"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned(),
+                            c["commit"]["message"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    fn commit(
+        &self,
+        tree: &str,
+        message: &str,
+        parent: Option<&str>,
+    ) -> Result<String, RemoteError> {
+        let v = self.call(
+            "POST",
+            &format!("{}/git/commits", self.root),
+            Some(serde_json::json!({
+                "message": message,
+                "tree": tree,
+                "parents": parent.into_iter().collect::<Vec<_>>(),
+                "author": {"name": "Cleis", "email": "cleis@users.noreply.github.com"},
+            })),
+        )?;
+        Ok(v["sha"].as_str().unwrap_or_default().to_owned())
+    }
+
+    fn force(&self, sha: &str) -> Result<(), RemoteError> {
+        self.call(
+            "PATCH",
+            &format!("{}/git/refs/heads/{}", self.root, pct(&self.branch)),
+            Some(serde_json::json!({"sha": sha, "force": true})),
+        )
+        .map(|_| ())
+    }
+}
+
 fn github_error(status: u16, body: &[u8]) -> RemoteError {
     let msg = serde_json::from_slice::<serde_json::Value>(body)
         .ok()
@@ -377,6 +549,121 @@ pub fn github_token_page() -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::{GitHistory, RemoteError, prune_with};
+    use std::cell::RefCell;
+
+    /// A branch in memory: commits `(sha, tree, message, parent)`, the head.
+    #[derive(Default)]
+    struct Repo {
+        commits: RefCell<Vec<(String, String, String, Option<String>)>>,
+        head: RefCell<String>,
+        /// Another device writes after this many `head` reads.
+        race_after: Option<usize>,
+        reads: RefCell<usize>,
+    }
+
+    impl Repo {
+        fn with(n: usize) -> Self {
+            let r = Repo::default();
+            let mut parent = None;
+            for i in 0..n {
+                parent = Some(
+                    r.commit(&format!("tree{i}"), "Cleis sync", parent.as_deref())
+                        .unwrap(),
+                );
+            }
+            *r.head.borrow_mut() = parent.unwrap_or_default();
+            r
+        }
+        fn chain(&self) -> Vec<String> {
+            let c = self.commits.borrow();
+            let mut out = vec![];
+            let mut at = Some(self.head.borrow().clone());
+            while let Some(sha) = at {
+                let Some(x) = c.iter().find(|x| x.0 == sha) else {
+                    break;
+                };
+                out.push(x.1.clone());
+                at = x.3.clone();
+            }
+            out
+        }
+    }
+
+    impl GitHistory for Repo {
+        fn head(&self) -> Result<String, RemoteError> {
+            *self.reads.borrow_mut() += 1;
+            if self.race_after == Some(*self.reads.borrow()) {
+                let h = self.head.borrow().clone();
+                let new = self.commit("tree-other", "Cleis sync", Some(&h))?;
+                *self.head.borrow_mut() = new;
+            }
+            Ok(self.head.borrow().clone())
+        }
+        fn history(&self, n: usize) -> Result<Vec<(String, String, String)>, RemoteError> {
+            let c = self.commits.borrow();
+            let mut out = vec![];
+            let mut at = Some(self.head.borrow().clone());
+            while let Some(sha) = at {
+                if out.len() == n {
+                    break;
+                }
+                let Some(x) = c.iter().find(|x| x.0 == sha) else {
+                    break;
+                };
+                out.push((x.0.clone(), x.1.clone(), x.2.clone()));
+                at = x.3.clone();
+            }
+            Ok(out)
+        }
+        fn commit(
+            &self,
+            tree: &str,
+            message: &str,
+            parent: Option<&str>,
+        ) -> Result<String, RemoteError> {
+            let mut c = self.commits.borrow_mut();
+            let sha = format!("c{}", c.len());
+            c.push((
+                sha.clone(),
+                tree.into(),
+                message.into(),
+                parent.map(str::to_owned),
+            ));
+            Ok(sha)
+        }
+        fn force(&self, sha: &str) -> Result<(), RemoteError> {
+            *self.head.borrow_mut() = sha.into();
+            Ok(())
+        }
+    }
+
+    /// Audit L-9: the branch keeps its last versions, the newest first and unchanged.
+    #[test]
+    fn prune_keeps_the_last_versions() {
+        let r = Repo::with(40);
+        assert!(prune_with(&r, 30).unwrap());
+        let chain = r.chain();
+        assert_eq!(chain.len(), 30);
+        assert_eq!(chain[0], "tree39");
+        assert_eq!(chain[29], "tree10");
+        // Short branch: nothing to do.
+        let r = Repo::with(5);
+        assert!(!prune_with(&r, 30).unwrap());
+        assert_eq!(r.chain().len(), 5);
+    }
+
+    /// Another device wrote during the pruning: its commit is kept, pruning waits.
+    #[test]
+    fn prune_steps_back_when_the_branch_moved() {
+        let mut r = Repo::with(40);
+        r.race_after = Some(2);
+        assert!(!prune_with(&r, 30).unwrap());
+        let chain = r.chain();
+        assert_eq!(chain.len(), 41);
+        assert_eq!(chain[0], "tree-other");
+    }
+
     use super::*;
 
     #[test]

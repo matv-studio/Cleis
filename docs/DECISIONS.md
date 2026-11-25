@@ -467,6 +467,14 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - U-17 : les fonctions prévues mais non faites (fuites de mots de passe, extension de
     navigateur) sont retirées de l'interface et des maquettes jusqu'à leur arrivée.
 
+- **D-72 Élagage de la branche GitHub** (25/11/2026, choix L-9) : une fois par semaine et par
+  appareil, après une synchronisation réussie, Cleis réécrit la branche de la place GitHub avec
+  ses 30 dernières versions (mêmes arbres et messages, sans parent plus ancien) et la remplace
+  (`force`). Si un autre appareil a écrit pendant ce temps, rien n'est remplacé : nouvel essai la
+  semaine suivante. L'historique plus ancien des autres fichiers de cette branche part aussi :
+  une place GitHub vise un dépôt ou une branche qui lui est réservé. Code : `remote::prune`
+  (essais `prune_keeps_the_last_versions`, `prune_steps_back_when_the_branch_moved`).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
