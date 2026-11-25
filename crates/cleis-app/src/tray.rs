@@ -158,7 +158,7 @@ impl CleisApp {
 #[cfg(windows)]
 pub fn hwnd_of(window: &Window) -> Option<u64> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    match window.window_handle().map(|h| h.as_raw()) {
+    match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
         Ok(RawWindowHandle::Win32(h)) => Some(h.hwnd.get() as u64),
         _ => None,
     }
