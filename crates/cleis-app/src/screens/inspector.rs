@@ -23,7 +23,7 @@ fn tip(
 }
 
 /// Strength bars under the password (charter: four bars).
-fn strength(t: &Tokens, password: &str) -> Div {
+pub fn strength(t: &Tokens, password: &str) -> Div {
     let bits = cleis_core::generator::entropy_bits(password);
     let level = if password.is_empty() {
         0

@@ -218,12 +218,18 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   retenu dans les préférences du coffre. Import vCard depuis la barre latérale (dans le dossier
   affiché) ; *Share vCard* enregistre un fichier .vcf. Suppression après confirmation, définitive.
   Reste : menu *Columns* et filtres pour les contacts, import CSV de contacts.
+- **D-57 Sécurité du compte** (25/11/2026, écrans 05, 06) : code de vérification à l'ouverture par
+  appli d'authentification (clé de 160 bits, QR + clé à recopier, activation après un code juste,
+  8 codes de secours à usage unique) ; e-mail, SMS et clé de sécurité attendent le serveur. Le code est
+  vérifié une fois le coffre ouvert : il protège l'usage de Cleis sur cet ordinateur, pas le fichier
+  copié (protégé par le mot de passe maître). Verrouillage après inactivité pour le coffre personnel
+  (Never, 1, 5, 15, 30 min, 1 h ; résout « En suspens » 5). Effacement du presse-papiers réglable
+  (10 s à 2 min). Changement du mot de passe maître : mot de passe actuel vérifié, 10 caractères au
+  moins, mêmes réglages Argon2id. Biométrie : grisée (prévue).
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Validation de la restauration et de la synchronisation (D-50, écrans 22, 23).
-5. Verrouillage après inactivité pour un coffre personnel (le réglage n'existe que dans la politique
-   d'organisation, défaut « jamais », D-02) : maquette à faire si souhaité.
 6. Essai du remplissage sur Windows (pilotage d'écran) puis sur un Mac.

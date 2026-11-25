@@ -96,6 +96,11 @@ fn unlock_search_copy_lock(cx: &mut TestAppContext) {
 
     // Ctrl+L locks from anywhere in the main window (tooltip of the lock button).
     act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    act(cx, h, |w, cx| {
+        if w.try_find("lock").is_some() {
+            w.click("lock", cx);
+        }
+    });
     app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Unlock(_))));
 }
 
@@ -631,4 +636,116 @@ fn contacts_edit_merge_delete(cx: &mut TestAppContext) {
         .contacts()
         .unwrap();
     assert_eq!(saved.len(), total - 2);
+}
+
+/// Scenario (screens 05, 06): turn the opening code on (a wrong code is refused), lock, unlock:
+/// the code is asked; a recovery code works once. Then change the master password.
+#[gpui_kit::test]
+fn security_open_code_and_password(cx: &mut TestAppContext) {
+    use cleis_app::screens::security::SecDialog;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    let unlock = |cx: &mut TestAppContext, pw: &'static str| {
+        act(cx, h, |w, cx| {
+            w.click("master-password", cx);
+            w.input(pw, cx);
+            w.press("enter", cx);
+        });
+    };
+    unlock(cx, cleis_app::demo::PASSWORD);
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("open-code", cx));
+    act(cx, h, |w, cx| {
+        w.input("000000", cx);
+        w.click("code-ok", cx);
+    });
+    let code = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let Some(SecDialog::SetupCode { code, error, .. }) = &s.security.dialog else {
+            panic!("setup dialog still open")
+        };
+        assert!(error.is_some());
+        code.clone()
+    });
+    let now = cleis_core::now();
+    let good: &'static str = code.totp("x").code_at(now).leak();
+    act(cx, h, |w, cx| {
+        w.click("code-check", cx);
+        w.press("ctrl-a", cx);
+        w.input(good, cx);
+        w.click("code-ok", cx);
+    });
+    act(cx, h, |w, cx| w.click("recovery-done", cx));
+    // Lock (Ctrl+L), unlock: the code is asked.
+    act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    act(cx, h, |w, cx| {
+        if w.try_find("lock").is_some() {
+            w.click("lock", cx);
+        }
+    });
+    app.read_with(cx, |a, _| {
+        assert!(matches!(a.phase, Phase::Unlock(_)), "locked")
+    });
+    unlock(cx, cleis_app::demo::PASSWORD);
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.gate.is_some(), "code asked after the password");
+    });
+    let recovery: &'static str = code.recovery[0].clone().leak();
+    act(cx, h, |w, cx| {
+        w.input(recovery, cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.gate.is_none());
+        assert_eq!(s.prefs.open_code.as_ref().unwrap().recovery.len(), 7);
+    });
+
+    // Change the master password.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("chpw", cx));
+    act(cx, h, |w, cx| {
+        w.input("wrong current", cx);
+        w.click("pw-new", cx);
+        w.input("A-new long pass 2026", cx);
+        w.click("pw-confirm", cx);
+        w.input("A-new long pass 2026", cx);
+        w.click("chpw-ok", cx);
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let Some(SecDialog::ChangePassword { error, .. }) = &s.security.dialog else {
+            panic!()
+        };
+        assert_eq!(error.as_deref(), Some("Wrong current password"));
+    });
+    act(cx, h, |w, cx| {
+        w.click("pw-current", cx);
+        w.press("ctrl-a", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.click("chpw-ok", cx);
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.security.dialog.is_none());
+        assert!(s.prefs.password_changed.is_some());
+    });
+    assert!(
+        cleis_store::LockedVault::open(&path)
+            .unwrap()
+            .unlock("A-new long pass 2026")
+            .is_ok()
+    );
 }

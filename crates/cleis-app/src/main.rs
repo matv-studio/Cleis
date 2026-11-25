@@ -1,5 +1,5 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo] [--unlocked] [--tab T] [--page P]
-//! [--quick-access] [--menu columns|new-column]
+//! [--quick-access] [--menu columns|new-column|open-code]
 //! [--import FILE [--review]] [--try-autofill] [--background]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
@@ -138,7 +138,10 @@ fn main() {
                             s.import.step = 3;
                         }
                     }
-                    if let Some(m) = menu.as_deref() {
+                    if menu.as_deref() == Some("open-code") {
+                        // Screen 06 dialog for screenshots.
+                        app.toggle_open_code(window, cx);
+                    } else if let Some(m) = menu.as_deref() {
                         // Screen 02 for screenshots.
                         if let Some(s) = app.session() {
                             s.selected = None;

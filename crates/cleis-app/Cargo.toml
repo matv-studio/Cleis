@@ -24,6 +24,8 @@ serde_json.workspace = true
 anyhow = "1"
 async-channel = "2"
 zeroize.workspace = true
+# QR code of the verification-code key (Security › Opening the app).
+qrcode = { version = "0.15", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # Reads window handles: Quick Access brought in front without GPUI's simulated Alt, main window

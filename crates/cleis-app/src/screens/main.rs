@@ -116,6 +116,12 @@ pub fn render(
         .when_some(s.confirm.as_ref(), |d, c| {
             d.child(super::trash::dialog(c, &t, cx))
         })
+        .when_some(s.security.dialog.as_ref(), |d, dlg| {
+            d.child(super::security::dialog(s, dlg, &t, cx))
+        })
+        // Any input counts as activity (Security › Locking).
+        .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
+        .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
 }
 
 fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {

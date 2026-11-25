@@ -131,6 +131,13 @@ pub struct Preferences {
     /// Clipboard cleared after this many seconds; `None` = never.
     pub clipboard_clear_secs: Option<u32>,
     pub open_at_login: bool,
+    /// Verification code asked when Cleis opens (Security › Opening the app).
+    pub open_code: Option<crate::open_code::OpenCode>,
+    /// Lock after this many minutes without use; `None` = never (personal vault; an
+    /// organisation's policy decides for its members, D-02).
+    pub lock_after_mins: Option<u32>,
+    /// When the master password was last changed (seconds since 1970).
+    pub password_changed: Option<i64>,
     /// Contact pairs marked "Not a duplicate" in *Merge & fix*.
     pub not_duplicates: std::collections::BTreeSet<(crate::ContactId, crate::ContactId)>,
 }
@@ -148,6 +155,9 @@ impl Default for Preferences {
             clipboard_clear_secs: Some(30),
             open_at_login: true,
             not_duplicates: Default::default(),
+            open_code: None,
+            lock_after_mins: None,
+            password_changed: None,
         }
     }
 }

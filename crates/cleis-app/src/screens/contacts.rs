@@ -73,7 +73,7 @@ fn tip(
 }
 
 fn today_md() -> (u8, u8) {
-    let (_, m, d) = crate::format::civil(cleis_core::now() / 1000);
+    let (_, m, d) = crate::format::civil(cleis_core::now().div_euclid(86_400));
     (m as u8, d as u8)
 }
 

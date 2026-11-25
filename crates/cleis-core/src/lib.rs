@@ -17,6 +17,7 @@ pub mod ids;
 pub mod import_csv;
 pub mod journal;
 pub mod money;
+pub mod open_code;
 pub mod settings;
 pub mod text;
 pub mod totp;

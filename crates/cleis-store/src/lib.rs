@@ -247,6 +247,28 @@ impl Vault {
         Ok(())
     }
 
+    /// Whether `password` opens this vault (asked again before changing it). Takes as long as
+    /// an unlock: run it off the interface thread.
+    pub fn check_password(&self, password: &str) -> Result<bool> {
+        let kdf: KdfParams = serde_json::from_slice(
+            &meta_get(&self.conn, "kdf")?.ok_or(StoreError::Corrupt("kdf"))?,
+        )?;
+        let salt: [u8; 16] = meta_get(&self.conn, "salt")?
+            .ok_or(StoreError::Corrupt("salt"))?
+            .try_into()
+            .map_err(|_| StoreError::Corrupt("salt"))?;
+        let sealed = meta_get(&self.conn, "account")?.ok_or(StoreError::Corrupt("account"))?;
+        let mk = derive_master_key(password, &salt, kdf)?;
+        Ok(open(&mk.encryption, b"cleis/account", &sealed).is_ok())
+    }
+
+    /// The vault's key derivation settings (kept when the password changes).
+    pub fn kdf(&self) -> Result<KdfParams> {
+        Ok(serde_json::from_slice(
+            &meta_get(&self.conn, "kdf")?.ok_or(StoreError::Corrupt("kdf"))?,
+        )?)
+    }
+
     /// Re-seals the account secrets under a new master password. Records are untouched.
     pub fn change_password(&mut self, new_password: &str, kdf: KdfParams) -> Result<()> {
         let salt: [u8; 16] = random_bytes()?;
@@ -695,6 +717,8 @@ mod tests {
     fn change_password_keeps_data() {
         let (_d, path, mut v) = fresh();
         v.put_entry(&Entry::new(v.home_space(), "GitHub")).unwrap();
+        assert!(v.check_password("correct horse battery").unwrap());
+        assert!(!v.check_password("wrong").unwrap());
         v.change_password("new pass phrase", KdfParams::insecure_for_tests())
             .unwrap();
         drop(v.lock());

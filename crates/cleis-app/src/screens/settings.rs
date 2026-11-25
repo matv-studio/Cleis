@@ -76,7 +76,7 @@ pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
     let body = match s.settings_page {
         "Autofill" => autofill(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
-        "Security" => security(&s.prefs, t, cx),
+        "Security" => super::security::page(s, t, cx),
         "Sync & backups" => div()
             .child(
                 div()
@@ -368,61 +368,6 @@ fn scope_buttons(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div
         .rounded(RADIUS_MD)
         .when(disabled, |d| d.opacity(0.45))
         .child(d)
-}
-
-fn security(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let secs = p.clipboard_clear_secs;
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(16.))
-        .child(
-            div()
-                .text_size(TEXT_XL)
-                .font_weight(W_STRONG)
-                .child("Security"),
-        )
-        .child(
-            section(t).child(section_title(t, "Clipboard")).child(
-                row(t, true)
-                    .child(div().flex_1().child("Clear after copying"))
-                    .child(
-                        value_box(t).w(px(120.)).child(
-                            secs.map(|s| format!("{s} s"))
-                                .unwrap_or_else(|| "Never".into()),
-                        ),
-                    )
-                    .child(toggle(
-                        "clip",
-                        t,
-                        secs.is_some(),
-                        |p| {
-                            p.clipboard_clear_secs = if p.clipboard_clear_secs.is_some() {
-                                None
-                            } else {
-                                Some(30)
-                            }
-                        },
-                        cx,
-                    )),
-            ),
-        )
-        .child(
-            section(t).child(section_title(t, "Master password")).child(
-                row(t, true)
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_color(t.text_muted)
-                            .child("Stored nowhere; derived with Argon2id"),
-                    )
-                    .child(
-                        button("chpw", t, BtnKind::Default, false)
-                            .opacity(0.45)
-                            .child("Change"),
-                    ),
-            ),
-        )
 }
 
 /// Status chip of a shortcut: registered, refused by the system, or being recorded.

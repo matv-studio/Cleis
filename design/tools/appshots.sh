@@ -19,6 +19,8 @@ for theme in dark light; do
   shot "merge-$theme" --demo --unlocked --tab contacts --page merge --theme $theme
   shot "health-$theme" --demo --unlocked --tab health --theme $theme
   shot "preferences-$theme" --demo --unlocked --tab settings --theme $theme
+  shot "security-$theme" --demo --unlocked --tab settings --page security --theme $theme
+  shot "open-code-$theme" --demo --unlocked --tab settings --page security --menu open-code --theme $theme
   shot "autofill-$theme" --demo --unlocked --tab settings --page autofill --theme $theme
   shot "quick-access-$theme" --demo --unlocked --quick-access --theme $theme
   shot "welcome-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --theme $theme

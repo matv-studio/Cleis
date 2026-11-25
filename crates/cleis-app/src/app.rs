@@ -97,6 +97,12 @@ pub struct Session {
     pub import: crate::screens::import::ImportState,
     /// Contacts tab: filter, search, inspector boxes, menus (screens 20, 21).
     pub contacts_ui: crate::screens::contacts::ContactsUi,
+    /// Settings › Security dialogs and menus.
+    pub security: crate::screens::security::SecurityUi,
+    /// Verification code still to type before the vault is shown (screen 05).
+    pub gate: Option<crate::screens::security::Gate>,
+    /// Last mouse or key input, for locking after inactivity.
+    pub last_activity: std::time::Instant,
 }
 
 impl Session {
@@ -182,8 +188,17 @@ impl CleisApp {
         let ticker = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                let Ok(idle) = this.update(cx, |app, cx| {
+                    cx.notify();
+                    app.idle_lock_due().then_some(app.main_window).flatten()
+                }) else {
                     break;
+                };
+                // Security › Locking › After inactivity.
+                if let Some(w) = idle {
+                    let _ = cx.update_window(w, |_, window, cx| {
+                        let _ = this.update(cx, |app, cx| app.lock(window, cx));
+                    });
                 }
             }
         });
@@ -411,10 +426,14 @@ impl CleisApp {
             columns_menu: None,
             import: Default::default(),
             contacts_ui: Default::default(),
+            security: Default::default(),
+            gate: None,
+            last_activity: std::time::Instant::now(),
         };
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);
         self.phase = Phase::Main(Box::new(s));
+        self.open_gate(window, cx);
         if !cfg!(test) && !self.no_shortcuts {
             self.sync_autofill(cx);
         }
@@ -507,6 +526,21 @@ impl CleisApp {
         .detach();
     }
 
+    pub fn touch_activity(&mut self) {
+        if let Phase::Main(s) = &mut self.phase {
+            s.last_activity = std::time::Instant::now();
+        }
+    }
+
+    fn idle_lock_due(&self) -> bool {
+        match &self.phase {
+            Phase::Main(s) => s.prefs.lock_after_mins.is_some_and(|m| {
+                s.last_activity.elapsed() >= Duration::from_secs(u64::from(m) * 60)
+            }),
+            _ => false,
+        }
+    }
+
     pub fn session(&mut self) -> Option<&mut Session> {
         match &mut self.phase {
             Phase::Main(s) => Some(s),
@@ -522,6 +556,12 @@ impl Render for CleisApp {
                 crate::screens::welcome::render(self, window, cx).into_any_element()
             }
             Phase::Unlock(_) => crate::screens::unlock::render(self, window, cx).into_any_element(),
+            Phase::Main(s) if s.gate.is_some() => {
+                let Some(g) = s.gate.as_ref() else {
+                    unreachable!()
+                };
+                crate::screens::security::gate(g, &self.tokens(cx).clone(), cx).into_any_element()
+            }
             Phase::Main(_) => {
                 return crate::screens::main::render(self, window, cx).into_any_element();
             }

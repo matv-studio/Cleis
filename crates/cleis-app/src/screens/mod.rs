@@ -5,6 +5,7 @@ pub mod import;
 pub mod inspector;
 pub mod main;
 pub mod quick_access;
+pub mod security;
 pub mod settings;
 pub mod trash;
 pub mod unlock;
