@@ -120,22 +120,12 @@ pub fn render(
                         .test_support(),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .justify_center()
-                        .gap(px(8.))
-                        .child(
-                            button("bio", &t, BtnKind::Ghost, true)
-                                .opacity(0.45)
-                                .child(icon("fingerprint", 16., t.text_muted))
-                                .child("Biometrics"),
-                        )
-                        .child(
-                            button("key", &t, BtnKind::Ghost, true)
-                                .opacity(0.45)
-                                .child(icon("usb", 16., t.text_muted))
-                                .child("Security key"),
-                        ),
+                    div().flex().justify_center().gap(px(8.)).child(
+                        button("bio", &t, BtnKind::Ghost, true)
+                            .opacity(0.45)
+                            .child(icon("fingerprint", 16., t.text_muted))
+                            .child("Biometrics"),
+                    ),
                 ),
         );
     stage(&t, card)

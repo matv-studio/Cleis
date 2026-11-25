@@ -451,7 +451,7 @@ pub fn org(s: &mut crate::app::Session) {
         member(
             "Lea Martin",
             "lea@example-studio.com",
-            ADMIN,
+            SUPER_ADMIN,
             all.clone(),
             true,
             true,
@@ -706,6 +706,26 @@ pub fn org(s: &mut crate::app::Session) {
     };
     let names = spaces.iter().map(|x| (x.0, x.1.clone())).collect();
     let ui = crate::screens::org::OrgUi {
+        devices: Some(vec![
+            DeviceView {
+                device: "MAC-LEA · macOS 15".into(),
+                last_active: now,
+                remembered_until: None,
+                current: true,
+            },
+            DeviceView {
+                device: "PC-STUDIO · Windows 11".into(),
+                last_active: today - 86_400 + 18 * 3600 + 2 * 60,
+                remembered_until: Some(today + 29 * 86_400),
+                current: false,
+            },
+            DeviceView {
+                device: "MAC-HOME · macOS 14".into(),
+                last_active: today - 7 * 86_400 + 20 * 3600,
+                remembered_until: None,
+                current: false,
+            },
+        ]),
         log: Some(LogPage { total: 214, events }),
         log_days: Some(7),
         ..Default::default()

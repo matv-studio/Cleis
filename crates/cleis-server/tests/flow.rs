@@ -176,7 +176,7 @@ fn organization_flow() {
     lea.sign_in(None).unwrap();
     let st = lea.state();
     assert_eq!(st.org.name, "Example Studio");
-    assert_eq!(st.me.role, ADMIN);
+    assert_eq!(st.me.role, SUPER_ADMIN);
     assert!(st.org.org_public.is_none());
     let org = KeyPair::generate().unwrap();
     let org_secret = SymmetricKey::from_bytes(*org.secret_bytes());
@@ -486,6 +486,115 @@ fn organization_flow() {
     let integrity: Integrity = lea.client.call("/v1/log/verify", &()).unwrap();
     assert!(integrity.intact, "{integrity:?}");
     assert!(integrity.checked >= 8);
+
+    // Super Admin (D-60): Lea makes Hugo Admin; an Admin cannot change admins or roles; the
+    // Super Admin role is handed to Hugo and back; the last Super Admin cannot step down.
+    let change = |m: MemberId, role: &str| MemberChange {
+        member: m,
+        role: Some(role.into()),
+        ..Default::default()
+    };
+    let _: MemberView = lea
+        .client
+        .call("/v1/members", &change(hugo.member, ADMIN))
+        .unwrap();
+    let e = hugo
+        .client
+        .call::<_, MemberView>("/v1/members", &change(lea.member, "member"))
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
+    let e = hugo
+        .client
+        .call::<_, Vec<Role>>("/v1/roles", &Role::defaults())
+        .unwrap_err();
+    assert_eq!(e.code(), Some("forbidden"));
+    let e = lea
+        .client
+        .call::<_, MemberView>("/v1/members", &change(lea.member, ADMIN))
+        .unwrap_err();
+    assert_eq!(e.code(), Some("bad_request"), "last Super Admin");
+    let _: MemberView = lea
+        .client
+        .call("/v1/members/transfer", &IdOnly { id: hugo.member.0 })
+        .unwrap();
+    let st = lea.state();
+    assert_eq!(st.me.role, ADMIN);
+    assert_eq!(
+        st.members
+            .iter()
+            .find(|m| m.id == hugo.member)
+            .unwrap()
+            .role,
+        SUPER_ADMIN
+    );
+    let _: MemberView = hugo
+        .client
+        .call("/v1/members/transfer", &IdOnly { id: lea.member.0 })
+        .unwrap();
+    assert_eq!(lea.state().me.role, SUPER_ADMIN);
+
+    // Profile, devices, renaming and deleting a space (D-60).
+    let me: MemberView = lea
+        .client
+        .call(
+            "/v1/me",
+            &ProfileChange {
+                name: "Léa Martin".into(),
+                email: "lea@example-studio.com".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(me.name, "Léa Martin");
+    let devs: Vec<DeviceView> = hugo.client.call("/v1/me/devices", &()).unwrap();
+    assert!(devs.iter().any(|d| d.current && d.device == "PC"));
+    assert!(
+        devs.iter().any(|d| d.remembered_until.is_some()),
+        "{devs:?}"
+    );
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/spaces/update",
+            &SpaceUpdate {
+                id: general,
+                sealed: seal(&k1, b"space", b"General 2").unwrap(),
+            },
+        )
+        .unwrap();
+    let tmp = SpaceId::new();
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/spaces",
+            &NewSpace {
+                id: tmp,
+                sealed: vec![1],
+                mode: SpaceMode::EndToEnd,
+                wrapped: wrap_key(&lea.account.public(), &k1, tmp.0.as_bytes()).unwrap(),
+                org_wrapped: None,
+                recovery_wrapped: None,
+            },
+        )
+        .unwrap();
+    let _: PushReply = lea
+        .client
+        .call("/v1/spaces/delete", &IdOnly { id: tmp.0 })
+        .unwrap();
+    assert!(lea.state().spaces.iter().all(|s| s.id != tmp));
+    let _: PushReply = hugo
+        .client
+        .call(
+            "/v1/me/devices/sign-out",
+            &DeviceRef {
+                device: "PC".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        hugo.client.get::<State>("/v1/state").unwrap_err().code(),
+        Some("unauthorized")
+    );
+    hugo.sign_in(Some(totp.code_at(now + 30))).ok();
 
     // Hugo is revoked: his session ends, General is marked for re-encryption.
     let _: PushReply = lea

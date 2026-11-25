@@ -32,6 +32,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/admin-keys", post(admin_keys))
         .route("/v1/members", post(update_member))
         .route("/v1/members/revoke", post(revoke))
+        .route("/v1/members/transfer", post(transfer))
         .route("/v1/invites", post(invite))
         .route("/v1/invites/revoke", post(revoke_invite))
         .route("/v1/invites/renew", post(renew_invite))
@@ -40,6 +41,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/log", post(report))
         .route("/v1/log/query", post(query_log))
         .route("/v1/log/verify", post(verify_log))
+        .route("/v1/me", post(profile))
+        .route("/v1/me/devices", post(devices))
+        .route("/v1/me/devices/sign-out", post(sign_out))
+        .route("/v1/spaces/update", post(update_space))
+        .route("/v1/spaces/delete", post(delete_space))
         .route("/v1/me/code", post(code_setup))
         .route("/v1/me/code/confirm", post(code_confirm))
         .route("/v1/versions", post(versions))
@@ -136,7 +142,7 @@ fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
         role: m.role.clone(),
         spaces: spaces_of(conn, m.id)?,
         two_fa: m.totp.is_some(),
-        export: m.export || m.role == ADMIN,
+        export: m.export || is_admin_role(&m.role),
         last_sign_in: m.last_sign_in,
         last_device: m.last_device.clone(),
         revoked: m.revoked.is_some(),
@@ -145,8 +151,11 @@ fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
     })
 }
 
-fn admins(conn: &Connection) -> rusqlite::Result<usize> {
-    Ok(members(conn)?.iter().filter(|m| m.role == ADMIN).count())
+fn supers(conn: &Connection) -> rusqlite::Result<usize> {
+    Ok(members(conn)?
+        .iter()
+        .filter(|m| m.role == SUPER_ADMIN)
+        .count())
 }
 
 /// The member a request comes from.
@@ -216,6 +225,10 @@ impl FromRequestParts<Arc<App>> for Caller {
             .optional()?;
         let (member, device, setup_only) =
             found.ok_or_else(|| ApiErr::unauthorized("unauthorized", "Sign in again."))?;
+        conn.execute(
+            "UPDATE sessions SET last = ?2 WHERE token_hash = ?1 AND last < ?2 - 60",
+            params![&hash[..], now()],
+        )?;
         let id = MemberId(member.parse().unwrap_or_default());
         let role_id: String =
             conn.query_row("SELECT role FROM members WHERE id = ?1", [&member], |r| {
@@ -553,11 +566,12 @@ async fn session(
                 let r = random_token()?;
                 conn.execute("DELETE FROM remembered WHERE expires < ?1", [t])?;
                 conn.execute(
-                    "INSERT INTO remembered(token_hash, member, expires) VALUES (?1, ?2, ?3)",
+                    "INSERT INTO remembered(token_hash, member, expires, device) VALUES (?1, ?2, ?3, ?4)",
                     params![
                         &sha256(r.as_bytes())[..],
                         m.id.to_string(),
-                        t + i64::from(policy.remember_days) * 86_400
+                        t + i64::from(policy.remember_days) * 86_400,
+                        req.device
                     ],
                 )?;
                 remembered = Some(r);
@@ -568,8 +582,8 @@ async fn session(
     let token = random_token()?;
     conn.execute("DELETE FROM sessions WHERE expires < ?1", [t])?;
     conn.execute(
-        "INSERT INTO sessions(token_hash, member, device, expires, setup_only) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![&sha256(token.as_bytes())[..], m.id.to_string(), req.device, t + SESSION_SECS, setup_only as i64],
+        "INSERT INTO sessions(token_hash, member, device, expires, setup_only, last) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![&sha256(token.as_bytes())[..], m.id.to_string(), req.device, t + SESSION_SECS, setup_only as i64, t],
     )?;
     conn.execute(
         "UPDATE members SET last_sign_in = ?2, last_device = ?3 WHERE id = ?1",
@@ -744,7 +758,7 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
         });
     }
 
-    let org_key: Option<Vec<u8>> = if me.role == ADMIN {
+    let org_key: Option<Vec<u8>> = if is_admin_role(&me.role) {
         conn.query_row(
             "SELECT wrapped FROM admin_keys WHERE member = ?1",
             [caller.id.to_string()],
@@ -756,7 +770,10 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
     };
     let mut pending_admins = vec![];
     if org_key.is_some() {
-        for m in all.iter().filter(|m| m.role == ADMIN && m.id != caller.id) {
+        for m in all
+            .iter()
+            .filter(|m| is_admin_role(&m.role) && m.id != caller.id)
+        {
             if !conn
                 .prepare("SELECT 1 FROM admin_keys WHERE member = ?1")?
                 .exists([m.id.to_string()])?
@@ -1171,7 +1188,8 @@ async fn admin_keys(
     }
     let mut refused = vec![];
     for w in req.wraps {
-        let ok = member(&conn, w.member)?.is_some_and(|m| m.role == ADMIN && m.revoked.is_none())
+        let ok = member(&conn, w.member)?
+            .is_some_and(|m| is_admin_role(&m.role) && m.revoked.is_none())
             && conn.execute(
                 "INSERT OR IGNORE INTO admin_keys(member, wrapped) VALUES (?1, ?2)",
                 params![w.member.to_string(), w.wrapped],
@@ -1192,7 +1210,7 @@ async fn recovery(
     caller: Caller,
     Json(req): Json<Recovery>,
 ) -> Res<OrgInfo> {
-    caller.can(Perm::Manage)?;
+    caller.can(Perm::Admins)?;
     let conn = app.db.lock().expect("database lock");
     let tx = conn.unchecked_transaction()?;
     if req.public.is_empty() {
@@ -1225,7 +1243,7 @@ async fn recovery(
 }
 
 async fn rotate(State(app): State<Arc<App>>, caller: Caller) -> Res<OrgInfo> {
-    caller.can(Perm::Manage)?;
+    caller.can(Perm::Admins)?;
     let id = crate::tls::Identity::generate(&[]).map_err(|e| ApiErr::bad(&e))?;
     let conn = app.db.lock().expect("database lock");
     db::meta_set(&conn, "next_cert", &id.cert)?;
@@ -1276,10 +1294,15 @@ async fn update_member(
         let Some(r) = roles.iter().find(|r| r.id == *role) else {
             return Err(ApiErr::bad("No such role."));
         };
-        if m.role == ADMIN && admins(&conn)? <= 1 {
-            return Err(ApiErr::bad("The organization needs an administrator."));
+        if (is_admin_role(&m.role) || is_admin_role(role)) && !caller.role.can(Perm::Admins) {
+            return Err(ApiErr::forbidden(
+                "Only a Super Admin changes who is admin.",
+            ));
         }
-        if m.role == ADMIN {
+        if m.role == SUPER_ADMIN && supers(&conn)? <= 1 {
+            return Err(ApiErr::bad("The organization needs a Super Admin."));
+        }
+        if is_admin_role(&m.role) && !is_admin_role(role) {
             conn.execute(
                 "DELETE FROM admin_keys WHERE member = ?1",
                 [m.id.to_string()],
@@ -1341,8 +1364,11 @@ async fn revoke(
     let Some(m) = member(&conn, id)?.filter(|m| m.revoked.is_none()) else {
         return Err(ApiErr::not_found("No such member."));
     };
-    if m.role == ADMIN && admins(&conn)? <= 1 {
-        return Err(ApiErr::bad("The organization needs an administrator."));
+    if is_admin_role(&m.role) && !caller.role.can(Perm::Admins) {
+        return Err(ApiErr::forbidden("Only a Super Admin removes an admin."));
+    }
+    if m.role == SUPER_ADMIN && supers(&conn)? <= 1 {
+        return Err(ApiErr::bad("The organization needs a Super Admin."));
     }
     let tx = conn.unchecked_transaction()?;
     conn.execute(
@@ -1367,12 +1393,50 @@ async fn revoke(
     }))
 }
 
+/// Hands the Super Admin role to another member; the caller becomes Admin (D-60).
+async fn transfer(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<IdOnly>,
+) -> Res<MemberView> {
+    caller.can(Perm::Admins)?;
+    if !caller.role.is_super() {
+        return Err(ApiErr::forbidden("Only a Super Admin transfers the role."));
+    }
+    let to = MemberId(req.id);
+    if to == caller.id {
+        return Err(ApiErr::bad("Choose another member."));
+    }
+    let conn = app.db.lock().expect("database lock");
+    let Some(m) = member(&conn, to)?.filter(|m| m.revoked.is_none()) else {
+        return Err(ApiErr::not_found("No such member."));
+    };
+    let tx = conn.unchecked_transaction()?;
+    conn.execute(
+        "UPDATE members SET role = ?2 WHERE id = ?1",
+        params![to.to_string(), SUPER_ADMIN],
+    )?;
+    conn.execute(
+        "UPDATE members SET role = ?2 WHERE id = ?1",
+        params![caller.id.to_string(), ADMIN],
+    )?;
+    let mut e = caller.event(Action::MemberChanged);
+    e.note = format!("{}: Super Admin transferred", m.name);
+    app.record(&conn, e)?;
+    tx.commit()?;
+    let m = member(&conn, to)?.ok_or_else(|| ApiErr::not_found("member"))?;
+    Ok(Json(view(&conn, &m)?))
+}
+
 async fn invite(
     State(app): State<Arc<App>>,
     caller: Caller,
     Json(req): Json<NewInvite>,
 ) -> Res<InviteReply> {
     caller.can(Perm::Manage)?;
+    if is_admin_role(&req.role) && !caller.role.can(Perm::Admins) {
+        return Err(ApiErr::forbidden("Only a Super Admin invites an admin."));
+    }
     let email = req.email.trim();
     if !email.contains('@') {
         return Err(ApiErr::bad("Enter an e-mail address."));
@@ -1445,7 +1509,7 @@ async fn set_roles(
     caller: Caller,
     Json(req): Json<Vec<Role>>,
 ) -> Res<Vec<Role>> {
-    caller.can(Perm::Manage)?;
+    caller.can(Perm::Admins)?;
     if !valid_roles(&req) {
         return Err(ApiErr::bad(
             "Each role needs its own name; Admin cannot change.",
@@ -1508,7 +1572,7 @@ async fn report(
     }
     if req.action == Action::Exported {
         let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
-        if !(m.export || m.role == ADMIN) {
+        if !(m.export || is_admin_role(&m.role)) {
             return Err(ApiErr::forbidden(
                 "Your organization does not let you export its passwords.",
             ));
@@ -1595,7 +1659,7 @@ async fn restore(
     caller: Caller,
     body: axum::body::Bytes,
 ) -> Res<PushReply> {
-    caller.can(Perm::Manage)?;
+    caller.can(Perm::Admins)?;
     if !caller.role.is_admin() {
         return Err(ApiErr::forbidden("Administrators only."));
     }
@@ -1645,6 +1709,148 @@ async fn restore(
     let mut e = caller.event(Action::BackedUp);
     e.note = "Restored".into();
     app.record(&conn, e)?;
+    Ok(Json(PushReply {
+        seq: db::seq(&conn)?,
+        refused: vec![],
+    }))
+}
+
+// ---------- Profile, devices, spaces (D-60) ----------
+
+async fn profile(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<ProfileChange>,
+) -> Res<MemberView> {
+    caller.full()?;
+    let name = req.name.trim();
+    let email = req.email.trim();
+    if name.is_empty() {
+        return Err(ApiErr::bad("Enter your name."));
+    }
+    if !email.contains('@') {
+        return Err(ApiErr::bad("Enter an e-mail address."));
+    }
+    let conn = app.db.lock().expect("database lock");
+    if members(&conn)?
+        .iter()
+        .any(|m| m.id != caller.id && m.email.eq_ignore_ascii_case(email))
+    {
+        return Err(ApiErr::bad("Another member has this e-mail address."));
+    }
+    conn.execute(
+        "UPDATE members SET name = ?2, email = ?3 WHERE id = ?1",
+        params![caller.id.to_string(), name, email],
+    )?;
+    let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+    Ok(Json(view(&conn, &m)?))
+}
+
+async fn devices(State(app): State<Arc<App>>, caller: Caller) -> Res<Vec<DeviceView>> {
+    let conn = app.db.lock().expect("database lock");
+    let t = now();
+    let me = caller.id.to_string();
+    let mut out: Vec<DeviceView> = vec![];
+    let mut st = conn.prepare(
+        "SELECT device, max(last) FROM sessions WHERE member = ?1 AND expires > ?2 GROUP BY device",
+    )?;
+    for r in st.query_map(params![me, t], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })? {
+        let (device, last) = r?;
+        out.push(DeviceView {
+            current: device == caller.device,
+            device,
+            last_active: last,
+            remembered_until: None,
+        });
+    }
+    let mut st = conn.prepare(
+        "SELECT device, max(expires) FROM remembered WHERE member = ?1 AND expires > ?2 AND device != '' GROUP BY device",
+    )?;
+    for r in st.query_map(params![me, t], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })? {
+        let (device, until) = r?;
+        match out.iter_mut().find(|d| d.device == device) {
+            Some(d) => d.remembered_until = Some(until),
+            None => out.push(DeviceView {
+                current: device == caller.device,
+                device,
+                last_active: 0,
+                remembered_until: Some(until),
+            }),
+        }
+    }
+    out.sort_by_key(|d| (!d.current, std::cmp::Reverse(d.last_active)));
+    Ok(Json(out))
+}
+
+async fn sign_out(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<DeviceRef>,
+) -> Res<PushReply> {
+    let conn = app.db.lock().expect("database lock");
+    let me = caller.id.to_string();
+    conn.execute(
+        "DELETE FROM sessions WHERE member = ?1 AND device = ?2",
+        [&me, &req.device],
+    )?;
+    conn.execute(
+        "DELETE FROM remembered WHERE member = ?1 AND device = ?2",
+        [&me, &req.device],
+    )?;
+    let mut e = caller.event(Action::SignedOut);
+    e.note = req.device.clone();
+    app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+async fn update_space(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<SpaceUpdate>,
+) -> Res<PushReply> {
+    caller.can(Perm::Manage)?;
+    let conn = app.db.lock().expect("database lock");
+    if !has_key(&conn, req.id, caller.id)? {
+        return Err(ApiErr::forbidden("You do not hold this space's key."));
+    }
+    conn.execute(
+        "UPDATE spaces SET sealed = ?2 WHERE id = ?1",
+        params![req.id.to_string(), req.sealed],
+    )?;
+    let mut e = caller.event(Action::SpaceRenamed);
+    e.space = Some(req.id);
+    app.record(&conn, e)?;
+    Ok(Json(PushReply {
+        seq: db::seq(&conn)?,
+        refused: vec![],
+    }))
+}
+
+/// Erases a space and everything in it, for every member.
+async fn delete_space(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<IdOnly>,
+) -> Res<PushReply> {
+    caller.can(Perm::Manage)?;
+    let id = SpaceId(req.id).to_string();
+    let conn = app.db.lock().expect("database lock");
+    if !space_exists(&conn, SpaceId(req.id))? {
+        return Err(ApiErr::not_found("No such space."));
+    }
+    let tx = conn.unchecked_transaction()?;
+    for t in ["versions", "records", "purged", "access"] {
+        conn.execute(&format!("DELETE FROM {t} WHERE space = ?1"), [&id])?;
+    }
+    conn.execute("DELETE FROM spaces WHERE id = ?1", [&id])?;
+    let mut e = caller.event(Action::SpaceDeleted);
+    e.space = Some(SpaceId(req.id));
+    app.record(&conn, e)?;
+    tx.commit()?;
     Ok(Json(PushReply {
         seq: db::seq(&conn)?,
         refused: vec![],

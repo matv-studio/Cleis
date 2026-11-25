@@ -616,7 +616,7 @@ impl CleisApp {
             }
         }
         let mut admin = None;
-        if st.me.role == ADMIN && st.org.org_public.is_none() {
+        if is_admin_role(&st.me.role) && st.org.org_public.is_none() {
             // First admin: the organization key is made here.
             if let Ok(kp) = KeyPair::generate() {
                 let secret = SymmetricKey::from_bytes(*kp.secret_bytes());
@@ -855,6 +855,93 @@ impl CleisApp {
 
     pub fn org_member(&mut self, change: MemberChange, cx: &mut Context<Self>) {
         self.org_request::<_, MemberView>("/v1/members", change, |_, _, _| {}, cx);
+    }
+
+    /// Hands the Super Admin role to `member`; this member becomes Admin (D-60).
+    pub fn org_transfer(&mut self, member: MemberId, cx: &mut Context<Self>) {
+        self.org_request::<_, MemberView>(
+            "/v1/members/transfer",
+            IdOnly { id: member.0 },
+            |app, r, cx| {
+                if r.is_ok() {
+                    app.toast("Super Admin transferred", cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    pub fn org_devices(&mut self, cx: &mut Context<Self>) {
+        if let Some(o) = self.session().and_then(|s| s.org.as_mut()) {
+            o.ui.devices_busy = true;
+        }
+        self.org_request::<_, Vec<DeviceView>>(
+            "/v1/me/devices",
+            (),
+            |app, r, cx| {
+                if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
+                    o.ui.devices_busy = false;
+                    o.ui.devices = Some(r.unwrap_or_default());
+                }
+                cx.notify();
+            },
+            cx,
+        );
+    }
+
+    pub fn org_sign_out(&mut self, device: String, cx: &mut Context<Self>) {
+        self.org_request::<_, PushReply>(
+            "/v1/me/devices/sign-out",
+            DeviceRef { device },
+            |app, _, cx| app.org_devices(cx),
+            cx,
+        );
+    }
+
+    /// Renames an organization space: its info sealed again with its key.
+    pub fn org_rename_space(&mut self, id: SpaceId, name: String, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let Some(mut info) = s.spaces.iter().find(|x| x.id == id).cloned() else {
+            return;
+        };
+        let Some(key) = s.vault.space_key(id).cloned() else {
+            return;
+        };
+        info.name = name.clone();
+        let Ok(sealed) = cleis_store::seal_space_info(&key, &info) else {
+            return;
+        };
+        if let Some(o) = s.org.as_mut() {
+            o.names.insert(id, name);
+        }
+        self.org_request::<_, PushReply>(
+            "/v1/spaces/update",
+            SpaceUpdate { id, sealed },
+            |_, _, _| {},
+            cx,
+        );
+    }
+
+    /// Deletes an organization space for every member (its items with it).
+    pub fn org_delete_space(&mut self, id: SpaceId, cx: &mut Context<Self>) {
+        self.org_request::<_, PushReply>(
+            "/v1/spaces/delete",
+            IdOnly { id: id.0 },
+            move |app, r, cx| {
+                if r.is_ok()
+                    && let Some(s) = app.session()
+                {
+                    let _ = s.vault.remove_org_space(id);
+                    let _ = crate::sync::reload(s);
+                    if s.filter == crate::app::Filter::Space(id) {
+                        s.filter = crate::app::Filter::All;
+                        s.refilter();
+                    }
+                }
+                cx.notify();
+            },
+            cx,
+        );
     }
 
     pub fn org_revoke(&mut self, member: MemberId, cx: &mut Context<Self>) {
@@ -1667,9 +1754,21 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
             }
         } else {
             // Renamed elsewhere: same key, new sealed info.
-            let _ = s
-                .vault
-                .put_org_space(&key, sv.id, &sv.sealed, w, sv.key_gen);
+            let renamed = s.vault.space_key(sv.id).is_some_and(|k| {
+                cleis_store::open_space_info(k, sv.id, &sv.sealed).is_ok_and(|i| {
+                    s.spaces
+                        .iter()
+                        .find(|x| x.id == sv.id)
+                        .is_none_or(|x| x.name != i.name)
+                })
+            });
+            if renamed
+                && s.vault
+                    .put_org_space(&key, sv.id, &sv.sealed, w, sv.key_gen)
+                    .is_ok()
+            {
+                changed = true;
+            }
         }
     }
     for id in here.keys() {

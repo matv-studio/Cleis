@@ -4,19 +4,21 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-59,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-60,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
 3. Maquettes : `design/maquettes/` (HTML statique, charte « Apps interne »). Captures :
-   `python3 design/tools/shots.py all dark,light` (Playwright Chromium) → `target/captures/`.
+   `python3 design/tools/shots.py all dark` (Playwright Chromium) → `target/captures/`.
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
-   [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join]
-   [--menu filter|columns|new-column|open-code|invite|invite-code|new-role|new-space|rekey|server-code]
+   [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
+   profile|devices|spaces] [--menu filter|columns|new-column|open-code|invite|invite-code|new-role|
+   new-space|rekey|server-code|super-admin|rename-space|delete-space]
    [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
-   --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché). Captures de l'appli : `design/tools/appshots.sh` (Linux : Xvfb, ImageMagick,
+   --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché). Captures de l'appli : `design/tools/appshots.sh`, thème sombre seulement
+   (demande du 25/11/2026 ; `THEMES="dark light"` pour les deux) (Linux : Xvfb, ImageMagick,
    `mesa-vulkan-drivers` pour le rendu logiciel llvmpipe ; paquets de compilation GPUI listés dans la CI).
 5. Toute fonction d'interface nouvelle ou refaite passe d'abord par une maquette validée.
 

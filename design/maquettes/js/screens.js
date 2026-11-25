@@ -245,7 +245,6 @@ function deverrouiller() {
         <button class="btn btn--primary" style="justify-content:center;height:32px">Unlock</button>
         <div style="display:flex;gap:var(--s-2);justify-content:center">
           <button class="btn btn--ghost btn--sm" title="Windows Hello / Touch ID — turned off by your organization" disabled>${i('fingerprint')}Biometrics</button>
-          <button class="btn btn--ghost btn--sm">${i('usb')}Security key</button>
         </div>
       </div>
       <div style="display:flex;justify-content:center"><button class="btn btn--ghost btn--sm">Forgot password</button></div>
@@ -295,7 +294,7 @@ function securite() {
     <div class="section">${sectionTitle('Opening the app', 'Code asked each time Cleis opens, on top of the master password. Also protects your personal vault offline.')}
       <div class="row"><span class="row-label">Verification code on open</span><span class="switch on"></span></div>
       <div class="row"><span class="row-label">Method</span>
-        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('phone')}App</button><button role="radio" aria-checked="false">${i('mail')}Email</button><button role="radio" aria-checked="false">SMS</button><button role="radio" aria-checked="false">${i('usb')}Key</button></div></div>
+        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('phone')}App</button><button role="radio" aria-checked="false">${i('mail')}Email</button><button role="radio" aria-checked="false">SMS</button></div></div>
       <div class="row"><span class="row-label">Recovery codes</span><span style="color:var(--text-muted);font-size:var(--text-sm)">8 left</span><button class="btn">Show</button></div>
     </div>
     <div class="section">${sectionTitle('Signing in to the server', 'Rules set by the Example Studio administrator.')}
@@ -341,21 +340,25 @@ function preferences() {
 }
 
 // ---------- 8. Members ----------
-function membres() {
+function membres(menuOn = null) {
   const m = (ini, n, e, role, groups, tfa, exp, last, lockExp = false) => `<tr>
     <td><div class="member"><span class="avatar">${ini}</span><div class="meta"><span>${n}</span><span class="sub">${e}</span></div></div></td>
-    <td><div class="input select" style="width:120px;height:24px"><span class="grow">${role}</span></div></td>
+    <td>${ini === 'LM' ? `<span style="color:var(--text-muted)" title="You">${role}</span>` : `<div class="input select" style="width:120px;height:24px"><span class="grow">${role}</span></div>`}</td>
     <td>${groups.map((g) => `<span class="chip" style="margin-right:4px">${g}</span>`).join('')}</td>
     <td>${tfa ? '<span class="chip chip--ok"><span class="dot"></span>On</span>' : '<span class="chip chip--warn" title="Asked at next sign-in"><span class="dot"></span>To set up</span>'}</td>
     <td title="${lockExp ? 'Administrators can always export' : 'Can export the organization’s passwords'}"><span class="switch ${exp ? 'on' : ''} ${lockExp ? 'planned' : ''}"></span></td>
     <td class="muted">${last}</td>
-    <td><button class="icon-btn icon-btn--sm" aria-label="More" title="More">${i('more')}</button></td></tr>`;
+    <td style="position:relative">${ini === 'LM' ? '' : `<button class="icon-btn icon-btn--sm" aria-label="More" title="More">${i('more')}</button>`}${menuOn === ini ? `<div class="menu" style="top:30px;right:0;width:220px">
+      <div class="menu-item">${i('shield')}<span>Make Super Admin</span></div>
+      <div class="menu-item" title="You become Admin">${i('refresh')}<span>Transfer Super Admin</span></div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" style="color:var(--danger-text)">${i('trash')}<span>Remove</span></div></div>` : ''}</td></tr>`;
   const perm = (n, cells) => `<tr><td>${n}</td>${cells.map((c) => `<td style="text-align:center">${c ? `<span class="check on" style="display:inline-grid">${i('check')}</span>` : '<span class="check" style="display:inline-grid"></span>'}</td>`).join('')}</tr>`;
   return settings('Members', `
     <div class="page-head"><h1>Members</h1><div class="input search" style="width:220px">${i('search')}<span class="grow ph">Search</span></div><button class="btn btn--primary">${i('plus')}Invite</button></div>
     <div class="section" style="padding:0;overflow:hidden">
       <table class="table table--roomy"><thead><tr><th>Member</th><th>Role</th><th>Spaces</th><th>2FA</th><th style="width:70px" title="Allowed to export the organization’s passwords">Export</th><th>Last sign-in</th><th style="width:40px"></th></tr></thead><tbody>
-      ${m('LM', 'Lea Martin', 'lea@example-studio.com', 'Admin', ['All'], true, true, 'Today, 9:12 AM', true)}
+      ${m('LM', 'Lea Martin', 'lea@example-studio.com', 'Super Admin', ['All'], true, true, 'Today, 9:12 AM', true)}
       ${m('HB', 'Hugo Bernard', 'hugo@example-studio.com', 'Member', ['General', 'Design', 'Dev'], true, false, 'Today, 10:47 AM')}
       ${m('IP', 'Ines Petit', 'ines@example-studio.com', 'Member', ['General', 'Accounting'], true, true, 'Yesterday, 5:30 PM')}
       ${m('SR', 'Sarah Roux', 'sarah@example-studio.com', 'Read only', ['General'], false, false, 'Nov 20, 2026')}
@@ -364,13 +367,14 @@ function membres() {
       </tbody></table>
     </div>
     <div class="section">${sectionTitle('Roles', 'What each role can do in the spaces it can access.')}
-      <table class="table" style="margin-top:-4px"><thead><tr><th></th><th style="text-align:center">Admin</th><th style="text-align:center">Member</th><th style="text-align:center">Read only</th><th style="text-align:center" title="Fill through the browser extension only">Intern</th></tr></thead><tbody>
-        ${perm('See passwords', [1, 1, 1, 0])}
-        ${perm('Copy, fill', [1, 1, 1, 1])}
-        ${perm('Add, edit', [1, 1, 0, 0])}
-        ${perm('Delete', [1, 1, 0, 0])}
-        ${perm('Manage members and spaces', [1, 0, 0, 0])}
-        ${perm('Activity log, health report', [1, 0, 0, 0])}
+      <table class="table" style="margin-top:-4px"><thead><tr><th></th><th style="text-align:center" title="The organization's creator; can be transferred or shared">Super Admin</th><th style="text-align:center">Admin</th><th style="text-align:center">Member</th><th style="text-align:center">Read only</th><th style="text-align:center" title="Copy and fill, without showing">Intern</th></tr></thead><tbody>
+        ${perm('See passwords', [1, 1, 1, 1, 0])}
+        ${perm('Copy, fill', [1, 1, 1, 1, 1])}
+        ${perm('Add, edit', [1, 1, 1, 0, 0])}
+        ${perm('Delete', [1, 1, 1, 0, 0])}
+        ${perm('Manage members and spaces', [1, 1, 0, 0, 0])}
+        ${perm('Activity log, health report', [1, 1, 0, 0, 0])}
+        ${perm('Admins, roles, server keys', [1, 0, 0, 0, 0])}
       </tbody></table>
       <div><button class="btn btn--ghost btn--sm">${i('plus')}New role</button></div>
     </div>`);
@@ -388,7 +392,7 @@ function politique(scroll = 0) {
     <div class="section">${sectionTitle('Allowed methods')}
       <div class="grid-2" style="gap:0 var(--s-6)">
         <div>${meth('phone', 'Authenticator app', 1)}${meth('mail', 'Email', 1)}${meth('phone', 'SMS', 0)}</div>
-        <div>${meth('usb', 'Security key, passkey', 1)}${meth('globe', 'Google account', 0)}${meth('globe', 'Microsoft account', 1)}</div>
+        <div>${meth('globe', 'Google account', 0)}${meth('globe', 'Microsoft account', 1)}</div>
       </div>
     </div>
     <div class="section">${sectionTitle('Locking')}
@@ -913,6 +917,51 @@ function rejoindre() {
     </div>`);
 }
 
+function superAdmin() { return membres('HB'); }
+function profil() {
+  return settings('Profile', `
+    <div class="page-head"><h1>Profile</h1></div>
+    <div class="section">${sectionTitle('Example Studio', 'Shown to the other members.')}
+      <div class="row" style="gap:var(--s-3)"><span class="avatar avatar--lg">LM</span><div class="member row-label"><div class="meta"><span>Lea Martin</span><span class="sub">Super Admin</span></div></div></div>
+      <div class="grid-2">${fld('Name', 'Lea Martin')}${fld('E-mail', 'lea@example-studio.com')}</div>
+    </div>
+    <div class="section">${sectionTitle('Account key', 'Signs you in to the server; never leaves your vault.')}
+      <div class="row"><span class="row-label">Fingerprint</span><span class="code" style="color:var(--text-muted)">SHA256:9be0·41c7·e2d5·0a63</span><button class="icon-btn" title="Copy">${i('copy')}</button></div>
+    </div>`);
+}
+function appareils() {
+  const d = (ico, n, last, chip, cur = false) => `<tr><td><span class="site">${i(ico)}<span>${n}</span></span></td><td class="muted">${last}</td><td>${chip}</td><td style="text-align:right">${cur ? '' : '<button class="btn btn--ghost btn--sm">Sign out</button>'}</td></tr>`;
+  return settings('Devices', `
+    <div class="page-head"><h1>Devices</h1></div>
+    <div class="section" style="padding:0;overflow:hidden">
+      <table class="table table--roomy"><thead><tr><th>Device</th><th>Last active</th><th>Verification code</th><th style="width:120px"></th></tr></thead><tbody>
+        ${d('laptop', 'MAC-LEA · macOS 15', 'Now', '<span class="chip chip--ok"><span class="dot"></span>This device</span>', true)}
+        ${d('laptop', 'PC-STUDIO · Windows 11', 'Yesterday, 6:02 PM', '<span class="chip" title="Code not asked until Dec 24">Remembered</span>')}
+        ${d('laptop', 'MAC-HOME · macOS 14', 'Nov 18, 2026', '<span class="chip">Asked</span>')}
+      </tbody></table>
+    </div>`);
+}
+function espaces(overlay = '') {
+  const av = (xs) => `<span style="display:inline-flex">${xs.map((x, k) => `<span class="avatar avatar--sm" style="margin-left:${k ? -6 : 0}px">${x}</span>`).join('')}</span>`;
+  const r = (n, items, ms, mode) => `<tr><td><span class="site">${i('folder')}<span>${n}</span></span></td><td class="num muted">${items}</td><td>${av(ms)} <span class="muted" style="margin-left:6px">${ms.length}</span></td><td>${mode === 'e' ? '<span class="chip chip--ok">End-to-end</span>' : '<span class="chip">Standard</span>'}</td>
+    <td style="text-align:right"><button class="icon-btn icon-btn--sm" title="Rename">${i('text')}</button><button class="icon-btn icon-btn--sm" title="Delete">${i('trash')}</button></td></tr>`;
+  return settings('Spaces', `
+    <div class="page-head"><h1>Spaces</h1><button class="btn btn--primary">${i('plus')}New space</button></div>
+    <div class="section" style="padding:0;overflow:hidden">
+      <table class="table table--roomy"><thead><tr><th>Space</th><th class="num" style="width:80px">Items</th><th>Members</th><th style="width:140px">Encryption</th><th style="width:90px"></th></tr></thead><tbody>
+        ${r('General', 41, ['LM', 'HB', 'IP', 'SR'], 's')}${r('Design', 18, ['LM', 'HB'], 's')}${r('Accounting', 12, ['LM', 'IP'], 'e')}${r('Dev', 9, ['LM', 'HB'], 's')}${r('Interns', 6, ['LM', 'TD'], 's')}
+      </tbody></table>
+    </div>`, overlay);
+}
+function renommerEspace() {
+  return espaces(dlg('Rename “Design”', `${fld('Name', 'Design & brand', true)}
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Rename</button></div>`));
+}
+function supprimerEspace() {
+  return espaces(dlg('Delete “Interns”?', `<span style="color:var(--text-muted)">Its 6 items are erased for every member. A backup of the organization keeps them.</span>
+    <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger">Delete</button></div>`));
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -927,6 +976,7 @@ export const SCREENS = {
   '07b-inviter': ['Invite', inviter],
   '07c-code-invitation': ['Invitation code', codeInvitation],
   '07d-nouveau-role': ['New role', nouveauRole],
+  '07e-super-admin': ['Members — Super Admin menu', superAdmin],
   '08-politique': ['Security policy', politique],
   '09-chiffrement': ['Encryption', chiffrement],
   '10-rechiffrer': ['Re-encrypt a space', rechiffrer],
@@ -947,4 +997,9 @@ export const SCREENS = {
   '23-synchro': ['Sync & backups', synchro],
   '24-serveur': ['Server', serveur],
   '25-rejoindre': ['Join an organization', rejoindre],
+  '26-profil': ['Profile', profil],
+  '27-appareils': ['Devices', appareils],
+  '28-espaces': ['Spaces', espaces],
+  '28b-renommer-espace': ['Rename a space', renommerEspace],
+  '28c-supprimer-espace': ['Delete a space', supprimerEspace],
 };

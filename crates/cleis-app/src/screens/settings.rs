@@ -30,10 +30,13 @@ fn groups(s: &Session) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
             vec![("My account".into(), account)]
         }
         Some(o) => {
+            account.insert(0, ("user", "Profile"));
+            account.insert(2, ("laptop", "Devices"));
             let mut org = vec![];
             if o.can(cleis_core::org::Perm::Manage) {
                 org.extend([
                     ("users", "Members"),
+                    ("folder", "Spaces"),
                     ("shield", "Security policy"),
                     ("key", "Encryption"),
                 ]);
@@ -166,6 +169,9 @@ pub fn page(
         }
         "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
         "Members" => super::org::members(s, t, cx),
+        "Spaces" => super::org::spaces(s, t, cx),
+        "Profile" => super::org::profile(s, t, cx),
+        "Devices" => super::org::devices(s, t, cx),
         "Security policy" => super::org::policy(s, t, cx),
         "Encryption" => super::org::encryption(s, t, cx),
         "Server" | "Organization" => super::org::server(s, t, cx),

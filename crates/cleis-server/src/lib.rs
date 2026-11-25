@@ -123,7 +123,7 @@ impl App {
             &id.hash(),
             "",
             "",
-            cleis_core::org::ADMIN,
+            cleis_core::org::SUPER_ADMIN,
             &[],
             cleis_core::now(),
         )?
@@ -153,6 +153,7 @@ impl App {
             finish_rotation(&conn, &cert, &key)?;
         }
         db::prune_log(&conn, now)?;
+        db::migrate_roles(&conn)?;
         let log = db::Log::load(&conn)?;
         let cert = cleis_crypto::sha256(
             &db::meta_get(&conn, "cert")?

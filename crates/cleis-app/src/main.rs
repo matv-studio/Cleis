@@ -139,6 +139,9 @@ fn main() {
                                     "encryption" => "Encryption",
                                     "server" => "Server",
                                     "join" => "Organization",
+                                    "profile" => "Profile",
+                                    "devices" => "Devices",
+                                    "spaces" => "Spaces",
                                     _ => "Preferences",
                                 };
                                 if p == "org-backups"

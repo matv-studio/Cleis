@@ -67,7 +67,22 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "secure_delete", "ON")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    conn.execute_batch(SCHEMA)
+    conn.execute_batch(SCHEMA)?;
+    // Devices page (D-60): when a session was last used, which device a remembered code is for.
+    for (t, col, def) in [
+        ("sessions", "last", "INTEGER NOT NULL DEFAULT 0"),
+        ("remembered", "device", "TEXT NOT NULL DEFAULT ''"),
+    ] {
+        let has: bool = conn
+            .prepare(&format!(
+                "SELECT 1 FROM pragma_table_info('{t}') WHERE name = ?1"
+            ))?
+            .exists([col])?;
+        if !has {
+            conn.execute_batch(&format!("ALTER TABLE {t} ADD COLUMN {col} {def}"))?;
+        }
+    }
+    Ok(())
 }
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -283,4 +298,27 @@ pub fn prune_log(conn: &Connection, now: i64) -> rusqlite::Result<usize> {
     meta_set(conn, "log_anchor_seq", &(seq as u64).to_be_bytes())?;
     meta_set(conn, "log_anchor_hash", &rec.hash())?;
     Ok(n)
+}
+
+/// Servers made before the Super Admin role (D-60): the role list gets it, and the earliest admin
+/// becomes Super Admin if nobody is.
+pub fn migrate_roles(conn: &Connection) -> rusqlite::Result<()> {
+    use cleis_core::org::{ADMIN, SUPER_ADMIN};
+    let mut roles = roles(conn);
+    if !roles.iter().any(|r| r.id == SUPER_ADMIN) {
+        let d = Role::defaults();
+        roles.retain(|r| r.id != ADMIN);
+        roles.splice(0..0, d[..2].iter().cloned());
+        meta_set_json(conn, "roles", &roles)?;
+    }
+    let has_super: bool = conn
+        .prepare("SELECT 1 FROM members WHERE role = ?1 AND revoked IS NULL")?
+        .exists([SUPER_ADMIN])?;
+    if !has_super {
+        conn.execute(
+            "UPDATE members SET role = ?1 WHERE id = (SELECT id FROM members WHERE role = ?2 AND revoked IS NULL ORDER BY created LIMIT 1)",
+            [SUPER_ADMIN, ADMIN],
+        )?;
+    }
+    Ok(())
 }

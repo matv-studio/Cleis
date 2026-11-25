@@ -13,10 +13,12 @@
 - Essais : protocole complet sur TLS réel (`crates/cleis-server/tests/flow.rs`) ; scénario à deux
   fenêtres admin / membre contre un vrai serveur (`crates/cleis-app/tests/org.rs`).
 
+- Suite (D-60) : rôle Super Admin (transfert, ajout, au moins un), clés de sécurité retirées, pages
+  Profile, Devices, Spaces (renommer, supprimer). Maquettes 07 mise à jour, 07e, 26–28. Captures en
+  thème sombre seulement.
+
 ## Prochaines étapes
-1. Restes de D-59 (« En suspens » 6–8) : pages Profile, Devices, Spaces ; renommer / supprimer un
-   espace d'organisation.
-2. Audit complet demandé par l'utilisateur.
+1. Audit complet demandé par l'utilisateur.
 3. Installation du serveur sur la machine de l'entreprise (système en suspens) : service, sauvegardes.
 
 ## 25/11/2026 (suite, branche `feat/full-app`)

@@ -111,8 +111,8 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 row(t, false).child(div().flex_1().child("Method")).child(
                     div()
                         .id("code-method")
-                        .child(segmented("method", t, &["App", "Email", "SMS", "Key"], 0))
-                        .tooltip(tip("Email, SMS and security keys come with the server")),
+                        .child(segmented("method", t, &["App", "Email", "SMS"], 0))
+                        .tooltip(tip("Email and SMS need a mail server or a paid service")),
                 ),
             )
             .child(

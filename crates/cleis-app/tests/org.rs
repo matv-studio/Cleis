@@ -133,7 +133,7 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
         let o = s.org.as_ref().unwrap();
         assert!(o.error.is_none(), "{:?}", o.error);
         let st = o.state.as_ref().unwrap();
-        assert_eq!(st.me.role, cleis_core::org::ADMIN);
+        assert_eq!(st.me.role, cleis_core::org::SUPER_ADMIN);
         assert!(
             st.org.org_public.is_some(),
             "organization key made by the first admin"
@@ -324,6 +324,93 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
             .clone()
             .unwrap();
         assert!(i.intact, "{i:?}");
+    });
+
+    // Super Admin (D-60): Lea transfers the role to Hugo from his row's menu, and becomes Admin;
+    // Hugo transfers it back the same way.
+    let lea_id = session(cx, &lea, |s| s.org.as_ref().unwrap().m.member);
+    let hugo_id0 = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.member);
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| w.click("set-Members", cx));
+    act(cx, lh, |w, cx| w.click(format!("more-{hugo_id0}"), cx));
+    act(cx, lh, |w, cx| w.click(format!("transfer-{hugo_id0}"), cx));
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &lea, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        assert_eq!(st.me.role, cleis_core::org::ADMIN);
+    });
+    session(cx, &hugo, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        assert_eq!(st.me.role, cleis_core::org::SUPER_ADMIN);
+    });
+    act(cx, hh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, hh, |w, cx| w.click("set-Members", cx));
+    act(cx, hh, |w, cx| w.click(format!("more-{lea_id}"), cx));
+    act(cx, hh, |w, cx| w.click(format!("transfer-{lea_id}"), cx));
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        assert_eq!(st.me.role, cleis_core::org::SUPER_ADMIN);
+    });
+    // Hugo is Admin now: back to Member before he is removed.
+    lea.update(cx, |a, cx| {
+        a.org_member(
+            cleis_core::org::MemberChange {
+                member: hugo_id0,
+                role: Some("member".into()),
+                ..Default::default()
+            },
+            cx,
+        )
+    });
+    cx.run_until_parked();
+
+    // Settings › Spaces: a space renamed and an empty one deleted.
+    act(cx, lh, |w, cx| w.click("set-Spaces", cx));
+    act(cx, lh, |w, cx| w.click(format!("rename-{general}"), cx));
+    act(cx, lh, |w, cx| {
+        w.click("rename-space", cx);
+        w.press("ctrl-a", cx);
+        w.input("Shared", cx);
+        w.click("rename-go", cx);
+    });
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        assert!(
+            s.spaces
+                .iter()
+                .any(|x| x.id == general && x.name == "Shared"),
+            "renamed for everyone"
+        )
+    });
+    act(cx, lh, |w, cx| w.click("spaces-new", cx));
+    act(cx, lh, |w, cx| {
+        w.click("space-name", cx);
+        w.input("Temp", cx);
+        w.click("space-create", cx);
+    });
+    sync(cx, &lea);
+    let temp = session(cx, &lea, |s| {
+        s.spaces.iter().find(|x| x.name == "Temp").unwrap().id
+    });
+    act(cx, lh, |w, cx| w.click(format!("delspace-{temp}"), cx));
+    act(cx, lh, |w, cx| w.click("del-space-go", cx));
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        assert!(s.spaces.iter().all(|x| x.id != temp));
+        assert!(
+            s.org
+                .as_ref()
+                .unwrap()
+                .state
+                .as_ref()
+                .unwrap()
+                .spaces
+                .iter()
+                .all(|x| x.id != temp)
+        );
     });
 
     // Lea removes Hugo: his app forgets the space; the space is marked for re-encryption.

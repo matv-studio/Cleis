@@ -278,6 +278,23 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     même certificat ; sinon par la ligne de commande).
   - Politique appliquée par l'app : délai de verrouillage plafonné, accès hors ligne (espaces masqués
     au-delà), seuils du rapport de santé, méthodes de remplissage. Heures affichées à l'heure locale.
+- **D-60 Super Admin, sans clé de sécurité** (25/11/2026, demande de l'utilisateur ; écrans 07, 07e,
+  26–28) :
+  - Rôle « Super Admin » donné au créateur de l'organisation. Il peut être transféré à un autre membre
+    (menu ⋯ du membre › « Transfer Super Admin » : l'autre devient Super Admin, soi-même Admin) ou
+    ajouté à un autre (« Make Super Admin ») ; il en reste toujours au moins un.
+  - Ce qui lui est réservé (droit « Admins, roles, server keys ») : donner ou retirer les rôles Admin
+    et Super Admin, inviter ou retirer un admin, modifier les rôles, clé de secours, rotation de la clé
+    du serveur, restauration d'une sauvegarde. Admin garde tout le reste (membres, espaces, politique,
+    chiffrement des espaces, journal, sauvegardes). Proposé, à ajuster à l'audit si besoin.
+  - Les deux rôles tiennent la clé d'organisation et exportent toujours. Un serveur antérieur reçoit
+    le rôle à l'ouverture (premier admin promu).
+  - Clés de sécurité retirées partout (déverrouillage, code à l'ouverture, méthodes de la politique ;
+    remplace la mention de D-08).
+  - Pages ajoutées : Profile (nom, e-mail, empreinte de la clé du compte), Devices (appareils
+    connectés ou mémorisés, déconnexion), Spaces (renommer, supprimer un espace et son contenu pour
+    tous, avec confirmation).
+  - Captures : thème sombre seulement désormais (`THEMES="dark light"` pour les deux).
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
@@ -287,6 +304,5 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
    bureau (D-50, D-58).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
-7. Méthodes de connexion par e-mail, SMS, Google, Microsoft, clés de sécurité (service ou dépense).
-8. Pages Profile, Devices et Spaces des maquettes (non dessinées en détail) ; renommer / supprimer un
-   espace d'organisation.
+7. Méthodes de connexion par e-mail, SMS, Google, Microsoft (service extérieur ou dépense).
+8. Partage des droits entre Super Admin et Admin (D-60) : à confirmer à l'audit.

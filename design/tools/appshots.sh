@@ -1,5 +1,6 @@
 #!/bin/bash
-# Captures the real app (demo data) under a virtual X display, both themes.
+# Captures the real app (demo data) under a virtual X display, dark theme (user's choice,
+# 25/11/2026; pass THEMES="dark light" for both).
 # Needs: Xvfb, ImageMagick `import`, mesa-vulkan-drivers (llvmpipe). Output: target/app-captures/.
 set -e
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -9,7 +10,7 @@ shot() { # name, args...
   local name=$1; shift
   xvfb-run -a -s "-screen 0 1440x900x24" bash -c "'$root/target/debug/cleis' $* >/dev/null 2>&1 & pid=\$!; sleep 9; import -window root '$out/$name.png'; kill \$pid"
 }
-for theme in dark light; do
+for theme in ${THEMES:-dark}; do
   shot "unlock-$theme" --demo --theme $theme
   shot "vault-$theme" --demo --unlocked --theme $theme
   shot "filter-$theme" --demo --unlocked --menu filter --theme $theme
@@ -41,5 +42,11 @@ for theme in dark light; do
   shot "activity-$theme" --demo --unlocked --tab activity --theme $theme
   shot "new-space-$theme" --demo --unlocked --menu new-space --theme $theme
   shot "server-code-$theme" --demo --unlocked --menu server-code --theme $theme
+  shot "super-admin-$theme" --demo --unlocked --tab settings --page members --menu super-admin --theme $theme
+  shot "profile-$theme" --demo --unlocked --tab settings --page profile --theme $theme
+  shot "devices-$theme" --demo --unlocked --tab settings --page devices --theme $theme
+  shot "spaces-$theme" --demo --unlocked --tab settings --page spaces --theme $theme
+  shot "rename-space-$theme" --demo --unlocked --tab settings --page spaces --menu rename-space --theme $theme
+  shot "delete-space-$theme" --demo --unlocked --tab settings --page spaces --menu delete-space --theme $theme
 done
 echo "captures in $out"

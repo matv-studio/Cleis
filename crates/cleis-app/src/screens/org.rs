@@ -88,6 +88,14 @@ pub struct OrgUi {
     pub org_backups: bool,
     /// Backup asked to be restored (confirmation).
     pub restore: Option<std::path::PathBuf>,
+    /// Settings › Devices, as last fetched.
+    pub devices: Option<Vec<DeviceView>>,
+    pub devices_busy: bool,
+    /// Settings › Profile boxes.
+    pub profile: Option<(Entity<InputState>, Entity<InputState>)>,
+    /// Settings › Spaces: renaming one (its name box), deleting one (confirmation).
+    pub rename: Option<(SpaceId, Entity<InputState>)>,
+    pub delete_space: Option<SpaceId>,
 }
 
 impl OrgUi {
@@ -307,6 +315,8 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .test_support(),
             ),
     );
+    let i_admins = o.can(Perm::Admins);
+    let i_super = st.me.role == SUPER_ADMIN;
     let role_name = |id: &str| {
         st.roles
             .iter()
@@ -344,13 +354,18 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     }) {
         let id = m.id;
         let me = m.id == st.me.id;
-        let admin = m.role == ADMIN;
-        let roles: Vec<(String, bool)> = st
+        let admin = is_admin_role(&m.role);
+        // Only a Super Admin gives or takes an admin role (D-60).
+        let offered: Vec<&Role> = st
             .roles
+            .iter()
+            .filter(|r| i_admins || !r.is_admin())
+            .collect();
+        let roles: Vec<(String, bool)> = offered
             .iter()
             .map(|r| (r.name.clone(), r.id == m.role))
             .collect();
-        let role_ids: Vec<String> = st.roles.iter().map(|r| r.id.clone()).collect();
+        let role_ids: Vec<String> = offered.iter().map(|r| r.id.clone()).collect();
         let role_sel = select(
             leak(format!("role-{id}")),
             t,
@@ -460,16 +475,65 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 }))
             })
             .test_support();
-        let more_menu = menu_box(t).top(px(28.)).right_0().w(px(180.)).child(
-            menu_item(format!("revoke-{id}"), t, Some("trash"), "Remove", true)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(o) = org_mut(this) {
-                        o.ui.menu = None;
-                    }
-                    this.org_revoke(id, cx);
-                }))
-                .test_support(),
-        );
+        let mut more_menu = menu_box(t).top(px(28.)).right_0().w(px(220.));
+        if i_super && m.role != SUPER_ADMIN {
+            more_menu = more_menu
+                .child(
+                    menu_item(
+                        format!("mksuper-{id}"),
+                        t,
+                        Some("shield"),
+                        "Make Super Admin",
+                        false,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(o) = org_mut(this) {
+                            o.ui.menu = None;
+                        }
+                        this.org_member(
+                            MemberChange {
+                                member: id,
+                                role: Some(SUPER_ADMIN.into()),
+                                ..Default::default()
+                            },
+                            cx,
+                        );
+                    }))
+                    .test_support(),
+                )
+                .child(
+                    menu_item(
+                        format!("transfer-{id}"),
+                        t,
+                        Some("refresh"),
+                        "Transfer Super Admin",
+                        false,
+                    )
+                    .tooltip(tip("You become Admin"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(o) = org_mut(this) {
+                            o.ui.menu = None;
+                        }
+                        this.org_transfer(id, cx);
+                    }))
+                    .test_support(),
+                )
+                .child(div().h(px(1.)).my(px(4.)).bg(t.line));
+        }
+        let removable = !admin || i_admins;
+        if removable {
+            more_menu = more_menu.child(
+                menu_item(format!("revoke-{id}"), t, Some("trash"), "Remove", true)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(o) = org_mut(this) {
+                            o.ui.menu = None;
+                        }
+                        this.org_revoke(id, cx);
+                    }))
+                    .test_support(),
+            );
+        }
+        let editable = !me && (!admin || i_admins);
         table = table.child(
             cols(div())
                 .min_h(px(52.))
@@ -504,7 +568,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 ),
                         ),
                 )
-                .child(div().w(px(130.)).child(if me {
+                .child(div().w(px(130.)).child(if !editable {
                     div().child(role_name(&m.role)).text_color(t.text_muted)
                 } else {
                     role_sel
@@ -521,7 +585,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .w(px(28.))
                         .relative()
-                        .when(!me, |d| {
+                        .when(!me && removable, |d| {
                             d.child(
                                 icon_button(
                                     SharedString::from(format!("more-{id}")),
@@ -642,7 +706,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(div().flex_1().child(p.label()));
         for (ri, r) in st.roles.iter().enumerate() {
             let on = r.can(p);
-            let fixed = r.is_admin();
+            let fixed = r.is_admin() || p == Perm::Admins || !i_admins;
             let roles = st.roles.clone();
             line = line.child(
                 div().w(px(110.)).flex().justify_center().child(
@@ -650,8 +714,13 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .id(SharedString::from(format!("perm-{}-{p:?}", r.id)))
                         .when(!fixed, |d| d.cursor_pointer())
                         .when(fixed, |d| {
-                            d.opacity(0.6)
-                                .tooltip(tip("Admin can always do everything"))
+                            d.opacity(0.6).tooltip(tip(if r.is_admin() {
+                                "Fixed for Super Admin and Admin"
+                            } else if p == Perm::Admins {
+                                "Super Admin only"
+                            } else {
+                                "A Super Admin changes the roles"
+                            }))
                         })
                         .child(check_box(t, on))
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -679,15 +748,19 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 Some("What each role can do in the spaces it can access."),
             ))
             .child(matrix)
-            .child(
-                div().child(
-                    button("new-role", t, BtnKind::Ghost, true)
-                        .child(icon("plus", 14., t.text_muted))
-                        .child("New role")
-                        .on_click(cx.listener(|this, _, window, cx| this.open_new_role(window, cx)))
-                        .test_support(),
-                ),
-            ),
+            .when(i_admins, |d| {
+                d.child(
+                    div().child(
+                        button("new-role", t, BtnKind::Ghost, true)
+                            .child(icon("plus", 14., t.text_muted))
+                            .child("New role")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_new_role(window, cx)),
+                            )
+                            .test_support(),
+                    ),
+                )
+            }),
     )
 }
 
@@ -772,7 +845,6 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         let ico = match m {
             Method::AuthenticatorApp | Method::Sms => "phone",
             Method::Email => "mail",
-            Method::SecurityKey => "usb",
             _ => "globe",
         };
         div()
@@ -786,7 +858,6 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 d.opacity(0.45).tooltip(tip(match m {
                     Method::Email => "Needs the organization's mail server",
                     Method::Sms => "Needs a paid SMS service",
-                    Method::SecurityKey => "Planned: security keys and passkeys",
                     _ => "Needs Cleis to be registered with this provider",
                 }))
             })
@@ -879,7 +950,6 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(
                 div()
                     .flex_1()
-                    .child(method(Method::SecurityKey, cx))
                     .child(method(Method::Google, cx))
                     .child(method(Method::Microsoft, cx)),
             ),
@@ -2075,6 +2145,8 @@ fn actions(
                         o.ui.new_role = None;
                         o.ui.rekey = None;
                         o.ui.restore = None;
+                        o.ui.rename = None;
+                        o.ui.delete_space = None;
                     }
                     cx.notify();
                 }))
@@ -2217,12 +2289,17 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         return Some(overlay(body));
     }
     if let (Some(f), Some(st)) = (&o.ui.invite, st) {
-        let roles: Vec<(String, bool)> = st
+        let i_admins = o.can(Perm::Admins);
+        let offered: Vec<&Role> = st
             .roles
+            .iter()
+            .filter(|r| i_admins || !r.is_admin())
+            .collect();
+        let roles: Vec<(String, bool)> = offered
             .iter()
             .map(|r| (r.name.clone(), r.id == f.role))
             .collect();
-        let ids: Vec<String> = st.roles.iter().map(|r| r.id.clone()).collect();
+        let ids: Vec<String> = offered.iter().map(|r| r.id.clone()).collect();
         let mut spaces = div().flex().flex_wrap().gap(px(6.));
         for sv in &st.spaces {
             let on = f.spaces.contains(&sv.id);
@@ -2411,6 +2488,56 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             ));
         return Some(overlay(body));
     }
+    if let Some((id, input)) = &o.ui.rename {
+        let body = card(t, &format!("Rename “{}”", o.space_name(*id)))
+            .child(field(t, "Name", Input::new(input).id("rename-space")))
+            .child(actions(
+                t,
+                "rename-go",
+                "Rename",
+                Rc::new(|app, _, cx| app.rename_from_dialog(cx)),
+                cx,
+            ));
+        return Some(overlay(body));
+    }
+    if let (Some(id), Some(st)) = (o.ui.delete_space, st) {
+        let n = st.spaces.iter().find(|x| x.id == id).map_or(0, |x| x.items);
+        let body = card(t, &format!("Delete “{}”?", o.space_name(id)))
+            .child(div().text_color(t.text_muted).child(format!(
+                "Its {n} item{} are erased for every member. A backup of the organization keeps them.",
+                if n == 1 { "" } else { "s" }
+            )))
+            .child(
+                div()
+                    .pt(px(8.))
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        button("del-space-cancel", t, BtnKind::Default, false)
+                            .child("Cancel")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(o) = org_mut(this) {
+                                    o.ui.delete_space = None;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .child(
+                        button("del-space-go", t, BtnKind::Danger, false)
+                            .child("Delete")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(o) = org_mut(this) {
+                                    o.ui.delete_space = None;
+                                }
+                                this.org_delete_space(id, cx);
+                            }))
+                            .test_support(),
+                    ),
+            );
+        return Some(overlay(body));
+    }
     if let Some(p) = &o.ui.restore {
         let p = p.clone();
         let body = card(t, "Restore the organization")
@@ -2498,6 +2625,31 @@ impl CleisApp {
                 }
                 o.ui.subs.push(sub);
             }
+        }
+        // Profile boxes, filled with the member's name once the state is known.
+        let me = self
+            .session()
+            .and_then(|s| s.org.as_ref())
+            .filter(|o| o.ui.profile.is_none())
+            .and_then(|o| o.me().map(|m| (m.name.clone(), m.email.clone())));
+        if let Some((name, email)) = me {
+            let n = cx.new(|cx| InputState::new(window, cx));
+            let e = cx.new(|cx| InputState::new(window, cx));
+            n.update(cx, |i, cx| i.set_value(name, window, cx));
+            e.update(cx, |i, cx| i.set_value(email, window, cx));
+            if let Some(o) = org_mut(self) {
+                o.ui.profile = Some((n, e));
+            }
+        }
+        // Devices are fetched when their page is shown.
+        let want_devices = self.session().is_some_and(|s| {
+            s.settings_page == "Devices"
+                && s.org
+                    .as_ref()
+                    .is_some_and(|o| o.ui.devices.is_none() && !o.ui.devices_busy)
+        });
+        if want_devices && !self.demo {
+            self.org_devices(cx);
         }
         let Some(s) = self.session() else { return };
         if let Some(o) = s.org.as_ref()
@@ -2742,6 +2894,31 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
         }
         "new-role" => app.open_new_role(window, cx),
+        "super-admin" | "rename-space" | "delete-space" => {
+            let (member, space) = org_mut(app)
+                .and_then(|o| o.state.as_ref())
+                .map(|s| {
+                    (
+                        s.members.get(1).map(|m| m.id),
+                        s.spaces.get(1).map(|x| x.id),
+                    )
+                })
+                .unwrap_or_default();
+            match (m, member, space) {
+                ("super-admin", Some(id), _) => {
+                    if let Some(o) = org_mut(app) {
+                        o.ui.menu = Some(OrgMenu::More(id));
+                    }
+                }
+                ("rename-space", _, Some(id)) => app.open_rename(id, window, cx),
+                ("delete-space", _, Some(id)) => {
+                    if let Some(o) = org_mut(app) {
+                        o.ui.delete_space = Some(id);
+                    }
+                }
+                _ => {}
+            }
+        }
         "rekey" => {
             if let Some(o) = org_mut(app) {
                 let acc = o
@@ -2797,5 +2974,383 @@ pub fn demo_welcome(app: &mut CleisApp, window: &mut Window, cx: &mut Context<Cl
                 i.set_value("K7Q2-9MXA-4TRE-LB2C-WQ7N-3HJD-PXYV-6FKA", window, cx)
             });
         }
+    }
+}
+
+// ---------- Profile, Devices, Spaces (mockups 26–28, D-60) ----------
+
+pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let Some(me) = o.me() else {
+        return head(t, "Profile");
+    };
+    let role = o.role().map(|r| r.name.clone()).unwrap_or_default();
+    let fp = cleis_crypto::fingerprint(&me.verify_key);
+    let fp_copy = fp.clone();
+    let mut identity = section(t)
+        .child(titled(t, &o.m.name, Some("Shown to the other members.")))
+        .child(
+            row(t, true)
+                .child(avatar(t, &initials(&me.name), 40.))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .child(me.name.clone())
+                        .child(
+                            div()
+                                .text_size(TEXT_SM)
+                                .text_color(t.text_muted)
+                                .child(role),
+                        ),
+                ),
+        );
+    if let Some((n, e)) = &o.ui.profile {
+        identity = identity
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(field(t, "Name", Input::new(n).id("profile-name"))),
+                    )
+                    .child(div().flex_1().child(field(
+                        t,
+                        "E-mail",
+                        Input::new(e).id("profile-email"),
+                    ))),
+            )
+            .child(
+                div().flex().justify_end().child(
+                    button("profile-save", t, BtnKind::Primary, false)
+                        .child("Save")
+                        .on_click(cx.listener(|this, _, _, cx| this.save_profile(cx)))
+                        .test_support(),
+                ),
+            );
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, "Profile"))
+        .child(identity)
+        .child(
+            section(t)
+                .child(titled(
+                    t,
+                    "Account key",
+                    Some("Signs you in to the server; never leaves your vault."),
+                ))
+                .child(
+                    row(t, true)
+                        .child(div().flex_1().child("Fingerprint"))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_color(t.text_muted)
+                                .child(fp),
+                        )
+                        .child(
+                            icon_button("copy-account-fp", t, "copy", false)
+                                .tooltip(tip("Copy"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.copy(fp_copy.clone(), "Fingerprint", cx)
+                                })),
+                        ),
+                ),
+        )
+}
+
+pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(16.));
+    let mut table = div().flex().flex_col().child(
+        cols(div())
+            .h(px(32.))
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .child(div().flex_1().child("Device"))
+            .child(div().w(px(200.)).child("Last active"))
+            .child(div().w(px(180.)).child("Verification code"))
+            .child(div().w(px(100.))),
+    );
+    match &o.ui.devices {
+        None => {
+            table = table.child(div().p(px(16.)).text_color(t.text_faint).child("Loading…"));
+        }
+        Some(list) => {
+            for (i, d) in list.iter().enumerate() {
+                let name = d.device.clone();
+                let code = if d.current {
+                    chip(t, Tone::Ok, "This device", true)
+                } else if let Some(until) = d.remembered_until {
+                    div()
+                        .child(chip(t, Tone::Neutral, "Remembered", false))
+                        .id(SharedString::from(format!("dev-rem-{i}")))
+                        .tooltip(tip(format!(
+                            "Code not asked until {}",
+                            crate::format::date(until)
+                        )))
+                        .into_any_element()
+                        .into_div()
+                } else {
+                    chip(t, Tone::Neutral, "Asked", false)
+                };
+                table = table.child(
+                    cols(div())
+                        .h(px(44.))
+                        .border_b_1()
+                        .border_color(t.line)
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .child(icon("laptop", 16., t.text_muted))
+                                .child(d.device.clone()),
+                        )
+                        .child(
+                            div()
+                                .w(px(200.))
+                                .text_color(t.text_muted)
+                                .child(if d.current {
+                                    "Now".to_owned()
+                                } else if d.last_active == 0 {
+                                    "—".to_owned()
+                                } else {
+                                    crate::format::when_short(d.last_active, cleis_core::now())
+                                }),
+                        )
+                        .child(div().w(px(180.)).flex().child(code))
+                        .child(
+                            div()
+                                .w(px(100.))
+                                .flex()
+                                .justify_end()
+                                .when(!d.current, |x| {
+                                    x.child(
+                                        button(
+                                            SharedString::from(format!("signout-{i}")),
+                                            t,
+                                            BtnKind::Ghost,
+                                            true,
+                                        )
+                                        .child("Sign out")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.org_sign_out(name.clone(), cx)
+                                        }))
+                                        .test_support(),
+                                    )
+                                }),
+                        ),
+                );
+            }
+        }
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, "Devices"))
+        .child(section(t).p_0().overflow_hidden().child(table))
+}
+
+trait IntoDiv {
+    fn into_div(self) -> Div;
+}
+impl IntoDiv for gpui_kit::AnyElement {
+    fn into_div(self) -> Div {
+        div().child(self)
+    }
+}
+
+pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let Some(st) = o.state.as_ref() else {
+        return head(t, "Spaces");
+    };
+    let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(16.));
+    let mut table = div().flex().flex_col().child(
+        cols(div())
+            .h(px(32.))
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(TEXT_XS)
+            .text_color(t.text_muted)
+            .font_weight(W_MEDIUM)
+            .child(div().flex_1().child("Space"))
+            .child(div().w(px(80.)).flex().justify_end().child("Items"))
+            .child(div().w(px(200.)).child("Members"))
+            .child(div().w(px(140.)).child("Encryption"))
+            .child(div().w(px(64.))),
+    );
+    for sv in &st.spaces {
+        let id = sv.id;
+        let holds = s.vault.space_key(id).is_some();
+        let mut faces = div().flex().items_center();
+        for (k, m) in sv.members.iter().take(5).enumerate() {
+            faces = faces.child(
+                div()
+                    .when(k > 0, |d| d.ml(px(-4.)))
+                    .rounded_full()
+                    .border_2()
+                    .border_color(t.surface)
+                    .child(avatar(t, &initials(&o.member_name(*m)), 22.)),
+            );
+        }
+        faces = faces.child(
+            div()
+                .ml(px(8.))
+                .text_color(t.text_muted)
+                .child(sv.members.len().to_string()),
+        );
+        table = table.child(
+            cols(div())
+                .h(px(44.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(icon("folder", 16., t.text_muted))
+                        .child(o.space_name(id)),
+                )
+                .child(
+                    div()
+                        .w(px(80.))
+                        .flex()
+                        .justify_end()
+                        .text_color(t.text_muted)
+                        .child(sv.items.to_string()),
+                )
+                .child(div().w(px(200.)).child(faces))
+                .child(div().w(px(140.)).flex().child(match sv.mode {
+                    SpaceMode::Standard => chip(t, Tone::Neutral, "Standard", false),
+                    SpaceMode::EndToEnd => chip(t, Tone::Ok, "End-to-end", false),
+                }))
+                .child(
+                    div()
+                        .w(px(64.))
+                        .flex()
+                        .justify_end()
+                        .child(
+                            icon_button(
+                                SharedString::from(format!("rename-{id}")),
+                                t,
+                                "text",
+                                true,
+                            )
+                            .when(!holds, |d| d.opacity(0.4))
+                            .tooltip(tip(if holds {
+                                "Rename"
+                            } else {
+                                "Only a member of the space renames it"
+                            }))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if holds {
+                                    this.open_rename(id, window, cx);
+                                }
+                            }))
+                            .test_support(),
+                        )
+                        .child(
+                            icon_button(
+                                SharedString::from(format!("delspace-{id}")),
+                                t,
+                                "trash",
+                                true,
+                            )
+                            .tooltip(tip("Delete"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(o) = org_mut(this) {
+                                    o.ui.delete_space = Some(id);
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                        ),
+                ),
+        );
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(
+            head(t, "Spaces").child(
+                button("spaces-new", t, BtnKind::Primary, false)
+                    .child(icon("plus", 16., t.primary_ink))
+                    .child("New space")
+                    .on_click(cx.listener(|this, _, window, cx| this.open_new_space(window, cx)))
+                    .test_support(),
+            ),
+        )
+        .child(section(t).p_0().overflow_hidden().child(table))
+}
+
+impl CleisApp {
+    pub fn open_rename(&mut self, id: SpaceId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let name = o.space_name(id);
+        let input = cx.new(|cx| InputState::new(window, cx));
+        input.update(cx, |i, cx| {
+            i.set_value(name, window, cx);
+            i.focus(window, cx);
+        });
+        if let Some(o) = org_mut(self) {
+            o.ui.rename = Some((id, input));
+        }
+        cx.notify();
+    }
+
+    fn rename_from_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some((id, input)) = o.ui.rename.take() else {
+            return;
+        };
+        let name = input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            o.ui.rename = Some((id, input));
+            return;
+        }
+        self.org_rename_space(id, name, cx);
+    }
+
+    fn save_profile(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some((n, e)) = o.ui.profile.clone() else {
+            return;
+        };
+        let req = ProfileChange {
+            name: n.read(cx).value().trim().to_string(),
+            email: e.read(cx).value().trim().to_string(),
+        };
+        self.org_request::<_, MemberView>(
+            "/v1/me",
+            req,
+            |app, r, cx| {
+                if r.is_ok() {
+                    app.toast("Saved", cx);
+                }
+            },
+            cx,
+        );
     }
 }

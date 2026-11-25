@@ -89,16 +89,20 @@ pub enum Perm {
     Manage,
     /// Activity log and health report of the organization.
     Audit,
+    /// Who is Admin or Super Admin, what each role may do, the server's keys and backups put back
+    /// (Super Admin only, D-60).
+    Admins,
 }
 
 impl Perm {
-    pub const ALL: [Perm; 6] = [
+    pub const ALL: [Perm; 7] = [
         Perm::See,
         Perm::Fill,
         Perm::Edit,
         Perm::Delete,
         Perm::Manage,
         Perm::Audit,
+        Perm::Admins,
     ];
 
     pub fn label(self) -> &'static str {
@@ -109,6 +113,7 @@ impl Perm {
             Perm::Delete => "Delete",
             Perm::Manage => "Manage members and spaces",
             Perm::Audit => "Activity log, health report",
+            Perm::Admins => "Admins, roles, server keys",
         }
     }
 }
@@ -122,6 +127,13 @@ pub struct Role {
 }
 
 pub const ADMIN: &str = "admin";
+/// Given to the organization's creator; can be transferred to another member or shared (D-60).
+pub const SUPER_ADMIN: &str = "super_admin";
+
+/// Admin or Super Admin: holds the organization key, can always export.
+pub fn is_admin_role(id: &str) -> bool {
+    id == ADMIN || id == SUPER_ADMIN
+}
 
 impl Role {
     pub fn can(&self, p: Perm) -> bool {
@@ -129,18 +141,28 @@ impl Role {
     }
 
     pub fn is_admin(&self) -> bool {
-        self.id == ADMIN
+        is_admin_role(&self.id)
     }
 
-    /// The four roles of a new organization (screen 07). Admin cannot be changed or removed.
+    pub fn is_super(&self) -> bool {
+        self.id == SUPER_ADMIN
+    }
+
+    /// The roles of a new organization (screen 07). Super Admin and Admin cannot be changed or
+    /// removed.
     pub fn defaults() -> Vec<Role> {
         let r = |id: &str, name: &str, perms: &[Perm]| Role {
             id: id.into(),
             name: name.into(),
             perms: perms.iter().copied().collect(),
         };
+        let admin: Vec<Perm> = Perm::ALL
+            .into_iter()
+            .filter(|p| *p != Perm::Admins)
+            .collect();
         vec![
-            r(ADMIN, "Admin", &Perm::ALL),
+            r(SUPER_ADMIN, "Super Admin", &Perm::ALL),
+            r(ADMIN, "Admin", &admin),
             r(
                 "member",
                 "Member",
@@ -152,18 +174,23 @@ impl Role {
     }
 }
 
-/// Checks a role list sent by an administrator: Admin is kept as it is, names are set and unique.
+/// Checks a role list sent by a Super Admin: Super Admin and Admin come first as they are, names
+/// are set and unique, no other role manages admins.
 pub fn valid_roles(roles: &[Role]) -> bool {
-    let admin = Role::defaults().remove(0);
+    let d = Role::defaults();
     let mut names = BTreeSet::new();
     let mut ids = BTreeSet::new();
-    roles.first() == Some(&admin)
+    roles.len() >= 2
+        && roles[..2] == d[..2]
         && roles.iter().all(|r| {
             !r.name.trim().is_empty()
                 && names.insert(crate::text::fold(r.name.trim()))
                 && ids.insert(r.id.clone())
         })
-        && roles.iter().skip(1).all(|r| r.id != ADMIN)
+        && roles
+            .iter()
+            .skip(2)
+            .all(|r| !is_admin_role(&r.id) && !r.can(Perm::Admins))
 }
 
 // ---------- Security policy ----------
@@ -179,25 +206,23 @@ pub enum LogDetail {
     Everything,
 }
 
-/// Sign-in methods an organization may allow (screen 08). Only the authenticator app and the
-/// device key are carried out today; the others need an outside service (D-59).
+/// Sign-in methods an organization may allow (screen 08). Only the authenticator app is carried
+/// out today; the others need an outside service (D-59). Security keys are left out (D-60).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Method {
     AuthenticatorApp,
     Email,
     Sms,
-    SecurityKey,
     Google,
     Microsoft,
 }
 
 impl Method {
-    pub const ALL: [Method; 6] = [
+    pub const ALL: [Method; 5] = [
         Method::AuthenticatorApp,
         Method::Email,
         Method::Sms,
-        Method::SecurityKey,
         Method::Google,
         Method::Microsoft,
     ];
@@ -207,7 +232,6 @@ impl Method {
             Method::AuthenticatorApp => "Authenticator app",
             Method::Email => "Email",
             Method::Sms => "SMS",
-            Method::SecurityKey => "Security key, passkey",
             Method::Google => "Google account",
             Method::Microsoft => "Microsoft account",
         }
@@ -302,6 +326,9 @@ pub enum Action {
     SpaceReencrypted,
     KeyRotated,
     BackedUp,
+    SpaceRenamed,
+    SpaceDeleted,
+    SignedOut,
 }
 
 impl Action {
@@ -327,6 +354,9 @@ impl Action {
             Action::SpaceReencrypted => "Re-encrypted",
             Action::KeyRotated => "Key rotated",
             Action::BackedUp => "Backed up",
+            Action::SpaceRenamed => "Space renamed",
+            Action::SpaceDeleted => "Space deleted",
+            Action::SignedOut => "Signed out",
         }
     }
 
@@ -818,6 +848,38 @@ pub struct MemberChange {
     pub export: Option<bool>,
 }
 
+/// A member's own name and e-mail (Settings › Profile).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProfileChange {
+    pub name: String,
+    pub email: String,
+}
+
+/// A computer where this member is signed in or remembered (Settings › Devices).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceView {
+    pub device: String,
+    pub last_active: i64,
+    /// The verification code is not asked until then.
+    #[serde(default)]
+    pub remembered_until: Option<i64>,
+    /// The device making the request.
+    pub current: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeviceRef {
+    pub device: String,
+}
+
+/// New sealed name of a space (rename).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SpaceUpdate {
+    pub id: SpaceId,
+    #[serde(with = "b64")]
+    pub sealed: Vec<u8>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IdOnly {
     pub id: uuid::Uuid,
@@ -970,14 +1032,18 @@ mod tests {
     fn roles_and_policy() {
         let roles = Role::defaults();
         assert!(valid_roles(&roles));
-        assert!(roles[0].can(Perm::Manage));
-        assert!(!roles[3].can(Perm::See) && roles[3].can(Perm::Fill));
+        assert!(roles[0].is_super() && roles[0].can(Perm::Admins));
+        assert!(roles[1].can(Perm::Manage) && !roles[1].can(Perm::Admins));
+        assert!(!roles[4].can(Perm::See) && roles[4].can(Perm::Fill));
         let mut bad = roles.clone();
-        bad[0].perms.remove(&Perm::Audit);
+        bad[1].perms.remove(&Perm::Audit);
         assert!(!valid_roles(&bad));
         let mut dup = roles.clone();
-        dup[2].name = "member".into();
+        dup[3].name = "member".into();
         assert!(!valid_roles(&dup));
+        let mut sneaky = roles.clone();
+        sneaky[2].perms.insert(Perm::Admins);
+        assert!(!valid_roles(&sneaky));
 
         let mut p = Policy::default();
         assert!(p.records(Action::Edited) && !p.records(Action::Copied));
