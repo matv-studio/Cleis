@@ -33,7 +33,7 @@ pub fn render(
     div()
         .size_full()
         .flex()
-        .flex_col()
+        .flex_col_reverse()
         .bg(t.chrome)
         .font_family(FONT)
         .text_size(TEXT_MD)
@@ -69,7 +69,8 @@ pub fn render(
                 }
             }),
         )
-        .child(topbar(s, &t, cx))
+        // Stage first, top bar last, laid out in reverse: the top bar paints after the stage, so
+        // the active tab covers the stage outline and joins it (charter §5).
         .child(
             div()
                 .flex_1()
@@ -108,6 +109,7 @@ pub fn render(
                     )
                 }),
         )
+        .child(topbar(s, &t, cx))
 }
 
 fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -138,14 +140,29 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 cx.notify();
             }));
         el = if active {
+            // The outline is drawn by a frame that stops 9 px above the bottom; the corners take
+            // over from there (a parent's own border would paint over its children).
             el.h(px(33.))
                 .mb(px(-1.))
+                .relative()
                 .bg(t.bg)
-                .text_color(t.accent_text)
-                .border_1()
-                .border_b_0()
-                .border_color(t.stage_line)
                 .rounded_t(px(8.))
+                .text_color(t.accent_text)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .bottom(px(9.))
+                        .border_t_1()
+                        .border_l_1()
+                        .border_r_1()
+                        .border_color(t.stage_line)
+                        .rounded_t(px(8.)),
+                )
+                .child(tab_corner(t, true))
+                .child(tab_corner(t, false))
         } else {
             el.text_color(t.text_muted)
         };
@@ -706,6 +723,40 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 }),
         )
         .child(statusbar(s, t))
+}
+
+/// Concave 8 px corner joining the active tab to the stage outline, like an index divider
+/// (charter §5): a 9 × 9 px stage-coloured square, clipped, showing a quarter of a chrome-coloured
+/// circle centred on its outer top corner; the circle's border is the outline that leaves the
+/// stage top, curves up and follows the tab. (A rounded corner cannot be used: GPUI caps a radius
+/// at half the box.)
+fn tab_corner(t: &Tokens, left: bool) -> Div {
+    let disc = div()
+        .absolute()
+        .top(px(-9.))
+        .size(px(18.))
+        .rounded_full()
+        .bg(t.chrome)
+        .border_1()
+        .border_color(t.stage_line);
+    let disc = if left {
+        disc.left(px(-9.))
+    } else {
+        disc.right(px(-9.))
+    };
+    let sq = div()
+        .absolute()
+        .bottom_0()
+        .size(px(9.))
+        .overflow_hidden()
+        .bg(t.bg)
+        .child(disc);
+    // The square's last column is the tab's first one, where the frame's side line ends.
+    if left {
+        sq.left(px(-8.))
+    } else {
+        sq.right(px(-8.))
+    }
 }
 
 fn statusbar(s: &Session, t: &Tokens) -> Div {

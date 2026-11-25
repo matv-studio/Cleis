@@ -177,9 +177,11 @@ textarea.input { height: auto; padding: 6px var(--s-2); resize: none; }
   height: 33px; margin-bottom: -1px; color: var(--accent-text); background: var(--bg);
   border: 1px solid var(--stage-line); border-bottom: 0; border-radius: 8px 8px 0 0; z-index: 2;
 }
-.tab.is-active::before, .tab.is-active::after { content: ""; position: absolute; bottom: 0; width: 8px; height: 8px; }
-.tab.is-active::before { left: -9px; background: radial-gradient(circle at 0 0, transparent 7.5px, var(--stage-line) 7.5px 8.5px, var(--bg) 8.5px); }
-.tab.is-active::after { right: -9px; background: radial-gradient(circle at 100% 0, transparent 7.5px, var(--stage-line) 7.5px 8.5px, var(--bg) 8.5px); }
+/* Coins incurvés de 8 px : 9 × 9 px, posés sur la dernière colonne de la bordure de l'onglet et sur la
+   ligne du plateau, pour que le contour quitte le plateau, se courbe et remonte le long de l'onglet. */
+.tab.is-active::before, .tab.is-active::after { content: ""; position: absolute; bottom: 0; width: 9px; height: 9px; }
+.tab.is-active::before { left: -9px; background: radial-gradient(circle at 0 0, transparent 7.6px, var(--stage-line) 8.1px 8.9px, var(--bg) 9.4px); }
+.tab.is-active::after { right: -9px; background: radial-gradient(circle at 100% 0, transparent 7.6px, var(--stage-line) 8.1px 8.9px, var(--bg) 9.4px); }
 .main { flex: 1; min-height: 0; margin: 0 6px 6px; border: 1px solid var(--stage-line); border-radius: 10px; background: var(--bg); overflow: hidden; position: relative; display: flex; flex-direction: column; }
 .sync { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--text-sm); padding: 0 var(--s-2); }
 .sync .dot { width: 6px; height: 6px; border-radius: 99px; background: var(--success-text); }
