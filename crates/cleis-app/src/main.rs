@@ -20,10 +20,10 @@ fn main() {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let mode = if value("--theme").as_deref() == Some("light") {
-        Mode::Light
-    } else {
-        Mode::Dark
+    let forced_mode = match value("--theme").as_deref() {
+        Some("light") => Some(Mode::Light),
+        Some("dark") => Some(Mode::Dark),
+        _ => None,
     };
     let mut path = value("--vault")
         .map(PathBuf::from)
@@ -43,7 +43,11 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             cleis_app::assets::load_fonts(cx);
-            theme::apply(mode, cx);
+            let mut appearance = cleis_app::app::load_appearance();
+            if let Some(m) = forced_mode {
+                appearance.mode = m;
+            }
+            theme::apply(&appearance, cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let opts = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -58,7 +62,7 @@ fn main() {
             let (tab, page) = (tab.clone(), page.clone());
             gpui_kit::open_window(opts, cx, move |window, cx| {
                 cx.new(|cx| {
-                    let mut app = CleisApp::new(path.clone(), mode, window, cx);
+                    let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
                     if unlocked
                         && let Ok(v) = cleis_store::LockedVault::open(&path)
                             .and_then(|l| l.unlock(cleis_app::demo::PASSWORD))

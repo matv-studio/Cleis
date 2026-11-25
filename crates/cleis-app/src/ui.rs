@@ -219,7 +219,7 @@ pub fn segmented(id: &str, t: &Tokens, options: &[&str], selected: usize) -> Div
                 .text_size(TEXT_MD)
                 .font_weight(W_MEDIUM)
                 .cursor_pointer()
-                .when(on, |d| d.bg(t.surface_active).text_color(t.text))
+                .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
                 .when(!on, |d| d.text_color(t.text_muted))
                 .child((*o).to_owned()),
         );

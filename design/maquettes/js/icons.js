@@ -12,7 +12,8 @@ const P = {
   star: '<path d="m8 2 1.8 3.8 4.1.5-3 2.9.8 4.1L8 11.3l-3.7 2 .8-4.1-3-2.9 4.1-.5Z"/>',
   clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
   shield: '<path d="M8 1.5 13 3.5v4c0 3.2-2.1 5.6-5 7-2.9-1.4-5-3.8-5-7v-4Z"/>',
-  gear: '<circle cx="8" cy="8" r="2"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7 3.4 3.4"/>',
+  // Cog from Lucide (ISC, © Lucide Icons and Contributors), scaled from 24 to 16 px.
+  gear: '<g transform="scale(0.6667)" stroke-width="2.25"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></g>',
   chevron: '<path d="m4 6 4 4 4-4"/>',
   chevronR: '<path d="m6 4 4 4-4 4"/>',
   more: '<circle cx="3.5" cy="8" r=".6" fill="currentColor"/><circle cx="8" cy="8" r=".6" fill="currentColor"/><circle cx="12.5" cy="8" r=".6" fill="currentColor"/>',
@@ -57,5 +58,8 @@ const P = {
   window: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 5.5h13M4 4h.01M6 4h.01"/>',
   chain: '<path d="M6.5 9.5 9.5 6.5"/><path d="M7.5 4.5 9 3a2.5 2.5 0 0 1 3.5 3.5L11 8M8.5 11.5 7 13a2.5 2.5 0 0 1-3.5-3.5L5 8"/>',
   enter: '<path d="M13 3.5V8a1.5 1.5 0 0 1-1.5 1.5H3.5M6 7 3.5 9.5 6 12"/>',
+  cloud: '<path d="M4.6 12.5h6.9a2.9 2.9 0 0 0 .5-5.8 4 4 0 0 0-7.7 1A2.4 2.4 0 0 0 4.6 12.5Z"/>',
+  qr: '<rect x="2" y="2" width="4.5" height="4.5" rx=".6"/><rect x="9.5" y="2" width="4.5" height="4.5" rx=".6"/><rect x="2" y="9.5" width="4.5" height="4.5" rx=".6"/><path d="M9.5 9.5h1.5v1.5M14 9.5v.01M12.5 12.5H14V14M9.5 14h1.5"/>',
+  sync: '<path d="M13 5.5A5.2 5.2 0 0 0 3.6 4.3L2.5 5.5M3 10.5a5.2 5.2 0 0 0 9.4 1.2l1.1-1.2"/><path d="M2.5 2.5v3h3M13.5 13.5v-3h-3"/>',
 };
 export const i = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[name] || ''}</svg>`;

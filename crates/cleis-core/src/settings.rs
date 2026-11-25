@@ -11,12 +11,26 @@ pub enum Theme {
     System,
 }
 
+/// Default accent colour (D-48).
+pub const DEFAULT_ACCENT: &str = "#a57118";
+
+/// Accent colours offered in Preferences, after "None".
+pub const ACCENTS: [(&str, &str); 6] = [
+    ("#a57118", "Bronze"),
+    ("#3b82f6", "Blue"),
+    ("#8b5cf6", "Violet"),
+    ("#10b981", "Green"),
+    ("#f59e0b", "Amber"),
+    ("#ef4444", "Red"),
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AccentScope {
     Minimal,
-    #[default]
     Standard,
+    /// Cleis default (D-48).
+    #[default]
     Extended,
 }
 
@@ -104,7 +118,7 @@ impl Default for Autofill {
 #[serde(default)]
 pub struct Preferences {
     pub theme: Theme,
-    /// `None` = no accent (neutral charter default) or a hex colour.
+    /// `None` = no accent, or a `#rrggbb` colour. Cleis default: bronze `#a57118` (D-48).
     pub accent: Option<String>,
     pub accent_scope: AccentScope,
     /// BCP 47 tag: `en`, `fr`.
@@ -122,8 +136,8 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: Theme::Dark,
-            accent: None,
-            accent_scope: AccentScope::Standard,
+            accent: Some(DEFAULT_ACCENT.into()),
+            accent_scope: AccentScope::Extended,
             language: "en".into(),
             currency: "EUR".into(),
             tabs: Tabs::default(),
@@ -227,6 +241,9 @@ mod tests {
         // Old files without new fields still load.
         let old: Preferences = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
         assert_eq!(old.theme, Theme::Light);
+        assert_eq!(old.accent.as_deref(), Some(DEFAULT_ACCENT));
+        assert_eq!(Preferences::default().accent_scope, AccentScope::Extended);
+        assert_eq!(Preferences::default().theme, Theme::Dark);
         assert!(old.tabs.activity);
     }
 }

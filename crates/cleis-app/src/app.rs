@@ -1,6 +1,6 @@
 //! Application state: first launch → unlock → main window (vault, contacts, health, settings).
 
-use crate::theme::{self, Mode, Tokens};
+use crate::theme::{self, Appearance, Mode, Tokens};
 use cleis_core::column::ColumnDef;
 use cleis_core::settings::Preferences;
 use cleis_core::text::matches;
@@ -104,7 +104,8 @@ pub enum Phase {
 pub struct CleisApp {
     pub path: PathBuf,
     pub phase: Phase,
-    pub mode: Mode,
+    /// Theme forced on the command line (screenshots); otherwise preferences decide.
+    pub forced_mode: Option<Mode>,
     _ticker: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -119,7 +120,12 @@ fn password_input(
 }
 
 impl CleisApp {
-    pub fn new(path: PathBuf, mode: Mode, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        path: PathBuf,
+        forced_mode: Option<Mode>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // One tick per second keeps 2FA codes and their countdown current.
         let ticker = cx.spawn(async move |this, cx| {
             loop {
@@ -136,7 +142,7 @@ impl CleisApp {
                 error: None,
                 busy: false,
             }),
-            mode,
+            forced_mode,
             _ticker: ticker,
             _subs: vec![],
         };
@@ -318,13 +324,7 @@ impl CleisApp {
                     }
                 }),
             ];
-        let mode = match prefs.theme {
-            cleis_core::settings::Theme::Light => Mode::Light,
-            _ => self.mode,
-        };
-        if mode != self.mode {
-            self.set_mode(mode, cx);
-        }
+        self.apply_appearance(&prefs, cx);
         let mut s = Session {
             vault,
             entries,
@@ -355,9 +355,14 @@ impl CleisApp {
         }
     }
 
-    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
-        self.mode = mode;
-        theme::apply(mode, cx);
+    /// Applies theme and accent from the preferences (and remembers them for the unlock screen).
+    pub fn apply_appearance(&mut self, prefs: &Preferences, cx: &mut Context<Self>) {
+        let mut a = Appearance::from_prefs(prefs);
+        if let Some(m) = self.forced_mode {
+            a.mode = m;
+        }
+        theme::apply(&a, cx);
+        save_appearance(prefs);
         cx.notify();
     }
 
@@ -416,4 +421,34 @@ impl Render for CleisApp {
             Phase::Main(_) => crate::screens::main::render(self, window, cx).into_any_element(),
         }
     }
+}
+
+fn appearance_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "matv-studio", "Cleis")
+        .map(|d| d.config_dir().join("appearance.json"))
+}
+
+/// Theme and accent are not secret: kept in clear so the unlock screen already looks right.
+fn save_appearance(p: &Preferences) {
+    if cfg!(test) {
+        return;
+    }
+    let Some(path) = appearance_path() else {
+        return;
+    };
+    let subset =
+        serde_json::json!({ "theme": p.theme, "accent": p.accent, "accent_scope": p.accent_scope });
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, subset.to_string());
+}
+
+/// Appearance remembered from the last session, or the defaults (dark, bronze, extended).
+pub fn load_appearance() -> Appearance {
+    appearance_path()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<Preferences>(&b).ok())
+        .map(|p| Appearance::from_prefs(&p))
+        .unwrap_or_default()
 }

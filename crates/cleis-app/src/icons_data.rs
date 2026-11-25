@@ -155,4 +155,10 @@ pub const ICONS: &[(&str, &[u8])] = &[
         "icons/enter.svg",
         include_bytes!("../assets/icons/enter.svg"),
     ),
+    (
+        "icons/cloud.svg",
+        include_bytes!("../assets/icons/cloud.svg"),
+    ),
+    ("icons/qr.svg", include_bytes!("../assets/icons/qr.svg")),
+    ("icons/sync.svg", include_bytes!("../assets/icons/sync.svg")),
 ];

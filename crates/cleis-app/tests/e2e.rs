@@ -1,7 +1,7 @@
 //! End-to-end scenarios run against the real window tree (headless GPUI test platform).
 
 use cleis_app::app::{CleisApp, Phase, Tab};
-use cleis_app::theme::{self, Mode};
+use cleis_app::theme;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds, WindowHandle, WindowOptions,
@@ -12,7 +12,7 @@ use std::path::Path;
 fn open(cx: &mut TestAppContext, path: &Path) -> (WindowHandle<Root>, Entity<CleisApp>) {
     cx.update(|cx| {
         gpui_kit::init(cx);
-        theme::apply(Mode::Dark, cx);
+        theme::apply(&theme::Appearance::default(), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds {
                 origin: Point::default(),
@@ -22,7 +22,7 @@ fn open(cx: &mut TestAppContext, path: &Path) -> (WindowHandle<Root>, Entity<Cle
         };
         let path = path.to_owned();
         let (w, app) = gpui_kit::open_window(opts, cx, move |window, cx| {
-            cx.new(|cx| CleisApp::new(path, Mode::Dark, window, cx))
+            cx.new(|cx| CleisApp::new(path, None, window, cx))
         })
         .expect("window");
         (w.downcast::<Root>().expect("root"), app)

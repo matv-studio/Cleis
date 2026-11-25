@@ -18,7 +18,7 @@ fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
         .p(px(16.))
         .rounded(RADIUS_LG)
         .border_1()
-        .border_color(if active { t.text_muted } else { t.line_strong })
+        .border_color(if active { t.accent_text } else { t.line_strong })
         .bg(t.surface_raised)
         .child(
             div()
@@ -26,7 +26,7 @@ fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
                 .size(px(16.))
                 .rounded_full()
                 .border(px(if active { 5. } else { 1.5 }))
-                .border_color(if active { t.text } else { t.text_faint }),
+                .border_color(if active { t.accent_text } else { t.text_faint }),
         )
         .child(
             div()

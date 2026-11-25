@@ -15,5 +15,6 @@ with each crate (see `cargo tree` and the crates' `LICENSE*` files) and are bund
 | GPUI (`gpui-pre`, Zed Industries), gpui-kit / gpui-component / gpui-base (Longbridge) | desktop interface | Apache-2.0 |
 | AccessKit (through GPUI) | accessibility (UI Automation, NSAccessibility) | MIT OR Apache-2.0 |
 | `directories` | standard data folder | MIT OR Apache-2.0 |
+| Lucide (`settings` icon path, `design/maquettes/js/icons.js`, `crates/cleis-app/assets/icons/gear.svg`) | preferences cog icon | ISC |
 
 Planned: tauri-apps `tray-icon` and `global-hotkey` (MIT OR Apache-2.0).

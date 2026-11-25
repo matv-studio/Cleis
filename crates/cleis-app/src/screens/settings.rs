@@ -3,7 +3,7 @@
 use crate::app::{CleisApp, Session};
 use crate::theme::*;
 use crate::ui::*;
-use cleis_core::settings::{FillMethod, Preferences, Theme};
+use cleis_core::settings::{ACCENTS, AccentScope, FillMethod, Preferences, Theme};
 use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, div, px};
@@ -12,7 +12,7 @@ const PAGES: [(&str, &str); 4] = [
     ("lock", "Security"),
     ("gear", "Preferences"),
     ("fill", "Autofill"),
-    ("download", "My backups"),
+    ("sync", "Sync & backups"),
 ];
 
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -49,10 +49,14 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .px(px(8.))
                 .rounded(RADIUS_MD)
                 .cursor_pointer()
-                .text_color(if active { t.text } else { t.text_muted })
-                .when(active, |d| d.bg(t.surface_active))
+                .text_color(if active { t.accent_text } else { t.text_muted })
+                .when(active, |d| d.bg(t.accent_soft))
                 .hover(|d| d.bg(t.surface_hover))
-                .child(icon(ico, 16., if active { t.text } else { t.text_muted }))
+                .child(icon(
+                    ico,
+                    16.,
+                    if active { t.accent_text } else { t.text_muted },
+                ))
                 .child(name)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(s) = this.session() {
@@ -65,12 +69,12 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let body = match s.settings_page {
         "Autofill" => autofill(&s.prefs, t, cx),
         "Security" => security(&s.prefs, t, cx),
-        "My backups" => div()
+        "Sync & backups" => div()
             .child(
                 div()
                     .text_size(TEXT_XL)
                     .font_weight(W_STRONG)
-                    .child("My backups"),
+                    .child("Sync & backups"),
             )
             .child(
                 section(t).mt(px(16.)).opacity(0.45).child(
@@ -138,17 +142,11 @@ fn preferences(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .rounded(RADIUS_SM)
                     .font_weight(W_MEDIUM)
                     .cursor_pointer()
-                    .when(on, |d| d.bg(t.surface_active).text_color(t.text))
+                    .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
                     .when(!on, |d| d.text_color(t.text_muted))
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.update_prefs(move |p| p.theme = th, cx);
-                        let mode = if th == Theme::Light {
-                            Mode::Light
-                        } else {
-                            Mode::Dark
-                        };
-                        this.set_mode(mode, cx);
                     }))
             }),
     );
@@ -164,17 +162,29 @@ fn preferences(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child("Preferences"),
         )
         .child(
-            section(t).child(section_title(t, "Appearance")).child(
-                row(t, true).child(div().flex_1().child("Theme")).child(
-                    div()
-                        .p(px(2.))
-                        .bg(t.bg)
-                        .border_1()
-                        .border_color(t.line_strong)
-                        .rounded(RADIUS_MD)
-                        .child(theme_btns),
+            section(t)
+                .child(section_title(t, "Appearance"))
+                .child(
+                    row(t, true).child(div().flex_1().child("Theme")).child(
+                        div()
+                            .p(px(2.))
+                            .bg(t.bg)
+                            .border_1()
+                            .border_color(t.line_strong)
+                            .rounded(RADIUS_MD)
+                            .child(theme_btns),
+                    ),
+                )
+                .child(
+                    row(t, false)
+                        .child(div().flex_1().child("Accent color"))
+                        .child(swatches(p, t, cx)),
+                )
+                .child(
+                    row(t, false)
+                        .child(div().flex_1().child("Accent scope"))
+                        .child(scope_buttons(p, t, cx)),
                 ),
-            ),
         )
         .child(
             section(t)
@@ -245,6 +255,108 @@ fn preferences(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     )),
             ),
         )
+}
+
+/// Accent swatches (`.swatches`): "None" then the palette; the ring marks the current one.
+fn swatches(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let current = p.accent.as_deref().map(str::to_ascii_lowercase);
+    let mut d = div().flex().gap(px(6.));
+    let items =
+        std::iter::once((None, "None")).chain(ACCENTS.iter().map(|&(hex, name)| (Some(hex), name)));
+    for (i, (hex, name)) in items.enumerate() {
+        let on = current.as_deref() == hex;
+        let fill = hex.and_then(parse_hex);
+        let tip: SharedString = if i == 1 {
+            format!("{name} (default)").into()
+        } else {
+            name.into()
+        };
+        let mut sw = div()
+            .id(SharedString::from(format!("accent-{name}")))
+            .size(px(22.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .border_1()
+            .border_color(t.line_strong)
+            .cursor_pointer()
+            .bg(fill.map(Into::into).unwrap_or(t.surface_active));
+        if fill.is_none() {
+            sw = sw.child(icon("x", 12., t.text_muted));
+        }
+        // Ring = 2 px gap in the page colour, then 1.5 px in muted text (`.swatch.on`).
+        let ring = div()
+            .size(px(29.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .when(on, |d| d.border(px(1.5)).border_color(t.text_muted));
+        d = d.child(
+            ring.child(
+                sw.tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.update_prefs(move |p| p.accent = hex.map(str::to_owned), cx);
+                }))
+                .test_support(),
+            ),
+        );
+    }
+    d
+}
+
+/// Minimal / Standard / Extended, with the charter's tooltips.
+fn scope_buttons(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let opts = [
+        (AccentScope::Minimal, "Minimal", "Focus and window outline"),
+        (
+            AccentScope::Standard,
+            "Standard",
+            "Also the main button, switches and selection",
+        ),
+        (
+            AccentScope::Extended,
+            "Extended",
+            "Also tabs, choices and active rows",
+        ),
+    ];
+    let disabled = p.accent.is_none();
+    let mut d = div().flex().gap(px(2.));
+    for (scope, label, tip) in opts {
+        let on = p.accent_scope == scope;
+        d = d.child(
+            div()
+                .id(SharedString::from(format!("scope-{label}")))
+                .h(px(22.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .rounded(RADIUS_SM)
+                .font_weight(W_MEDIUM)
+                .cursor_pointer()
+                .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
+                .when(!on, |d| d.text_color(t.text_muted))
+                .child(label)
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.update_prefs(move |p| p.accent_scope = scope, cx);
+                }))
+                .test_support(),
+        );
+    }
+    div()
+        .p(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD)
+        .when(disabled, |d| d.opacity(0.45))
+        .child(d)
 }
 
 fn security(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -441,6 +553,7 @@ impl CleisApp {
         if let Err(e) = s.vault.set_preferences(&s.prefs) {
             s.toast = Some(format!("Not saved: {e}").into());
         }
-        cx.notify();
+        let prefs = s.prefs.clone();
+        self.apply_appearance(&prefs, cx);
     }
 }

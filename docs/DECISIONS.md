@@ -137,9 +137,26 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   l'écran 03 (deux champs, 10 caractères minimum). Pas de maquette dédiée : à valider sur capture.
 - **D-46 Essais de bout en bout** dans `crates/cleis-app/tests/e2e.rs` avec le banc d'essai de gpui-kit
   (fenêtre sans écran, vrais clics et frappes) ; les éléments visés portent `.test_support()`.
+- **D-47 Icône des préférences** (25/11/2026) : l'ancienne icône ressemblait à un soleil ; remplacée par le
+  rouage de Lucide (ISC, attribution dans `icons.js` et `THIRD_PARTY.md`), ramené à la grille 16 px.
+- **D-48 Apparence par défaut** (25/11/2026) : thème sombre, accent `#a57118` (« Bronze », encre noire : meilleur contraste, 5,0:1 ; remplace `#84580b`, changement du
+  25/11/2026),
+  étendue « Étendue » (onglets, choix, lignes actives en plus de l'action principale, des interrupteurs, de
+  la sélection, du focus et du contour du plateau). Réglables dans *Preferences*.
+- **D-49 Maquettes Contacts validées** (écrans 20, 21), 25/11/2026.
+- **D-50 Connexion GitHub / Microsoft / Google et nouvel appareil** (proposé, 25/11/2026, écrans 03, 22, 23).
+  L'identification (qui je suis, où est mon coffre) reste séparée du déchiffrement (mot de passe maître),
+  comme chez Bitwarden et 1Password. Se connecter à GitHub, Microsoft ou Google donne accès à
+  l'emplacement du coffre chiffré (dépôt privé, dossier d'application OneDrive `Files.ReadWrite.AppFolder`,
+  dossier d'application Google Drive `drive.appdata`, non sensible) ; le mot de passe maître reste demandé.
+  Sans ces comptes : SFTP saisi à la main, ou « code de configuration » (QR + texte : emplacement et accès)
+  affiché par un autre appareil ou imprimé dans un kit d'urgence. La sauvegarde devient une
+  synchronisation (fusion par enregistrement, numéros de révision déjà présents dans le fichier).
+  Suspens : enregistrement des applications OAuth (GitHub, Microsoft Entra, Google Cloud) au nom de
+  l'entreprise ; ouverture sans mot de passe (appareil de confiance) reportée au serveur d'organisation.
 
 ## En suspens
 1. Serveur de l'entreprise : système (Windows ou Linux).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
-3. Validation des écrans Contacts (20, 21).
-4. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
+3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
+4. Validation de la restauration et de la synchronisation (D-50, écrans 22, 23).

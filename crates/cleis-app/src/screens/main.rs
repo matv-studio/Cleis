@@ -110,7 +110,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             el.h(px(33.))
                 .mb(px(-1.))
                 .bg(t.bg)
-                .text_color(t.text)
+                .text_color(t.accent_text)
                 .border_1()
                 .border_b_0()
                 .border_color(t.stage_line)
@@ -211,10 +211,14 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .px(px(8.))
             .rounded(RADIUS_MD)
             .cursor_pointer()
-            .text_color(if active { t.text } else { t.text_muted })
-            .when(active, |d| d.bg(t.surface_active))
+            .text_color(if active { t.accent_text } else { t.text_muted })
+            .when(active, |d| d.bg(t.accent_soft))
             .hover(|d| d.bg(t.surface_hover))
-            .child(icon(ico, 16., if active { t.text } else { t.text_muted }))
+            .child(icon(
+                ico,
+                16.,
+                if active { t.accent_text } else { t.text_muted },
+            ))
             .child(
                 div()
                     .flex_1()
@@ -823,7 +827,8 @@ fn inspector(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                         .items_center()
                         .font_weight(W_MEDIUM)
                         .border_b_2()
-                        .border_color(t.text)
+                        .border_color(t.accent_text)
+                        .text_color(t.accent_text)
                         .child("Details"),
                 )
                 .child(

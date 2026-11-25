@@ -86,21 +86,26 @@
   --shadow-dialog: 0 16px 40px rgb(0 0 0 / .18), 0 0 0 1px var(--line);
 }
 
-:root {
+/* Accent par défaut de Cleis (D-48) : #a57118, étendue « Étendue ». Le réglage « Aucune » retire --accent. */
+:root, .theme-dark, .theme-light { --accent: #a57118; --accent-ink: #000000; }
+
+/* Jetons dérivés, recalculés dans chaque thème (les classes de thème du canevas comprises). */
+:root, .theme-dark, .theme-light {
   --primary: var(--accent, var(--inverse));
   --primary-ink: var(--accent-ink, var(--inverse-ink));
   --danger-solid: var(--red-solid); --danger-solid-ink: #ffffff;
   --focus: var(--accent, var(--text-muted));
   --stage-line: var(--accent, var(--stage-line-base));
   --selection: color-mix(in srgb, var(--accent, var(--text)) 14%, transparent);
+  /* Étendue « Étendue » (défaut de Cleis) : onglets, choix, lignes actives, glissières. */
+  --accent-soft: color-mix(in srgb, var(--accent, var(--text)) 18%, transparent);
+  --accent-text: color-mix(in srgb, var(--accent, var(--text)) 72%, var(--text));
 }
+:root[data-accent-scope="standard"] { --accent-soft: var(--surface-active); --accent-text: var(--text); }
 :root[data-accent-scope="minimal"] {
   --primary: var(--inverse); --primary-ink: var(--inverse-ink);
   --selection: color-mix(in srgb, var(--text) 14%, transparent);
-}
-:root[data-accent-scope="full"] {
-  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
-  --accent-text: color-mix(in srgb, var(--accent) 72%, var(--text));
+  --accent-soft: var(--surface-active); --accent-text: var(--text);
 }
 
 /* Extension du système pour l'app (charte : étendre les jetons avant de les utiliser). */
