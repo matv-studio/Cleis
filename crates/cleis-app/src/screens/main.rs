@@ -641,6 +641,8 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
             s.entries[*i]
                 .price
                 .as_ref()
+                // Yearly total in the currency of the preferences (others are not converted).
+                .filter(|p| p.currency == s.prefs.currency)
                 .map(|p| p.yearly_cents() * i64::from(s.entries[*i].licenses.unwrap_or(1)))
         })
         .sum();
@@ -765,7 +767,7 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                         div()
                             .font_weight(W_MEDIUM)
                             .text_color(t.text)
-                            .child(crate::format::money_cents(total, "EUR")),
+                            .child(crate::format::money_cents(total, &s.prefs.currency)),
                     ),
             );
     div()

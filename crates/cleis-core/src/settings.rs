@@ -131,6 +131,8 @@ pub struct Preferences {
     /// Clipboard cleared after this many seconds; `None` = never.
     pub clipboard_clear_secs: Option<u32>,
     pub open_at_login: bool,
+    /// View shown after unlocking: `all`, `favorites` or `contacts`.
+    pub start_in: String,
     /// Verification code asked when Cleis opens (Security › Opening the app).
     pub open_code: Option<crate::open_code::OpenCode>,
     /// Lock after this many minutes without use; `None` = never (personal vault; an
@@ -155,6 +157,7 @@ impl Default for Preferences {
             clipboard_clear_secs: Some(30),
             open_at_login: true,
             not_duplicates: Default::default(),
+            start_in: "all".into(),
             open_code: None,
             lock_after_mins: None,
             password_changed: None,

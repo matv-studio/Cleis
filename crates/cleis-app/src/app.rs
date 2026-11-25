@@ -110,6 +110,8 @@ pub struct Session {
     pub sync_menu: bool,
     /// Health tab: space shown and issue filter.
     pub health: crate::screens::health::HealthUi,
+    /// Open select of Settings › Preferences.
+    pub pref_menu: Option<&'static str>,
 }
 
 impl Session {
@@ -446,7 +448,13 @@ impl CleisApp {
             sync: crate::sync::load_config(&self.path),
             sync_menu: false,
             health: Default::default(),
+            pref_menu: None,
         };
+        match s.prefs.start_in.as_str() {
+            "favorites" => s.filter = Filter::Favorites,
+            "contacts" if s.prefs.tabs.contacts => s.tab = Tab::Contacts,
+            _ => {}
+        }
         s.refilter();
         window.focus(&s.main_focus.clone(), cx);
         self.phase = Phase::Main(Box::new(s));

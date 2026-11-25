@@ -78,7 +78,7 @@ pub fn page(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
         "Import & export" => super::import::page(s, t, cx),
         "Security" => super::security::page(s, t, cx),
         "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
-        _ => preferences(&s.prefs, t, cx),
+        _ => preferences(&s.prefs, s.pref_menu, t, cx),
     };
     div().flex_1().min_h_0().flex().child(nav).child(
         div()
@@ -112,7 +112,12 @@ fn toggle(
         .test_support()
 }
 
-fn preferences(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn preferences(
+    p: &Preferences,
+    menu_open: Option<&'static str>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Div {
     let theme_ix = match p.theme {
         Theme::Dark => 0,
         Theme::Light => 1,
@@ -227,29 +232,133 @@ fn preferences(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             section(t)
                 .child(section_title(t, "Language and region"))
                 .child(
-                    row(t, true)
-                        .child(div().flex_1().child("Language"))
-                        .child(value_box(t).w(px(200.)).child("English")),
+                    row(t, true).child(div().flex_1().child("Language")).child(
+                        div()
+                            .id("lang")
+                            .child(value_box(t).w(px(200.)).child("English"))
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(
+                                    "French comes with a later version",
+                                )
+                                .build(window, cx)
+                            }),
+                    ),
                 )
                 .child(
                     row(t, false)
                         .child(div().flex_1().child("Currency"))
-                        .child(value_box(t).w(px(200.)).child("Euro (€)")),
+                        .child(pref_select(
+                            "currency",
+                            t,
+                            menu_open == Some("currency"),
+                            CURRENCIES
+                                .iter()
+                                .map(|(code, name)| (*code, *name, p.currency == *code))
+                                .collect(),
+                            |p, v| p.currency = v.to_owned(),
+                            cx,
+                        )),
                 ),
         )
         .child(
-            section(t).child(section_title(t, "Startup")).child(
-                row(t, true)
-                    .child(div().flex_1().child("Open at login"))
-                    .child(toggle(
-                        "login",
-                        t,
-                        p.open_at_login,
-                        |p| p.open_at_login = !p.open_at_login,
-                        cx,
-                    )),
-            ),
+            section(t)
+                .child(section_title(t, "Startup"))
+                .child(
+                    row(t, true)
+                        .child(div().flex_1().child("Open at login"))
+                        .child(toggle(
+                            "login",
+                            t,
+                            p.open_at_login,
+                            |p| p.open_at_login = !p.open_at_login,
+                            cx,
+                        )),
+                )
+                .child(
+                    row(t, false)
+                        .child(div().flex_1().child("Start in"))
+                        .child(pref_select(
+                            "start",
+                            t,
+                            menu_open == Some("start"),
+                            START_IN
+                                .iter()
+                                .map(|(k, name)| (*k, *name, p.start_in == *k))
+                                .collect(),
+                            |p, v| p.start_in = v.to_owned(),
+                            cx,
+                        )),
+                ),
         )
+}
+
+const CURRENCIES: [(&str, &str); 5] = [
+    ("EUR", "Euro (€)"),
+    ("USD", "US dollar ($)"),
+    ("GBP", "Pound sterling (£)"),
+    ("CHF", "Swiss franc (CHF)"),
+    ("CAD", "Canadian dollar (CA$)"),
+];
+
+const START_IN: [(&str, &str); 3] = [
+    ("all", "All items"),
+    ("favorites", "Favorites"),
+    ("contacts", "Contacts"),
+];
+
+/// A select box of the preferences: its menu lists `(value, label, current)`.
+fn pref_select(
+    id: &'static str,
+    t: &Tokens,
+    open: bool,
+    options: Vec<(&'static str, &'static str, bool)>,
+    set: fn(&mut Preferences, &str),
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    let label = options
+        .iter()
+        .find(|o| o.2)
+        .map(|o| o.1)
+        .unwrap_or_default();
+    let mut menu = menu_box(t).top(px(32.)).right_0().w(px(200.));
+    for (value, name, on) in options {
+        menu = menu.child(
+            menu_item(format!("{id}-{value}"), t, None, name, false)
+                .when(on, |d| d.text_color(t.accent_text))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.pref_menu = None;
+                    }
+                    this.update_prefs(|p| set(p, value), cx);
+                }))
+                .test_support(),
+        );
+    }
+    div()
+        .relative()
+        .child(
+            div()
+                .id(id)
+                .child(
+                    value_box(t)
+                        .w(px(200.))
+                        .cursor_pointer()
+                        .child(div().flex_1().child(label))
+                        .child(icon("chevron", 14., t.text_muted)),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.pref_menu = if s.pref_menu == Some(id) {
+                            None
+                        } else {
+                            Some(id)
+                        };
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        )
+        .when(open, |d| d.child(gpui_kit::deferred(menu)))
 }
 
 /// Accent swatches (`.swatches`): "None" then the palette; the ring marks the current one.
@@ -860,6 +969,28 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
                 })
                 .when(!empty_links, |d| d.child(table)),
         )
+        // Paused (D-38): shown greyed, as in the mockup (screen 19).
+        .child({
+            let br = |name: &str, first: bool| {
+                row(t, first)
+                    .child(div().flex_1().child(name.to_owned()))
+                    .child(chip(t, Tone::Neutral, "Not installed", false))
+            };
+            div()
+                .id("ext-section")
+                .opacity(0.45)
+                .tooltip(|window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new("Paused for now").build(window, cx)
+                })
+                .child(
+                    section(t)
+                        .child(section_title(t, "Browser extension"))
+                        .child(br("Chrome", true))
+                        .child(br("Edge", false))
+                        .child(br("Firefox", false))
+                        .child(br("Safari", false)),
+                )
+        })
         .when(cfg!(target_os = "macos"), |d| {
             let allowed = cleis_autofill::accessibility_allowed();
             d.child(
