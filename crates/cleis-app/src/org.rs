@@ -68,24 +68,65 @@ pub struct Local {
     pub offline_days: Option<u32>,
 }
 
-pub fn local_path(vault: &Path) -> PathBuf {
+/// This computer's file for the organization `key` (one per organization, D-69); the first
+/// version kept a single `.org.json`, still read for the first organization.
+pub fn local_path(vault: &Path, key: &str) -> PathBuf {
+    let mut p = vault.as_os_str().to_owned();
+    p.push(format!(".org-{key}.json"));
+    PathBuf::from(p)
+}
+
+fn legacy_local_path(vault: &Path) -> PathBuf {
     let mut p = vault.as_os_str().to_owned();
     p.push(".org.json");
     PathBuf::from(p)
 }
 
-pub fn load_local(vault: &Path) -> Local {
-    std::fs::read(local_path(vault))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
+pub fn load_local(vault: &Path, key: &str) -> Local {
+    let read = |p: PathBuf| {
+        std::fs::read(p)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+    };
+    read(local_path(vault, key))
+        .or_else(|| read(legacy_local_path(vault)))
         .unwrap_or_default()
 }
 
-pub fn save_local(vault: &Path, l: &Local) {
+pub fn save_local(vault: &Path, key: &str, l: &Local) {
     let _ = std::fs::write(
-        local_path(vault),
+        local_path(vault, key),
         serde_json::to_vec_pretty(l).unwrap_or_default(),
     );
+}
+
+pub fn remove_local(vault: &Path, key: &str) {
+    let _ = std::fs::remove_file(local_path(vault, key));
+    let _ = std::fs::remove_file(legacy_local_path(vault));
+}
+
+/// Setting holding every membership of this vault (D-69); `SETTING` keeps the first, as before.
+pub const SETTING_ALL: &str = "orgs";
+
+/// The organizations this vault belongs to, the first one first.
+pub fn memberships(vault: &cleis_store::Vault) -> Vec<Membership> {
+    match vault.org_setting::<Vec<Membership>>(SETTING_ALL) {
+        Ok(Some(all)) => all,
+        _ => vault
+            .org_setting::<Option<Membership>>(SETTING)
+            .ok()
+            .flatten()
+            .flatten()
+            .into_iter()
+            .collect(),
+    }
+}
+
+/// Saves the memberships as the session has them (the one shown first, then the others).
+pub fn save_memberships(s: &crate::app::Session) {
+    let all: Vec<Membership> = s.all_orgs().map(|o| o.m.clone()).collect();
+    let _ = s.vault.set_org_setting(SETTING_ALL, &all);
+    let _ = s.vault.set_org_setting(SETTING, &all.first());
 }
 
 /// Name shown in the activity log: computer name and system.
@@ -516,20 +557,32 @@ pub fn initials(name: &str) -> String {
 }
 
 impl CleisApp {
-    /// Loads the membership when the vault opens.
+    /// Loads the memberships when the vault opens (D-69: several organizations). Sessions already
+    /// open are kept; `active` becomes the one shown.
     pub fn load_org(&mut self, cx: &mut Context<Self>) {
+        self.load_orgs(None, cx);
+    }
+
+    pub fn load_orgs(&mut self, active: Option<String>, cx: &mut Context<Self>) {
         let path = self.path.clone();
         let demo = self.demo;
         let Some(s) = self.session() else { return };
-        let m: Option<Membership> = s.vault.org_setting(SETTING).ok().flatten();
-        s.org = m.map(|m| {
-            let local = load_local(&path);
+        let mut open: Vec<OrgSession> = s.org.take().into_iter().collect();
+        open.append(&mut s.orgs_idle);
+        let mut sessions = vec![];
+        for m in memberships(&s.vault) {
+            let key = m.key();
+            if let Some(i) = open.iter().position(|o| o.m.key() == key) {
+                sessions.push(open.remove(i));
+                continue;
+            }
+            let local = load_local(&path, &key);
             let offline_days = i64::from(local.offline_days.unwrap_or(14));
             let offline_locked = !demo
                 && local
                     .last_ok
                     .is_some_and(|t| cleis_core::now() - t > offline_days * 86_400);
-            OrgSession {
+            let mut o = OrgSession {
                 m,
                 token: None,
                 local,
@@ -545,20 +598,24 @@ impl CleisApp {
                 names: BTreeMap::new(),
                 offline_locked,
                 ui: Default::default(),
-            }
-        });
-        if let Some(o) = &s.org {
-            let key = o.m.key();
+            };
             for (id, _) in s.vault.org_spaces(&key).unwrap_or_default() {
                 if let Some(sp) = s.spaces.iter().find(|x| x.id == id) {
-                    let name = sp.name.clone();
-                    if let Some(o) = s.org.as_mut() {
-                        o.names.insert(id, name);
-                    }
+                    o.names.insert(id, sp.name.clone());
                 }
             }
+            sessions.push(o);
         }
-        if s.org.as_ref().is_some_and(|o| o.offline_locked) {
+        if let Some(k) = active
+            && let Some(i) = sessions.iter().position(|o| o.m.key() == k)
+        {
+            let o = sessions.remove(i);
+            sessions.insert(0, o);
+        }
+        let mut it = sessions.into_iter();
+        s.org = it.next();
+        s.orgs_idle = it.collect();
+        if s.all_orgs().any(|o| o.offline_locked) {
             hide_org_entries(s);
         }
         // Hosted here: start the server if nothing answers yet.
@@ -575,6 +632,64 @@ impl CleisApp {
             .detach();
         }
         cx.notify();
+    }
+
+    /// Keys of the vault's organizations, the one shown first.
+    pub fn org_keys(&self) -> Vec<String> {
+        match &self.phase {
+            Phase::Main(s) => s.all_orgs().map(|o| o.m.key()).collect(),
+            _ => vec![],
+        }
+    }
+
+    pub fn active_org_key(&self) -> Option<String> {
+        match &self.phase {
+            Phase::Main(s) => s.org.as_ref().map(|o| o.m.key()),
+            _ => None,
+        }
+    }
+
+    /// Runs `f` with the organization `key` in `Session::org`, then puts the one shown back
+    /// (D-69): a sync or an answer of the server reaches its own organization.
+    pub fn in_org<R>(&mut self, key: &str, f: impl FnOnce(&mut Self) -> R) -> Option<R> {
+        let Phase::Main(s) = &mut self.phase else {
+            return None;
+        };
+        if s.org.as_ref().is_some_and(|o| o.m.key() == key) {
+            return Some(f(self));
+        }
+        let i = s.orgs_idle.iter().position(|o| o.m.key() == key)?;
+        let other = s.orgs_idle.remove(i);
+        let shown = s.org.replace(other);
+        let r = f(self);
+        if let Phase::Main(s) = &mut self.phase {
+            let back = std::mem::replace(&mut s.org, shown);
+            if let Some(o) = back {
+                let at = i.min(s.orgs_idle.len());
+                s.orgs_idle.insert(at, o);
+            }
+            if s.org.is_none() && !s.orgs_idle.is_empty() {
+                s.org = Some(s.orgs_idle.remove(0));
+            }
+        }
+        Some(r)
+    }
+
+    /// Shows the organization `key` (its tab, its settings, its activity).
+    pub fn activate_org(&mut self, key: &str) {
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        if s.org.as_ref().is_some_and(|o| o.m.key() == key) {
+            return;
+        }
+        let Some(i) = s.orgs_idle.iter().position(|o| o.m.key() == key) else {
+            return;
+        };
+        let o = s.orgs_idle.remove(i);
+        if let Some(prev) = s.org.replace(o) {
+            s.orgs_idle.insert(i, prev);
+        }
     }
 
     /// Creates an organization whose server runs on this computer, and joins it as its first
@@ -610,9 +725,10 @@ impl CleisApp {
                 let path = app.path.clone();
                 match r {
                     Ok((m, dir)) => {
-                        let mut local = load_local(&path);
+                        let key = m.key();
+                        let mut local = load_local(&path, &key);
                         local.host_dir = Some(dir);
-                        save_local(&path, &local);
+                        save_local(&path, &key, &local);
                         app.org_joined(Ok(m), cx);
                         if let Some(s) = app.session() {
                             s.settings_page = "Server";
@@ -742,7 +858,10 @@ impl CleisApp {
         let task = cx.background_spawn(async move { sync_job(conn, push, since, full) });
         cx.spawn(async move |this, cx| {
             let out = task.await;
-            this.update(cx, |app, cx| app.org_done(out, sent, cx)).ok();
+            this.update(cx, |app, cx| {
+                app.in_org(&key, |app| app.org_done(out, sent, cx));
+            })
+            .ok();
         })
         .detach();
     }
@@ -767,7 +886,7 @@ impl CleisApp {
                 o.error = None;
                 o.local.last_ok = Some(cleis_core::now());
                 o.local.offline_days = Some(state.policy.offline_days);
-                save_local(&path, &o.local);
+                save_local(&path, &o.m.key(), &o.local);
                 let _ = s.vault.org_pushed(&sent.rows, &sent.purged);
                 // Audit L-1: what the server refused is put back as the server has it.
                 if !refused.is_empty() {
@@ -837,9 +956,9 @@ impl CleisApp {
                 let name = o.m.name.clone();
                 let key = o.m.key();
                 let _ = s.vault.leave_org(&key);
-                let _ = s.vault.set_org_setting(SETTING, &None::<Membership>);
                 s.org = None;
-                let _ = std::fs::remove_file(local_path(&path));
+                save_memberships(s);
+                remove_local(&path, &key);
                 let _ = crate::sync::reload(s);
                 s.toast = Some(format!("Removed from {name}").into());
             }
@@ -1023,6 +1142,9 @@ impl CleisApp {
         let Some(mut conn) = self.org_conn() else {
             return;
         };
+        let Some(key) = self.active_org_key() else {
+            return;
+        };
         let task = cx.background_spawn(async move {
             let r: Result<R, NetError> = conn.call(path, &req);
             (r.map_err(|e| e.to_string()), conn.client.token.clone())
@@ -1030,14 +1152,16 @@ impl CleisApp {
         cx.spawn(async move |this, cx| {
             let (r, token) = task.await;
             this.update(cx, |app, cx| {
-                if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
-                    o.token = token;
-                    o.again = true;
-                }
-                if let Err(e) = &r {
-                    app.toast_for(e.clone(), 6, cx);
-                }
-                then(app, r, cx);
+                app.in_org(&key, |app| {
+                    if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
+                        o.token = token;
+                        o.again = true;
+                    }
+                    if let Err(e) = &r {
+                        app.toast_for(e.clone(), 6, cx);
+                    }
+                    then(app, r, cx);
+                });
                 cx.notify();
             })
             .ok();
@@ -1164,6 +1288,7 @@ impl CleisApp {
         let setup = c.setup;
         c.busy = true;
         c.error = None;
+        let key = o.m.key();
         cx.notify();
         let task = cx.background_spawn(async move { crate::oidc::start(&p, &email) });
         cx.spawn(async move |this, cx| {
@@ -1171,8 +1296,10 @@ impl CleisApp {
             let pending = match pending {
                 Ok(p) => p,
                 Err(e) => {
-                    this.update(cx, |app, cx| app.org_identity_failed(e, cx))
-                        .ok();
+                    this.update(cx, |app, cx| {
+                        app.in_org(&key, |app| app.org_identity_failed(e, cx));
+                    })
+                    .ok();
                     return;
                 }
             };
@@ -1180,38 +1307,50 @@ impl CleisApp {
             let finish = cx
                 .background_spawn(async move { crate::oidc::finish(pending) })
                 .await;
-            this.update(cx, |app, cx| match finish {
-                Ok(token) if setup => {
-                    let method = app
-                        .session()
-                        .and_then(|s| s.org.as_ref())
-                        .and_then(|o| o.code.as_ref())
-                        .map_or(Method::Google, |c| c.method);
-                    app.org_request::<_, CodeSetup>(
-                        "/v1/me/code",
-                        CodeStart {
-                            method,
-                            target: token,
-                        },
-                        |app, r, cx| match r {
-                            Ok(_) => {
-                                if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
-                                    o.code = None;
-                                }
-                                app.toast("Two-step verification set up", cx);
-                                app.org_sync(None, cx);
-                            }
-                            Err(e) => app.org_identity_failed(e, cx),
-                        },
-                        cx,
-                    );
-                }
-                Ok(token) => app.org_sync_with(None, Some(token), cx),
-                Err(e) => app.org_identity_failed(e, cx),
+            this.update(cx, |app, cx| {
+                app.in_org(&key, |app| app.org_identity_done(finish, setup, cx));
             })
             .ok();
         })
         .detach();
+    }
+
+    fn org_identity_done(
+        &mut self,
+        finish: Result<String, String>,
+        setup: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let app = self;
+        match finish {
+            Ok(token) if setup => {
+                let method = app
+                    .session()
+                    .and_then(|s| s.org.as_ref())
+                    .and_then(|o| o.code.as_ref())
+                    .map_or(Method::Google, |c| c.method);
+                app.org_request::<_, CodeSetup>(
+                    "/v1/me/code",
+                    CodeStart {
+                        method,
+                        target: token,
+                    },
+                    |app, r, cx| match r {
+                        Ok(_) => {
+                            if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
+                                o.code = None;
+                            }
+                            app.toast("Two-step verification set up", cx);
+                            app.org_sync(None, cx);
+                        }
+                        Err(e) => app.org_identity_failed(e, cx),
+                    },
+                    cx,
+                );
+            }
+            Ok(token) => app.org_sync_with(None, Some(token), cx),
+            Err(e) => app.org_identity_failed(e, cx),
+        }
     }
 
     fn org_identity_failed(&mut self, e: String, cx: &mut Context<Self>) {
@@ -1306,10 +1445,21 @@ impl CleisApp {
         match r {
             Ok(m) => {
                 let name = m.name.clone();
+                let key = m.key();
                 if let Some(s) = self.session() {
-                    let _ = s.vault.set_org_setting(SETTING, &Some(m));
+                    let mut all = memberships(&s.vault);
+                    all.retain(|x| x.key() != key);
+                    all.push(m);
+                    let _ = s.vault.set_org_setting(SETTING_ALL, &all);
+                    let _ = s.vault.set_org_setting(SETTING, &all.first());
+                    s.join = Default::default();
                 }
-                self.load_org(cx);
+                self.load_orgs(Some(key), cx);
+                if let Some(s) = self.session()
+                    && s.settings_page == "Add an organization"
+                {
+                    s.settings_page = "Server";
+                }
                 self.toast(format!("Joined {name}"), cx);
             }
             Err(e) => {
@@ -1329,9 +1479,14 @@ impl CleisApp {
             && let Some(o) = s.org.take()
         {
             let _ = s.vault.leave_org(&o.m.key());
-            let _ = s.vault.set_org_setting(SETTING, &None::<Membership>);
-            let _ = std::fs::remove_file(local_path(&path));
+            // Another organization of this vault, if any, is shown instead.
+            s.org = (!s.orgs_idle.is_empty()).then(|| s.orgs_idle.remove(0));
+            save_memberships(s);
+            remove_local(&path, &o.m.key());
             let _ = crate::sync::reload(s);
+            if s.tab == crate::app::Tab::Settings && s.org.is_none() {
+                s.settings_page = "Organization";
+            }
             s.toast = Some(format!("Left {}", o.m.name).into());
         }
         cx.notify();
@@ -1856,8 +2011,7 @@ impl CleisApp {
             }
         }
         if changed {
-            let m = o.m.clone();
-            let _ = s.vault.set_org_setting(SETTING, &Some(m));
+            save_memberships(s);
         }
     }
 
@@ -1872,6 +2026,14 @@ impl CleisApp {
         note: String,
         cx: &mut Context<Self>,
     ) {
+        // To the organization of `space` when given (D-69).
+        if let Some(key) =
+            space.and_then(|sp| self.session().and_then(|s| s.org_of(sp).map(|o| o.m.key())))
+            && self.active_org_key().as_deref() != Some(key.as_str())
+        {
+            self.in_org(&key, |app| app.org_log(action, space, note, cx));
+            return;
+        }
         let detail = self.session().and_then(|s| {
             let o = s.org.as_ref()?;
             let st = o.state.as_ref()?;
@@ -1898,7 +2060,24 @@ impl CleisApp {
         .detach();
     }
 
+    /// Reports an action on an item to the organization it belongs to (D-69).
     pub fn org_report(
+        &mut self,
+        action: Action,
+        entry: &Entry,
+        field: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self
+            .session()
+            .and_then(|s| s.org_of(entry.space).map(|o| o.m.key()))
+        else {
+            return;
+        };
+        self.in_org(&key, |app| app.org_report_here(action, entry, field, cx));
+    }
+
+    fn org_report_here(
         &mut self,
         action: Action,
         entry: &Entry,
@@ -2296,18 +2475,18 @@ pub fn parse_recovery(text: &str) -> Option<KeyPair> {
 
 /// Hides the organization's entries (offline longer than the policy allows).
 fn hide_org_entries(s: &mut Session) {
+    // Only the organizations not reached for too long (D-69: each has its own policy).
     let org_spaces: Vec<SpaceId> = s
-        .org
-        .as_ref()
-        .map(|o| {
+        .all_orgs()
+        .filter(|o| o.offline_locked)
+        .flat_map(|o| {
             s.vault
                 .org_spaces(&o.m.key())
                 .unwrap_or_default()
                 .into_iter()
                 .map(|x| x.0)
-                .collect()
         })
-        .unwrap_or_default();
+        .collect();
     s.entries.retain(|e| !org_spaces.contains(&e.space));
     s.spaces.retain(|sp| !org_spaces.contains(&sp.id));
     s.refilter();
@@ -2326,6 +2505,7 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
     let Some(o) = s.org.as_mut() else { return };
     let key = o.m.key();
     let mut changed = false;
+    let mut pins_changed = false;
     let here: BTreeMap<SpaceId, u32> = s
         .vault
         .org_spaces(&key)
@@ -2414,14 +2594,17 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
         let h = hex(next);
         if next.len() == 32 && !o.m.pins.contains(&h) {
             o.m.pins.push(h);
-            let m = o.m.clone();
-            let _ = s.vault.set_org_setting(SETTING, &Some(m));
+            pins_changed = true;
         }
     }
+    let renamed = o.m.name != st.org.name;
     o.m.name.clone_from(&st.org.name);
     let was_locked = o.offline_locked;
     o.offline_locked = false;
     o.state = Some(st);
+    if pins_changed || renamed {
+        save_memberships(s);
+    }
     if changed || was_locked {
         let _ = crate::sync::reload(s);
     }

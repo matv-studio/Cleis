@@ -70,6 +70,9 @@ fn main() {
     let background = flag("--background");
     let restore = flag("--restore");
     let no_org = flag("--no-org");
+    // D-69 captures: a second organization, the vaults in their own tabs.
+    let two_orgs = flag("--two-orgs");
+    let vault_tab = value("--vault-tab");
     let org_welcome = flag("--org-welcome");
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
@@ -117,6 +120,20 @@ fn main() {
                         if let Some(s) = app.session() {
                             if !no_org {
                                 cleis_app::demo::org(s);
+                            }
+                            if two_orgs {
+                                cleis_app::demo::second_org(s);
+                                s.prefs.vault_tabs = true;
+                                s.scope = match vault_tab.as_deref() {
+                                    Some("personal") => cleis_app::app::Scope::Personal,
+                                    _ => s
+                                        .org
+                                        .as_ref()
+                                        .map_or(cleis_app::app::Scope::Personal, |o| {
+                                            cleis_app::app::Scope::Org(o.m.key())
+                                        }),
+                                };
+                                s.refilter();
                             }
                             s.tab = match tab.as_deref() {
                                 Some("contacts") => cleis_app::app::Tab::Contacts,

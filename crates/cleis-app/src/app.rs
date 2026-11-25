@@ -140,8 +140,14 @@ pub struct Session {
     pub vault_filter: VaultFilter,
     pub filter_menu: bool,
     pub vault_cards: bool,
-    /// The organization this vault belongs to, if any (D-59).
+    /// The organization shown (tab, settings, activity), if any (D-59). The vault's other
+    /// organizations wait in `orgs_idle` and take its place while they are shown or synced (D-69).
     pub org: Option<crate::org::OrgSession>,
+    pub orgs_idle: Vec<crate::org::OrgSession>,
+    /// Preferences › Vaults: the personal vault's name box, and its subscription.
+    pub vault_name: Option<(Entity<InputState>, Subscription)>,
+    /// What the Vault tab shows when the personal vault has its own tab (D-69).
+    pub scope: Scope,
     /// Personal folders (D-62): the dialog open, the folder whose menu is open.
     pub folder: Option<FolderDialog>,
     /// Sync & backups: GitHub / SFTP place being set up (D-65).
@@ -152,6 +158,15 @@ pub struct Session {
     /// Settings › Organization: joining one from an open vault.
     pub join: crate::screens::org::JoinForm,
     pub join_subs: Vec<Subscription>,
+}
+
+/// Vaults shown by the Vault tab: everything (one tab), the personal vault, or one organization
+/// (its key), when Preferences › Vaults gives each its tab (D-69).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Scope {
+    All,
+    Personal,
+    Org(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -182,6 +197,7 @@ impl Session {
                 Filter::Trash => false,
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
+            .filter(|(_, e)| self.in_scope(e.space))
             .filter(|(_, e)| {
                 let f = &self.vault_filter;
                 (f.subs.is_empty() || f.subs.contains(&e.subscription))
@@ -208,10 +224,9 @@ impl Session {
     pub fn lock_after(&self) -> Option<u32> {
         let own = self.prefs.lock_after_mins;
         let org = self
-            .org
-            .as_ref()
-            .and_then(|o| o.policy())
-            .and_then(|p| p.lock_after_mins);
+            .all_orgs()
+            .filter_map(|o| o.policy().and_then(|p| p.lock_after_mins))
+            .min();
         match (own, org) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
@@ -225,17 +240,63 @@ impl Session {
 
     /// What the member's role allows in `space`; everything in a personal space (audit L-1, L-4).
     pub fn may(&self, space: cleis_core::SpaceId, p: cleis_core::org::Perm) -> bool {
-        match &self.org {
-            Some(o) if o.names.contains_key(&space) => o.can(p),
-            _ => true,
-        }
+        self.org_of(space).is_none_or(|o| o.can(p))
     }
 
     /// Whether `space` belongs to an organization.
     pub fn is_org_space(&self, space: cleis_core::SpaceId) -> bool {
-        self.org
-            .as_ref()
-            .is_some_and(|o| o.names.contains_key(&space))
+        self.org_of(space).is_some()
+    }
+
+    /// Every organization of this vault, the one shown first.
+    pub fn all_orgs(&self) -> impl Iterator<Item = &crate::org::OrgSession> {
+        self.org.iter().chain(self.orgs_idle.iter())
+    }
+
+    /// The organizations in a stable order for the tabs: as joined, then by name.
+    pub fn org_tabs(&self) -> Vec<(String, String)> {
+        let joined: Vec<String> = crate::org::memberships(&self.vault)
+            .iter()
+            .map(|m| m.key())
+            .collect();
+        let mut v: Vec<(String, String)> = self
+            .all_orgs()
+            .map(|o| (o.m.key(), o.m.name.clone()))
+            .collect();
+        v.sort_by_key(|(k, n)| {
+            (
+                joined.iter().position(|x| x == k).unwrap_or(usize::MAX),
+                n.clone(),
+            )
+        });
+        v
+    }
+
+    /// Name of the personal vault (its first space; "My vault" unless renamed, D-69).
+    pub fn personal_name(&self) -> String {
+        let home = self.vault.home_space();
+        self.spaces
+            .iter()
+            .find(|x| x.id == home)
+            .map_or_else(|| "My vault".to_owned(), |x| x.name.clone())
+    }
+
+    /// The organization a space belongs to.
+    pub fn org_of(&self, space: cleis_core::SpaceId) -> Option<&crate::org::OrgSession> {
+        self.all_orgs().find(|o| o.names.contains_key(&space))
+    }
+
+    /// Whether an item of `space` is shown by the current scope (D-69).
+    pub fn in_scope(&self, space: cleis_core::SpaceId) -> bool {
+        match &self.scope {
+            Scope::All => true,
+            Scope::Personal => self
+                .spaces
+                .iter()
+                .find(|x| x.id == space)
+                .is_some_and(|x| x.kind == cleis_store::SpaceKind::Personal),
+            Scope::Org(k) => self.org_of(space).is_some_and(|o| o.m.key() == *k),
+        }
     }
 
     pub fn selected_entry(&self) -> Option<&Entry> {
@@ -298,8 +359,13 @@ impl CleisApp {
                     if app.auto_backup_due() {
                         app.backup(true, cx);
                     }
-                    if app.org_sync_due() {
-                        app.org_sync(None, cx);
+                    // Every organization of the vault, each in turn (D-69).
+                    for key in app.org_keys() {
+                        app.in_org(&key, |app| {
+                            if app.org_sync_due() {
+                                app.org_sync(None, cx);
+                            }
+                        });
                     }
                     app.idle_lock_due().then_some(app.main_window).flatten()
                 }) else {
@@ -682,6 +748,9 @@ impl CleisApp {
             place: None,
             folder_menu: None,
             ctx: None,
+            orgs_idle: vec![],
+            vault_name: None,
+            scope: Scope::All,
             join: Default::default(),
             join_subs: vec![],
         };

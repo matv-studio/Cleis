@@ -1442,3 +1442,118 @@ fn context_menu_and_shortcuts(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.press("enter", cx));
     main(cx, &|s| assert!(s.confirm.is_none()));
 }
+
+/// Scenario (mockups 32 to 32c, D-69): Preferences › Vaults puts the personal vault in its own
+/// tab, renamed "Personal"; with two organizations each has its tab, its sidebar and its items,
+/// and an answer for the organization not shown reaches it, not the one shown.
+#[gpui_kit::test]
+fn vault_tabs_and_two_organizations(cx: &mut TestAppContext) {
+    use cleis_app::app::Scope;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let read = |cx: &mut TestAppContext, f: &dyn Fn(&cleis_app::app::Session)| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            f(s)
+        })
+    };
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+        cleis_app::demo::second_org(s);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("vault-tabs", cx));
+    read(cx, &|s| {
+        assert!(s.prefs.vault_tabs);
+        assert_eq!(s.scope, Scope::Personal);
+    });
+    act(cx, h, |w, cx| {
+        w.click("vault-name", cx);
+        w.press("ctrl-a", cx);
+        w.input("Personal", cx);
+        w.press("enter", cx);
+    });
+    read(cx, &|s| assert_eq!(s.personal_name(), "Personal"));
+
+    act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
+    read(cx, &|s| {
+        assert_eq!(s.tab, Tab::Vault);
+        assert!(!s.visible.is_empty());
+        assert!(
+            s.visible
+                .iter()
+                .all(|i| !s.is_org_space(s.entries[*i].space))
+        );
+    });
+
+    let (studio, acme) = read_keys(cx, &app);
+    act(cx, h, |w, cx| w.click(format!("tab-vault-{acme}"), cx));
+    read(cx, &|s| {
+        assert_eq!(s.org.as_ref().unwrap().m.key(), acme);
+        let names: Vec<&str> = s
+            .visible
+            .iter()
+            .map(|i| s.entries[*i].name.as_str())
+            .collect();
+        assert_eq!(names, ["Acme portal", "Jira", "Shared drive"]);
+    });
+    // An item of Acme stays in Acme: Example Studio's spaces are refused.
+    let (jira, design) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        (
+            s.entries.iter().find(|e| e.name == "Jira").unwrap().id,
+            s.spaces.iter().find(|x| x.name == "Design").unwrap().id,
+        )
+    });
+    app.update(cx, |a, cx| a.move_entry(jira, design, cx));
+    read(cx, &|s| {
+        let e = s.entries.iter().find(|e| e.name == "Jira").unwrap();
+        assert_ne!(e.space, design);
+    });
+    // Work for Example Studio runs with it in place, then Acme is shown again.
+    let seen = app.update(cx, |a, _| a.in_org(&studio, |a| a.active_org_key()));
+    assert_eq!(seen.flatten().as_deref(), Some(studio.as_str()));
+    read(cx, &|s| assert_eq!(s.org.as_ref().unwrap().m.key(), acme));
+
+    // Settings: one group per organization; a page of the other one shows it.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click(format!("set-{studio}-Members"), cx));
+    read(cx, &|s| {
+        assert_eq!(s.org.as_ref().unwrap().m.key(), studio);
+        assert_eq!(s.settings_page, "Members");
+    });
+
+    // Off again: one Vault tab with everything.
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("vault-tabs", cx));
+    act(cx, h, |w, cx| w.click("tab-Vault", cx));
+    read(cx, &|s| {
+        assert_eq!(s.scope, Scope::All);
+        assert_eq!(s.visible.len(), s.entries.len());
+    });
+}
+
+fn read_keys(cx: &mut TestAppContext, app: &Entity<CleisApp>) -> (String, String) {
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let key = |n: &str| {
+            s.all_orgs()
+                .find(|o| o.m.name == n)
+                .map(|o| o.m.key())
+                .unwrap()
+        };
+        (key("Example Studio"), key("Acme Partners"))
+    })
+}

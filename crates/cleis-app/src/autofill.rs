@@ -123,10 +123,8 @@ impl CleisApp {
         };
         // Audit L-3: the organization's policy may forbid reading browser addresses.
         let org_ok = s
-            .org
-            .as_ref()
-            .and_then(|o| o.policy())
-            .is_none_or(|p| p.read_addresses);
+            .all_orgs()
+            .all(|o| o.policy().is_none_or(|p| p.read_addresses));
         let read_url = fg.context.is_browser() && s.prefs.autofill.match_browser_urls && org_ok;
         cx.spawn(async move |this, cx| {
             let mut fg = fg;
@@ -210,7 +208,7 @@ impl CleisApp {
                 cx.notify();
                 return;
             }
-            if let Some(p) = s.org.as_ref().and_then(|o| o.policy()) {
+            if let Some(p) = s.org_of(e.space).and_then(|o| o.policy()) {
                 let wanted = method.unwrap_or(s.prefs.autofill.method);
                 method = Some(allowed_method(wanted, p.fill_fields, p.type_keys));
             }

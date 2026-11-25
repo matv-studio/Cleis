@@ -58,5 +58,8 @@ for theme in ${THEMES:-dark}; do
   shot "ctx-contact-$theme" --demo --unlocked --tab contacts --menu ctx-contact --theme $theme
   shot "ctx-member-$theme" --demo --unlocked --tab settings --page members --menu ctx-member --theme $theme
   shot "confirm-transfer-$theme" --demo --unlocked --tab settings --page members --menu confirm-transfer --theme $theme
+  shot "vault-tabs-org-$theme" --demo --unlocked --two-orgs --theme $theme
+  shot "vault-tabs-personal-$theme" --demo --unlocked --two-orgs --vault-tab personal --theme $theme
+  shot "vault-tabs-settings-$theme" --demo --unlocked --two-orgs --tab settings --theme $theme
 done
 echo "captures in $out"

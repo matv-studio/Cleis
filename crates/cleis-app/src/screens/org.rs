@@ -2203,6 +2203,12 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 cx,
             )
         };
+    let audited: Vec<&OrgSession> = s.all_orgs().filter(|x| x.can(Perm::Audit)).collect();
+    let org_keys: Vec<String> = audited.iter().map(|x| x.m.key()).collect();
+    let org_opts: Vec<(String, bool)> = audited
+        .iter()
+        .map(|x| (x.m.name.clone(), x.m.key() == o.m.key()))
+        .collect();
     let members: Vec<MemberId> = st.members.iter().map(|m| m.id).collect();
     let mut mopts = vec![("All members".to_owned(), ui.log_member.is_none())];
     mopts.extend(
@@ -2255,6 +2261,20 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .bg(t.bg)
         .when_some(ui.log_search.as_ref(), |d, i| {
             d.child(div().w(px(240.)).child(Input::new(i).id("log-search")))
+        })
+        // Mockup 32d: with several organizations, the organization is the first filter.
+        .when(org_keys.len() > 1, |d| {
+            d.child(sel(
+                "log-org",
+                org_opts,
+                Rc::new(move |app, i, cx| {
+                    if let Some(k) = org_keys.get(i) {
+                        app.activate_org(k);
+                    }
+                    app.org_query_log(cx);
+                }),
+                cx,
+            ))
         })
         .child(sel(
             "log-member",
@@ -3114,7 +3134,29 @@ impl CleisApp {
     /// Inputs of the organization screens (they need the window).
     pub fn ensure_org_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        if s.org.is_none() && s.join.address.is_none() {
+        // Preferences › Vaults: the personal vault's name, renamed on Enter or when left.
+        if s.tab == crate::app::Tab::Settings && s.vault_name.is_none() {
+            let name = s.personal_name();
+            let st = cx.new(|cx| InputState::new(window, cx));
+            st.update(cx, |i, cx| i.set_value(name, window, cx));
+            let sub = cx.subscribe_in(
+                &st,
+                window,
+                |this, input, ev: &gpui_kit::component::input::InputEvent, _, cx| {
+                    use gpui_kit::component::input::InputEvent;
+                    if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                        let name = input.read(cx).value().trim().to_string();
+                        this.rename_personal(&name, cx);
+                    }
+                },
+            );
+            if let Some(s) = self.session() {
+                s.vault_name = Some((st, sub));
+            }
+        }
+        let Some(s) = self.session() else { return };
+        let joining = s.org.is_none() || s.settings_page == "Add an organization";
+        if joining && s.join.address.is_none() {
             let (mut join, subs) = join_form(window, cx);
             join.elsewhere = s.join.elsewhere;
             if let Some(s) = self.session() {

@@ -144,6 +144,8 @@ pub struct Preferences {
     pub not_duplicates: std::collections::BTreeSet<(crate::ContactId, crate::ContactId)>,
     /// When the organization's backup key was saved to a file (screen 13).
     pub org_backup_key_saved: Option<i64>,
+    /// The personal vault in its own tab, beside one tab per organization (D-69).
+    pub vault_tabs: bool,
 }
 
 impl Default for Preferences {
@@ -164,6 +166,7 @@ impl Default for Preferences {
             lock_after_mins: None,
             password_changed: None,
             org_backup_key_saved: None,
+            vault_tabs: false,
         }
     }
 }

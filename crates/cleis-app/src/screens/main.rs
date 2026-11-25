@@ -158,26 +158,59 @@ pub fn render(
 }
 
 fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
-    let mut tabs = vec![(Tab::Vault, "Vault")];
+    use crate::app::Scope;
+    // D-69: with Preferences › Vaults › "Personal vault in its own tab", the personal vault comes
+    // first, then one tab per organization; otherwise a single Vault tab shows them all.
+    let mut tabs: Vec<(Tab, Option<Scope>, String, String)> = vec![];
+    if s.prefs.vault_tabs {
+        tabs.push((
+            Tab::Vault,
+            Some(Scope::Personal),
+            "tab-vault-personal".into(),
+            s.personal_name(),
+        ));
+        for (key, name) in s.org_tabs() {
+            tabs.push((
+                Tab::Vault,
+                Some(Scope::Org(key.clone())),
+                format!("tab-vault-{key}"),
+                name,
+            ));
+        }
+    } else {
+        tabs.push((Tab::Vault, None, "tab-Vault".into(), "Vault".into()));
+    }
     if s.prefs.tabs.contacts {
-        tabs.push((Tab::Contacts, "Contacts"));
+        tabs.push((
+            Tab::Contacts,
+            None,
+            "tab-Contacts".into(),
+            "Contacts".into(),
+        ));
     }
     if s.prefs.tabs.health {
-        tabs.push((Tab::Health, "Health"));
+        tabs.push((Tab::Health, None, "tab-Health".into(), "Health".into()));
     }
     // Activity exists only for an organisation (D-38): a personal vault has no log.
-    if s.org
-        .as_ref()
-        .is_some_and(|o| o.can(cleis_core::org::Perm::Audit))
-    {
-        tabs.push((Tab::Activity, "Activity"));
+    if s.all_orgs().any(|o| o.can(cleis_core::org::Perm::Audit)) {
+        tabs.push((
+            Tab::Activity,
+            None,
+            "tab-Activity".into(),
+            "Activity".into(),
+        ));
     }
-    tabs.push((Tab::Settings, "Settings"));
+    tabs.push((
+        Tab::Settings,
+        None,
+        "tab-Settings".into(),
+        "Settings".into(),
+    ));
     let mut nav = div().flex().items_end().h(TOPBAR_H);
-    for (tab, label) in tabs {
-        let active = s.tab == tab;
+    for (tab, scope, id, label) in tabs {
+        let active = s.tab == tab && scope.as_ref().is_none_or(|sc| *sc == s.scope);
         let mut el = div()
-            .id(SharedString::from(format!("tab-{label}")))
+            .id(SharedString::from(id))
             .h(px(32.))
             .px(px(16.))
             .flex()
@@ -185,13 +218,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
             .font_weight(W_MEDIUM)
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
-                if let Some(s) = this.session() {
-                    s.tab = tab;
-                }
-                if tab == Tab::Activity {
-                    this.org_query_log(cx);
-                }
-                cx.notify();
+                this.open_tab(tab, scope.clone(), cx);
             }));
         el = if active {
             // The outline is drawn by a frame that stops 9 px above the bottom; the corners take
@@ -251,11 +278,16 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                         .items_center()
                         .gap(px(6.))
                         .font_weight(W_MEDIUM)
-                        .child(
+                        .child(if s.prefs.vault_tabs {
                             s.org
                                 .as_ref()
-                                .map_or("My vault".to_owned(), |o| o.m.name.clone()),
-                        ),
+                                .and_then(|o| o.me().map(|m| m.name.clone()))
+                                .unwrap_or_else(|| s.personal_name())
+                        } else {
+                            s.org
+                                .as_ref()
+                                .map_or_else(|| s.personal_name(), |o| o.m.name.clone())
+                        }),
                 ),
         )
         .child(nav)
@@ -361,7 +393,12 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
 }
 
 fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let count = |f: &dyn Fn(&Entry) -> bool| s.entries.iter().filter(|e| f(e)).count();
+    let count = |f: &dyn Fn(&Entry) -> bool| {
+        s.entries
+            .iter()
+            .filter(|e| s.in_scope(e.space) && f(e))
+            .count()
+    };
     let item = |id: &str,
                 ico: &str,
                 label: String,
@@ -437,7 +474,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             "f-all",
             "list",
             "All items".into(),
-            Some(s.entries.len()),
+            Some(count(&|_| true)),
             Filter::All,
             cx,
         ))
@@ -469,26 +506,31 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .iter()
         .filter(|sp| !sp.for_contacts && sp.kind == cleis_store::SpaceKind::Organization)
         .collect();
+    use crate::app::Scope;
+    let show_personal = !matches!(s.scope, Scope::Org(_));
     // Personal folders (D-62): "+" to add one, "⋯" on hover to rename or delete.
-    d = d.child(
-        div()
-            .flex()
-            .items_center()
-            .child(div().flex_1().child(group("Personal")))
-            .child(
-                div().pt(px(8.)).child(
-                    icon_button("new-folder-v", t, "plus", true)
-                        .tooltip(|window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new("New folder")
-                                .build(window, cx)
-                        })
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.open_new_folder(window, cx)),
-                        )
-                        .test_support(),
-                ),
+    let personal = if show_personal { personal } else { vec![] };
+    let personal_head = div()
+        .flex()
+        .items_center()
+        .child(div().flex_1().child(group(if s.scope == Scope::Personal {
+            "Folders"
+        } else {
+            "Personal"
+        })))
+        .child(
+            div().pt(px(8.)).child(
+                icon_button("new-folder-v", t, "plus", true)
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("New folder").build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.open_new_folder(window, cx)))
+                    .test_support(),
             ),
-    );
+        );
+    if show_personal {
+        d = d.child(personal_head);
+    }
     let home = s.vault.home_space();
     for sp in personal {
         let n = s.entries.iter().filter(|e| e.space == sp.id).count();
@@ -528,51 +570,93 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 }),
         );
     }
-    if let Some(o) = &s.org {
+    // One group per organization (D-69); with its own tab, only that organization's spaces.
+    let shown: Vec<&crate::org::OrgSession> = s
+        .all_orgs()
+        .filter(|o| match &s.scope {
+            Scope::All => true,
+            Scope::Personal => false,
+            Scope::Org(k) => o.m.key() == *k,
+        })
+        .collect();
+    let shown_key = s.org.as_ref().map(|o| o.m.key());
+    for o in &shown {
         let manage = o.can(cleis_core::org::Perm::Manage);
+        let key = o.m.key();
+        let title = if matches!(s.scope, Scope::Org(_)) {
+            "Spaces".to_owned()
+        } else {
+            o.m.name.clone()
+        };
         d = d.child(
             div()
                 .flex()
                 .items_center()
-                .child(div().flex_1().child(group(&o.m.name)))
+                .child(div().flex_1().child(group(&title)))
                 .when(manage, |d| {
                     d.child(
                         div().pt(px(8.)).child(
-                            icon_button("new-space", t, "plus", true)
-                                .tooltip(|window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new("New space")
-                                        .build(window, cx)
-                                })
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.open_new_space(window, cx)
-                                }))
-                                .test_support(),
+                            icon_button(
+                                // The organization shown keeps the plain id.
+                                SharedString::from(if shown_key.as_deref() == Some(key.as_str()) {
+                                    "new-space".to_owned()
+                                } else {
+                                    format!("new-space-{key}")
+                                }),
+                                t,
+                                "plus",
+                                true,
+                            )
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new("New space")
+                                    .build(window, cx)
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.activate_org(&key);
+                                this.open_new_space(window, cx)
+                            }))
+                            .test_support(),
                         ),
                     )
                 }),
         );
-    } else if !org.is_empty() {
-        d = d.child(group("Organization"));
+        for sp in org.iter().filter(|sp| o.names.contains_key(&sp.id)) {
+            let n = s.entries.iter().filter(|e| e.space == sp.id).count();
+            let reserved = o.is_reserved(sp.id);
+            d = d.child(
+                div()
+                    .id(SharedString::from(format!("osw-{}", sp.id)))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Right,
+                        super::ctx::on_right(super::ctx::CtxTarget::Space(sp.id), cx),
+                    )
+                    .child(item(
+                        &format!("sp-{}", sp.id),
+                        if reserved { "lock" } else { "folder" },
+                        sp.name.clone(),
+                        Some(n),
+                        Filter::Space(sp.id),
+                        cx,
+                    )),
+            );
+        }
     }
-    for sp in org {
-        let n = s.entries.iter().filter(|e| e.space == sp.id).count();
-        let reserved = s.org.as_ref().is_some_and(|o| o.is_reserved(sp.id));
-        d = d.child(
-            div()
-                .id(SharedString::from(format!("osw-{}", sp.id)))
-                .on_mouse_down(
-                    gpui_kit::MouseButton::Right,
-                    super::ctx::on_right(super::ctx::CtxTarget::Space(sp.id), cx),
-                )
-                .child(item(
-                    &format!("sp-{}", sp.id),
-                    if reserved { "lock" } else { "folder" },
-                    sp.name.clone(),
-                    Some(n),
-                    Filter::Space(sp.id),
-                    cx,
-                )),
-        );
+    // Organization spaces no membership claims (an organization left elsewhere, the demo
+    // without its organization): shown together in the single Vault tab.
+    let orphans: Vec<_> = org.iter().filter(|sp| s.org_of(sp.id).is_none()).collect();
+    if s.scope == Scope::All && !orphans.is_empty() {
+        d = d.child(group("Organization"));
+        for sp in orphans {
+            let n = s.entries.iter().filter(|e| e.space == sp.id).count();
+            d = d.child(item(
+                &format!("sp-{}", sp.id),
+                "folder",
+                sp.name.clone(),
+                Some(n),
+                Filter::Space(sp.id),
+                cx,
+            ));
+        }
     }
     d.child(div().flex_1())
         .child(
@@ -1224,7 +1308,11 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 .px(px(12.))
                 .text_size(TEXT_SM)
                 .text_color(t.text_muted)
-                .child(div().flex_1().child(format!("{count} items")))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(format!("{count} item{}", if count == 1 { "" } else { "s" })),
+                )
                 .child(
                     div()
                         .font_weight(W_MEDIUM)
@@ -1338,6 +1426,53 @@ fn statusbar(s: &Session, t: &Tokens) -> Div {
 }
 
 impl CleisApp {
+    /// Shows a tab; a vault tab also sets what the vault shows and the organization shown.
+    pub fn open_tab(&mut self, tab: Tab, scope: Option<crate::app::Scope>, cx: &mut Context<Self>) {
+        use crate::app::Scope;
+        if let Some(Scope::Org(k)) = &scope {
+            self.activate_org(k);
+        }
+        if tab == Tab::Activity
+            && let Some(s) = self.session()
+            && !s
+                .org
+                .as_ref()
+                .is_some_and(|o| o.can(cleis_core::org::Perm::Audit))
+            && let Some(k) = s
+                .orgs_idle
+                .iter()
+                .find(|o| o.can(cleis_core::org::Perm::Audit))
+                .map(|o| o.m.key())
+        {
+            self.activate_org(&k);
+        }
+        if let Some(s) = self.session() {
+            s.tab = tab;
+            s.ctx = None;
+            if tab == Tab::Vault {
+                let next = scope.unwrap_or(if s.prefs.vault_tabs {
+                    s.scope.clone()
+                } else {
+                    Scope::All
+                });
+                if s.scope != next {
+                    s.scope = next;
+                    // A folder of another vault is not shown here.
+                    if let Filter::Space(sp) = s.filter
+                        && !s.in_scope(sp)
+                    {
+                        s.filter = Filter::All;
+                    }
+                    s.refilter();
+                }
+            }
+        }
+        if tab == Tab::Activity {
+            self.org_query_log(cx);
+        }
+        cx.notify();
+    }
+
     pub fn update_entry(
         &mut self,
         id: EntryId,
@@ -1436,7 +1571,8 @@ impl CleisApp {
         };
         // Audit L-2: an organization's item stays in the organization; between two of its spaces
         // it is a new item there and an erasure here, so the members of the space left lose it.
-        let refusal = if s.is_org_space(from) && !s.is_org_space(to) {
+        let org_key = |sp| s.org_of(sp).map(|o| o.m.key());
+        let refusal = if s.is_org_space(from) && org_key(from) != org_key(to) {
             Some("An organization's items stay in the organization")
         } else if !s.may(to, Perm::Edit) || !s.may(from, Perm::Delete) {
             Some("Your role does not allow moving it")

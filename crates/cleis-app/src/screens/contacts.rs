@@ -1874,7 +1874,8 @@ impl CleisApp {
         let Some(from) = s.contacts.iter().find(|c| c.id == id).map(|c| c.space) else {
             return;
         };
-        let refusal = if s.is_org_space(from) && !s.is_org_space(to) {
+        let org_key = |sp| s.org_of(sp).map(|o| o.m.key());
+        let refusal = if s.is_org_space(from) && org_key(from) != org_key(to) {
             Some("An organization's contacts stay in the organization")
         } else if !s.may(to, Perm::Edit) || !s.may(from, Perm::Delete) {
             Some("Your role does not allow moving it")

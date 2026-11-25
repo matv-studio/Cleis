@@ -413,6 +413,25 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     (Manage) ; un admin visé demande le droit Admins.
   - Nom unique « Two-step verification » / « 2-step » pour la deuxième étape du serveur (U-4).
 
+- **D-69 Onglets de coffre, plusieurs organisations par coffre** (25/11/2026, maquettes 32 à 32d) :
+  - Preferences › Vaults : « Personal vault in its own tab » (désactivé par défaut : un seul onglet
+    Vault, tous les coffres dans sa barre latérale) et le nom du coffre personnel (« My vault »,
+    son premier espace renommé). Activé : le coffre personnel à gauche, puis un onglet au nom de
+    chaque organisation, dans l'ordre d'adhésion ; chaque onglet a sa barre latérale (Folders,
+    ou les espaces de l'organisation).
+  - Un coffre peut appartenir à plusieurs organisations : réglage `orgs` (liste ; `org` garde la
+    première pour les versions précédentes), un fichier local par organisation
+    (`<coffre>.org-<id>.json`, l'ancien `.org.json` lu pour la première).
+  - L'appli garde une organisation « montrée » (`Session::org`) et les autres à côté
+    (`orgs_idle`) ; `in_org(clé, …)` met l'organisation voulue en place le temps d'une
+    synchronisation, d'une réponse du serveur ou d'un rapport d'activité, puis remet la montrée.
+    Pourquoi : les ~190 usages de `s.org` restent justes sans tout réécrire.
+  - Droits, politique de remplissage, rapport de santé, verrouillage (le plus court), lecture des
+    adresses (la plus stricte) : selon l'organisation de l'espace de l'élément. Un élément ne passe
+    pas d'une organisation à une autre.
+  - Réglages : un groupe par organisation ; « Add an organization » ouvre la page de jonction.
+    Activity : l'organisation est le premier filtre quand plusieurs donnent le droit au journal.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -424,5 +443,5 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 8. Essai de Windows Hello et Touch ID sur de vraies machines (D-66).
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).
-9. Onglets de coffre (coffre personnel dans les onglets, un onglet par organisation, maquettes
-   32 à 32d) : validés, à construire (plusieurs organisations par coffre).
+9. ~~Onglets de coffre~~ (D-69). Reste : filtre d'organisation de Health (les espaces de toutes
+   les organisations sont déjà dans sa liste), essai à deux serveurs réels.

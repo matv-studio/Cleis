@@ -345,7 +345,7 @@ fn entry_menu(
         move |this, _, cx| this.trash_entry(id, cx),
     ));
     let subm = (sub == Some(Sub::Move)).then(|| {
-        let from_org = s.is_org_space(e.space);
+        let from_org = s.org_of(e.space).map(|o| o.m.key());
         let mut m = menu_box(t).w(px(200.));
         for sp in s
             .spaces
@@ -362,7 +362,8 @@ fn entry_menu(
                 false,
             );
             // Audit L-2: an organization's item does not leave the organization.
-            m = m.child(if from_org && !s.is_org_space(to) {
+            let to_org = s.org_of(to).map(|o| o.m.key());
+            m = m.child(if from_org.is_some() && from_org != to_org {
                 el.opacity(0.45)
                     .cursor_default()
                     .tooltip(tip("An organization's items stay in the organization"))
@@ -574,7 +575,7 @@ fn contact_menu(
             Some((copy_y, m))
         }
         Some(Sub::Move) => {
-            let from_org = s.is_org_space(c.space);
+            let from_org = s.org_of(c.space).map(|o| o.m.key());
             let mut m = menu_box(t).w(px(200.));
             for sp in s
                 .spaces
@@ -589,7 +590,8 @@ fn contact_menu(
                     sp.name.clone(),
                     false,
                 );
-                m = m.child(if from_org && !s.is_org_space(to) {
+                let to_org = s.org_of(to).map(|o| o.m.key());
+                m = m.child(if from_org.is_some() && from_org != to_org {
                     el.opacity(0.45)
                         .cursor_default()
                         .tooltip(tip("An organization's contacts stay in the organization"))

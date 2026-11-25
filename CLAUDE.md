@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-68,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-69,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -17,7 +17,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp|
    ctx-entry|ctx-space|ctx-contact|ctx-member|confirm-transfer|confirm-remove]
-   [--no-org] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
+   [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]] [--quick-access] [--restore]
    [--theme light]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
    `install [--print]`, `backup`, `restore`, `invite`, `status` ; configuration `cleis-server.toml`,
@@ -98,6 +98,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Clic droit dans les essais : `w.right_click(id)` ; l'élément doit porter `.test_support()`. Les
   raccourcis d'un élément (Suppr, Ctrl+D…) ne partent que si `main_focus` a le clavier (clic sur
   une ligne ou ouverture d'un menu contextuel).
+- Plusieurs organisations (D-69) : `Session::org` est celle montrée ; tout travail pour une autre
+  (réponse du serveur, synchronisation, rapport) passe par `app.in_org(clé, |app| …)`. Ne pas
+  lire `s.org` pour un élément : `s.org_of(espace)`.
 - Minuteries dans les essais e2e : `cx.executor().advance_clock(...)` puis `run_until_parked()`.
 - Réseau : jamais d'appel bloquant sur le fil de l'interface ; `cx.background_spawn` (trait
   `AppContext` à importer par `gpui_kit::prelude::*`), puis application au coffre dans `update`.

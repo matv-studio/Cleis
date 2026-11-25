@@ -54,16 +54,28 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         .collect();
     // Audit L-3: an organization's items are judged by its policy.
     let own = Policy::default();
-    let org = s.org.as_ref().and_then(|o| o.policy()).map(|p| Policy {
-        min_length: p.min_length as usize,
-        max_age_days: p.max_age_days,
-        ..Policy::default()
-    });
+    // D-69: each organization's items by its own policy.
+    let orgs: Vec<(String, Policy)> = s
+        .all_orgs()
+        .filter_map(|o| {
+            o.policy().map(|p| {
+                (
+                    o.m.key(),
+                    Policy {
+                        min_length: p.min_length as usize,
+                        max_age_days: p.max_age_days,
+                        ..Policy::default()
+                    },
+                )
+            })
+        })
+        .collect();
     let (findings, sum) = scan_by(
         &entries,
-        |e| match &org {
-            Some(p) if s.is_org_space(e.space) => p,
-            _ => &own,
+        |e| {
+            s.org_of(e.space)
+                .and_then(|o| orgs.iter().find(|(k, _)| *k == o.m.key()))
+                .map_or(&own, |(_, p)| p)
         },
         cleis_core::now(),
     );

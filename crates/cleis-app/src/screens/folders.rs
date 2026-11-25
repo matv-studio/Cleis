@@ -235,6 +235,8 @@ impl CleisApp {
         match r {
             Ok(()) => {
                 let _ = crate::sync::reload(s);
+                // Preferences › Vaults shows the personal vault's name: read again.
+                s.vault_name = None;
             }
             Err(e) => s.toast = Some(format!("Not done: {e}").into()),
         }

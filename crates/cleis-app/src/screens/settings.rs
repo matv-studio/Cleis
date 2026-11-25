@@ -19,32 +19,35 @@ const ACCOUNT: [(&str, &str); 4] = [
     ("sync", "Sync & backups"),
 ];
 
-/// Pages of the navigation: `(group, [(icon, name)])`. Without an organization, Import & export
-/// stays under My account with a page to join one (D-54).
-fn groups(s: &Session) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
+/// Pages of the navigation: `(group, organization key, [(icon, name)])`. Without an
+/// organization, Import & export stays under My account with a page to join one (D-54); with
+/// several, each has its group (D-69).
+type Group = (String, Option<String>, Vec<(&'static str, &'static str)>);
+
+fn groups(s: &Session) -> Vec<Group> {
     let mut account: Vec<_> = ACCOUNT.to_vec();
-    match &s.org {
-        None => {
-            account.push(("upload", "Import & export"));
-            account.push(("server", "Organization"));
-            vec![("My account".into(), account)]
-        }
-        Some(o) => {
-            account.insert(0, ("user", "Profile"));
-            account.insert(2, ("laptop", "Devices"));
-            let mut org = vec![];
-            if o.can(cleis_core::org::Perm::Manage) {
-                org.extend([
-                    ("users", "Members"),
-                    ("folder", "Spaces"),
-                    ("shield", "Security policy"),
-                    ("key", "Encryption"),
-                ]);
-            }
-            org.extend([("server", "Server"), ("upload", "Import & export")]);
-            vec![("My account".into(), account), (o.m.name.clone(), org)]
-        }
+    if s.org.is_none() {
+        account.push(("upload", "Import & export"));
+        account.push(("server", "Organization"));
+        return vec![("My account".into(), None, account)];
     }
+    account.insert(0, ("user", "Profile"));
+    account.insert(2, ("laptop", "Devices"));
+    let mut out = vec![("My account".into(), None, account)];
+    for o in s.all_orgs() {
+        let mut org = vec![];
+        if o.can(cleis_core::org::Perm::Manage) {
+            org.extend([
+                ("users", "Members"),
+                ("folder", "Spaces"),
+                ("shield", "Security policy"),
+                ("key", "Encryption"),
+            ]);
+        }
+        org.extend([("server", "Server"), ("upload", "Import & export")]);
+        out.push((o.m.name.clone(), Some(o.m.key()), org));
+    }
+    out
 }
 
 pub fn page(
@@ -66,7 +69,10 @@ pub fn page(
         .flex()
         .flex_col()
         .gap(px(2.));
-    for (gi, (group, pages)) in groups(s).into_iter().enumerate() {
+    let shown_key = s.org.as_ref().map(|o| o.m.key());
+    for (gi, (group, key, pages)) in groups(s).into_iter().enumerate() {
+        // The organization shown keeps the plain ids; the others' pages carry their key.
+        let shown = key.is_none() || key == shown_key;
         nav = nav.child(
             div()
                 .px(px(8.))
@@ -78,10 +84,14 @@ pub fn page(
                 .child(group),
         );
         for (ico, name) in pages {
-            let active = s.settings_page == name;
+            let active = shown && s.settings_page == name;
+            let key = key.clone();
             nav = nav.child(
                 div()
-                    .id(SharedString::from(format!("set-{name}")))
+                    .id(SharedString::from(match (&key, shown) {
+                        (Some(k), false) => format!("set-{k}-{name}"),
+                        _ => format!("set-{name}"),
+                    }))
                     .flex()
                     .items_center()
                     .gap(px(8.))
@@ -99,6 +109,9 @@ pub fn page(
                     ))
                     .child(name)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(k) = &key {
+                            this.activate_org(k);
+                        }
                         if let Some(s) = this.session() {
                             s.settings_page = name;
                         }
@@ -107,6 +120,39 @@ pub fn page(
                     .test_support(),
             );
         }
+    }
+    // Mockup 32c: another organization, joined or created from here.
+    if s.org.is_some() {
+        let active = s.settings_page == "Add an organization";
+        nav = nav.child(div().h(px(12.))).child(
+            div()
+                .id("set-add-org")
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(CONTROL_MD)
+                .px(px(8.))
+                .rounded(RADIUS_MD)
+                .cursor_pointer()
+                .text_color(if active { t.accent_text } else { t.text_muted })
+                .when(active, |d| d.bg(t.accent_soft))
+                .hover(|d| d.bg(t.surface_hover))
+                .tooltip(|window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(
+                        "Join or create another organization",
+                    )
+                    .build(window, cx)
+                })
+                .child(icon("plus", 16., t.text_muted))
+                .child("Add an organization")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.settings_page = "Add an organization";
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        );
     }
     // D-67: the organization's backups need the Backups right.
     let manage = s
@@ -176,7 +222,8 @@ pub fn page(
         "Security policy" => super::org::policy(s, t, cx),
         "Encryption" => super::org::encryption(s, t, cx),
         "Server" | "Organization" => super::org::server(s, t, cx),
-        _ => preferences(&s.prefs, s.pref_menu, t, cx),
+        "Add an organization" => super::org::join_page(s, t, cx),
+        _ => preferences(s, &s.prefs, s.pref_menu, t, cx),
     };
     div().flex_1().min_h_0().flex().child(nav).child(
         div()
@@ -210,7 +257,47 @@ fn toggle(
         .test_support()
 }
 
+/// Mockup 32c: the personal vault in its own tab, and its name (D-69).
+fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let tip = |text: &'static str| {
+        move |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
+            gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+        }
+    };
+    section(t)
+        .child(section_title(t, "Vaults"))
+        .child(
+            row(t, true)
+                .child(
+                    div()
+                        .id("vault-tabs-label")
+                        .flex_1()
+                        .tooltip(tip("Off: one Vault tab, every vault in its sidebar"))
+                        .child("Personal vault in its own tab"),
+                )
+                .child(toggle(
+                    "vault-tabs",
+                    t,
+                    p.vault_tabs,
+                    |p| p.vault_tabs = !p.vault_tabs,
+                    cx,
+                )),
+        )
+        .child(
+            row(t, false)
+                .child(div().flex_1().child("Personal vault name"))
+                .child(
+                    div()
+                        .w(px(200.))
+                        .when_some(s.vault_name.as_ref(), |d, (i, _)| {
+                            d.child(gpui_kit::component::input::Input::new(i).id("vault-name"))
+                        }),
+                ),
+        )
+}
+
 fn preferences(
+    s: &Session,
     p: &Preferences,
     menu_open: Option<&'static str>,
     t: &Tokens,
@@ -259,6 +346,7 @@ fn preferences(
                 .font_weight(W_STRONG)
                 .child("Preferences"),
         )
+        .child(vaults_section(s, p, t, cx))
         .child(
             section(t)
                 .child(section_title(t, "Appearance"))
@@ -1112,9 +1200,36 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
 }
 
 impl CleisApp {
+    /// Renames the personal vault (its first space); an empty name puts the current one back.
+    pub fn rename_personal(&mut self, name: &str, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let home = s.vault.home_space();
+        if name.is_empty() || name == s.personal_name() {
+            return;
+        }
+        match s.vault.rename_space(home, name) {
+            Ok(()) => {
+                let _ = crate::sync::reload(s);
+                s.toast = Some("Renamed".into());
+            }
+            Err(e) => s.toast = Some(format!("Not renamed: {e}").into()),
+        }
+        cx.notify();
+    }
+
     pub fn update_prefs(&mut self, f: impl FnOnce(&mut Preferences), cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         f(&mut s.prefs);
+        // D-69: the vault tabs come and go with their setting.
+        let scope = match (s.prefs.vault_tabs, &s.scope) {
+            (false, _) => crate::app::Scope::All,
+            (true, crate::app::Scope::All) => crate::app::Scope::Personal,
+            (true, sc) => sc.clone(),
+        };
+        if s.scope != scope {
+            s.scope = scope;
+            s.refilter();
+        }
         if let Err(e) = s.vault.set_preferences(&s.prefs) {
             s.toast = Some(format!("Not saved: {e}").into());
         }

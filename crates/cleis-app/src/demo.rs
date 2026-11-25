@@ -782,3 +782,136 @@ pub fn org(s: &mut crate::app::Session) {
         ui,
     });
 }
+
+/// A second organization for the vault-tabs mockups (32 to 32d, D-69): Lea is a member of
+/// "Acme Partners", with two spaces and three items.
+pub fn second_org(s: &mut crate::app::Session) {
+    use cleis_core::org::*;
+    let Some(first) = s.org.as_ref().and_then(|o| o.state.clone()) else {
+        return;
+    };
+    let mut ids = vec![];
+    for name in ["Shared", "Projects"] {
+        let id = s
+            .spaces
+            .iter()
+            .find(|x| x.name == name)
+            .map(|x| x.id)
+            .or_else(|| {
+                s.vault
+                    .create_space(
+                        name,
+                        SpaceKind::Organization,
+                        EncryptionMode::Standard,
+                        false,
+                    )
+                    .ok()
+            });
+        if let Some(id) = id {
+            ids.push(id);
+        }
+    }
+    if ids.len() < 2 {
+        return;
+    }
+    for (name, user, sp, url) in [
+        (
+            "Acme portal",
+            "lea@example-acme.com",
+            0,
+            "portal.example-acme.com",
+        ),
+        (
+            "Shared drive",
+            "partners@example-acme.com",
+            0,
+            "drive.example-acme.com",
+        ),
+        (
+            "Jira",
+            "lea.martin@example-acme.com",
+            1,
+            "acme.example-jira.com",
+        ),
+    ] {
+        if s.entries.iter().any(|e| e.name == name) {
+            continue;
+        }
+        let mut e = Entry::new(ids[sp], name);
+        e.username = user.into();
+        e.password = format!(
+            "Demo-{}-2048!x",
+            name.split_whitespace().next().unwrap_or("x")
+        );
+        e.urls = vec![url.into()];
+        let _ = s.vault.put_entry(&e);
+    }
+    let _ = crate::sync::reload(s);
+    let now = cleis_core::now();
+    let mut me = first.me.clone();
+    me.id = cleis_core::MemberId::new();
+    me.role = "member".into();
+    me.email = "lea@example-acme.com".into();
+    me.spaces = ids.clone();
+    let mut other = me.clone();
+    other.id = cleis_core::MemberId::new();
+    other.name = "Paul Lefèvre".into();
+    other.email = "paul@example-acme.com".into();
+    other.role = SUPER_ADMIN.into();
+    let spaces = ids
+        .iter()
+        .map(|id| SpaceView {
+            id: *id,
+            sealed: vec![],
+            mode: SpaceMode::Standard,
+            key_gen: 1,
+            wrapped: None,
+            org_wrapped: None,
+            recovery_wrapped: None,
+            reserved: false,
+            members: vec![me.id, other.id],
+            items: s.entries.iter().filter(|e| e.space == *id).count() as u32,
+            needs_rekey: false,
+        })
+        .collect();
+    let mut st = first;
+    st.org.id = uuid::Uuid::from_u128(0xac3e_0001);
+    st.org.name = "Acme Partners".into();
+    st.me = me.clone();
+    st.members = vec![other, me.clone()];
+    st.invites = vec![];
+    st.spaces = spaces;
+    st.events = 0;
+    let names = ids
+        .iter()
+        .zip(["Shared", "Projects"])
+        .map(|(id, n)| (*id, n.to_owned()))
+        .collect();
+    s.orgs_idle.push(crate::org::OrgSession {
+        m: crate::org::Membership {
+            org: st.org.id,
+            name: "Acme Partners".into(),
+            address: "vault.example-acme.com:8443".into(),
+            pins: vec![],
+            member: me.id,
+        },
+        token: None,
+        local: crate::org::Local {
+            last_ok: Some(now - 300),
+            ..Default::default()
+        },
+        state: Some(st),
+        busy: false,
+        again: false,
+        last_attempt: None,
+        error: None,
+        org_key: None,
+        super_key: None,
+        full: vec![],
+        code: None,
+        names,
+        offline_locked: false,
+        ui: Default::default(),
+    });
+    s.refilter();
+}
