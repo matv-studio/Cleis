@@ -1,5 +1,6 @@
 //! Application state: first launch → unlock → main window (vault, contacts, health, settings).
 
+use crate::i18n::tr;
 use crate::theme::{self, Appearance, Mode, Tokens};
 use cleis_core::column::ColumnDef;
 use cleis_core::settings::Preferences;
@@ -121,6 +122,8 @@ pub struct Session {
     pub import: crate::screens::import::ImportState,
     /// Contacts tab: filter, search, inspector boxes, menus (screens 20, 21).
     pub contacts_ui: crate::screens::contacts::ContactsUi,
+    /// The language the boxes were made in; a change remakes their placeholders (U-9).
+    pub lang_fr: bool,
     /// Settings › Security dialogs and menus.
     pub security: crate::screens::security::SecurityUi,
     /// Verification code still to type before the vault is shown (screen 05).
@@ -273,10 +276,10 @@ impl Session {
     /// Name of the personal vault (its first space; "My vault" unless renamed, D-69).
     pub fn personal_name(&self) -> String {
         let home = self.vault.home_space();
-        self.spaces
-            .iter()
-            .find(|x| x.id == home)
-            .map_or_else(|| "My vault".to_owned(), |x| x.name.clone())
+        self.spaces.iter().find(|x| x.id == home).map_or_else(
+            || tr("My vault").to_owned(),
+            |x| crate::i18n::space(&x.name),
+        )
     }
 
     /// The organization a space belongs to.
@@ -485,12 +488,12 @@ impl CleisApp {
         let pw = w.password.read(cx).value().to_string();
         let confirm = w.confirm.read(cx).value().to_string();
         if pw.chars().count() < 10 {
-            w.error = Some("At least 10 characters".into());
+            w.error = Some(tr("At least 10 characters").into());
             cx.notify();
             return;
         }
         if pw != confirm {
-            w.error = Some("The passwords differ".into());
+            w.error = Some(tr("The passwords differ").into());
             cx.notify();
             return;
         }
@@ -504,18 +507,18 @@ impl CleisApp {
             let j = &w.join;
             let Some(info) = j.info.as_ref() else {
                 w.error = Some(if j.checking {
-                    "Checking the invitation…".into()
+                    tr("Checking the invitation…").into()
                 } else {
                     j.error
                         .clone()
-                        .unwrap_or("Enter the server address and invitation code".into())
+                        .unwrap_or(tr("Enter the server address and invitation code").into())
                 });
                 cx.notify();
                 return;
             };
             let name = read(&j.name);
             if info.name.trim().is_empty() && name.trim().is_empty() {
-                w.error = Some("Enter your name".into());
+                w.error = Some(tr("Enter your name").into());
                 cx.notify();
                 return;
             }
@@ -565,7 +568,7 @@ impl CleisApp {
                     };
                     this.enter(v, window, cx);
                     if let Some(e) = failed {
-                        this.toast_for(format!("Not joined: {e}"), 8, cx);
+                        this.toast_for(crate::trf!("Not joined: {}", e), 8, cx);
                         if let Some(s) = this.session() {
                             s.tab = Tab::Settings;
                             s.settings_page = "Organization";
@@ -620,7 +623,7 @@ impl CleisApp {
                         u.busy = false;
                         u.error = Some(match e {
                             cleis_store::StoreError::WrongPassword => {
-                                "Wrong master password".into()
+                                tr("Wrong master password").into()
                             }
                             other => other.to_string().into(),
                         });
@@ -654,7 +657,11 @@ impl CleisApp {
                     c.extend(vault.contact_columns()?);
                     c
                 },
-                vault.preferences()?,
+                // A new vault keeps the language already shown (system's, or chosen) (U-9).
+                vault.saved_preferences()?.unwrap_or_else(|| Preferences {
+                    language: crate::i18n::current_tag().into(),
+                    ..Preferences::default()
+                }),
             ))
         };
         let (entries, trash, contacts, spaces, columns, prefs) = match load() {
@@ -662,14 +669,16 @@ impl CleisApp {
             Err(e) => {
                 self.phase = Phase::Unlock(Unlock {
                     password: password_input(window, cx, ""),
-                    error: Some(e.to_string().into()),
+                    error: Some(crate::i18n::tr_dynamic(&e.to_string()).into()),
                     busy: false,
                 });
                 cx.notify();
                 return;
             }
         };
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        // The language first, so the boxes below get their placeholders in it.
+        self.apply_appearance(&prefs, cx);
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search")));
         self._subs =
             vec![
                 cx.subscribe_in(&search, window, |this, input, ev: &InputEvent, _, cx| {
@@ -680,7 +689,6 @@ impl CleisApp {
                     }
                 }),
             ];
-        self.apply_appearance(&prefs, cx);
         let mut s = Session {
             vault,
             entries,
@@ -708,6 +716,7 @@ impl CleisApp {
             columns_menu: None,
             import: Default::default(),
             contacts_ui: Default::default(),
+            lang_fr: crate::i18n::is_french(),
             security: Default::default(),
             gate: None,
             last_activity: std::time::Instant::now(),
@@ -767,7 +776,7 @@ impl CleisApp {
                 let path = self.path.clone();
                 cx.background_spawn(async move {
                     if let Err(e) = crate::sync::remote_sync_detached(s.vault, s.sync, &path) {
-                        cleis_autofill::log(&format!("sync on lock: {e}"));
+                        cleis_autofill::log(&crate::trf!("sync on lock: {}", e));
                     }
                 })
                 .detach();
@@ -775,8 +784,35 @@ impl CleisApp {
         }
     }
 
+    /// After a language change: the placeholders of the boxes that stay, and the inspector
+    /// boxes made again (U-9).
+    pub fn refresh_language(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let fr = crate::i18n::is_french();
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        if s.lang_fr == fr {
+            return;
+        }
+        s.lang_fr = fr;
+        s.editor = None;
+        s.contacts_ui.editor = None;
+        let mut boxes = vec![(s.search.clone(), "Search")];
+        if let Some(i) = &s.contacts_ui.search {
+            boxes.push((i.clone(), "Search name, company, phone"));
+        }
+        for o in s.org.iter().chain(s.orgs_idle.iter()) {
+            boxes.extend(o.ui.search.iter().map(|i| (i.clone(), "Search")));
+            boxes.extend(o.ui.log_search.iter().map(|i| (i.clone(), "Search")));
+        }
+        for (i, ph) in boxes {
+            i.update(cx, |i, cx| i.set_placeholder(tr(ph), window, cx));
+        }
+    }
+
     /// Applies theme and accent from the preferences (and remembers them for the unlock screen).
     pub fn apply_appearance(&mut self, prefs: &Preferences, cx: &mut Context<Self>) {
+        crate::i18n::set_language(&prefs.language);
         let mut a = Appearance::from_prefs(prefs);
         if let Some(m) = self.forced_mode {
             a.mode = m;
@@ -796,7 +832,7 @@ impl CleisApp {
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
-        let msg: SharedString = msg.into();
+        let msg: SharedString = crate::i18n::tr_dynamic(&msg.into()).into();
         s.toast = Some(msg.clone());
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -820,7 +856,7 @@ impl CleisApp {
     pub fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
         let delay = if let Phase::Main(s) = &mut self.phase {
-            s.toast = Some(format!("{what} copied").into());
+            s.toast = Some(crate::trf!("{} copied", crate::i18n::tr_owned(what)).into());
             s.prefs.clipboard_clear_secs
         } else {
             None
@@ -862,7 +898,7 @@ impl CleisApp {
                 .find(|e| e.id == entry)
                 .is_some_and(|e| !s.may(e.space, cleis_core::org::Perm::Fill))
         {
-            s.toast = Some("Your role does not allow copying this item".into());
+            s.toast = Some(tr("Your role does not allow copying this item").into());
             cx.notify();
             return;
         }
@@ -952,8 +988,12 @@ fn save_appearance(p: &Preferences) {
     let Some(path) = appearance_path() else {
         return;
     };
-    let subset =
-        serde_json::json!({ "theme": p.theme, "accent": p.accent, "accent_scope": p.accent_scope });
+    let subset = serde_json::json!({
+        "theme": p.theme,
+        "accent": p.accent,
+        "accent_scope": p.accent_scope,
+        "language": p.language,
+    });
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -962,9 +1002,15 @@ fn save_appearance(p: &Preferences) {
 
 /// Appearance remembered from the last session, or the defaults (dark, bronze, extended).
 pub fn load_appearance() -> Appearance {
-    appearance_path()
+    let p = appearance_path()
         .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice::<Preferences>(&b).ok())
-        .map(|p| Appearance::from_prefs(&p))
-        .unwrap_or_default()
+        .unwrap_or_else(|| Preferences {
+            // First launch: the system's language (U-9).
+            language: sys_locale::get_locale().unwrap_or_default(),
+            ..Preferences::default()
+        });
+    // The language too, so the unlock screen speaks it (U-9).
+    crate::i18n::set_language(&p.language);
+    Appearance::from_prefs(&p)
 }

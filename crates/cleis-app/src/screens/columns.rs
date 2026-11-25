@@ -2,6 +2,7 @@
 //! reorder), and the "New column" form (name, type, all spaces).
 
 use crate::app::{CleisApp, Phase, Session};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::column::{
@@ -101,7 +102,7 @@ fn head(t: &Tokens, label: &str) -> Div {
         .text_size(TEXT_XS)
         .font_weight(W_MEDIUM)
         .text_color(t.text_muted)
-        .child(label.to_owned())
+        .child(crate::i18n::tr_owned(label))
 }
 
 fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
@@ -153,14 +154,14 @@ fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> i
                 .min_w_0()
                 .overflow_hidden()
                 .text_ellipsis()
-                .child(c.name.clone()),
+                .child(crate::i18n::tr_owned(&c.name)),
         )
         .when(locked, |d| d.child(icon("lock", 12., t.text_faint)))
         .when(!c.builtin, |d| {
             d.child(
                 icon_button(SharedString::from(format!("col-del-{i}")), t, "trash", true)
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("Delete column")
+                        gpui_kit::component::tooltip::Tooltip::new(tr("Delete column"))
                             .build(window, cx)
                     })
                     .invisible()
@@ -191,13 +192,13 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
         .border_color(t.line_strong)
         .rounded(RADIUS_MD)
         .shadow_lg()
-        .child(head(t, "Shown"));
+        .child(head(t, tr("Shown")));
     for (i, c) in cols.iter().filter(|c| c.visible).enumerate() {
         list = list.child(col_row(c, i, t, cx));
     }
     list = list
         .child(div().h(px(1.)).my(px(4.)).bg(t.line))
-        .child(head(t, "Hidden"));
+        .child(head(t, tr("Hidden")));
     for (i, c) in cols.iter().filter(|c| !c.visible).enumerate() {
         list = list.child(col_row(c, 100 + i, t, cx));
     }
@@ -214,7 +215,7 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
             .hover(|d| d.bg(t.surface_hover))
             .when(m.creating.is_some(), |d| d.bg(t.surface_hover))
             .child(icon("plus", 14., t.text_muted))
-            .child("New column")
+            .child(tr("New column"))
             .on_click(cx.listener(|this, _, window, cx| this.start_new_column(window, cx)))
             .test_support(),
     );
@@ -236,7 +237,7 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
                     .when(sel, |d| d.bg(t.surface_hover))
                     .hover(|d| d.bg(t.surface_hover))
                     .child(icon(KIND_ICONS[i], 14., t.text_muted))
-                    .child(div().flex_1().child(*label))
+                    .child(div().flex_1().child(crate::i18n::tr_owned(label)))
                     .when(sel, |d| d.child(icon("check", 14., t.accent_text)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(n) = this.new_column_form() {
@@ -250,8 +251,8 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
         }
         let key = NEW_KINDS[n.kind].0;
         let extra_label = match key {
-            "formula" => Some("Formula"),
-            "choice" => Some("Options, separated by commas"),
+            "formula" => Some(tr("Formula")),
+            "choice" => Some(tr("Options, separated by commas")),
             _ => None,
         };
         let form = div()
@@ -265,29 +266,32 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
             .border_color(t.line_strong)
             .rounded(RADIUS_MD)
             .shadow_lg()
-            .child(field(t, "Name", Input::new(&n.name).id("col-name")))
-            .child(field(t, "Type", kinds))
+            .child(field(t, tr("Name"), Input::new(&n.name).id("col-name")))
+            .child(field(t, tr("Type"), kinds))
             .when_some(extra_label, |d, l| {
                 d.child(field(t, l, Input::new(&n.extra).id("col-extra")))
             })
             .child(
-                row_div(t).child(div().flex_1().child("All spaces")).child(
-                    div()
-                        .id("col-all-spaces")
-                        .cursor_pointer()
-                        .child(switch_visual(t, n.all_spaces))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(n) = this.new_column_form() {
-                                n.all_spaces = !n.all_spaces;
-                            }
-                            cx.notify();
-                        }))
-                        .test_support(),
-                ),
+                row_div(t)
+                    .child(div().flex_1().child(tr("All spaces")))
+                    .child(
+                        div()
+                            .id("col-all-spaces")
+                            .cursor_pointer()
+                            .child(switch_visual(t, n.all_spaces))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(n) = this.new_column_form() {
+                                    n.all_spaces = !n.all_spaces;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    ),
             )
-            .when_some(n.error.clone(), |d, e| {
-                d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-            })
+            .when_some(
+                n.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+                |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+            )
             .child(
                 div()
                     .flex()
@@ -295,7 +299,7 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
                     .gap(px(8.))
                     .child(
                         button("col-cancel", t, BtnKind::Ghost, false)
-                            .child("Cancel")
+                            .child(tr("Cancel"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(m) =
                                     this.session().and_then(|s| s.columns_menu.as_mut())
@@ -308,7 +312,7 @@ pub fn menu(s: &Session, m: &ColumnsMenu, t: &Tokens, cx: &mut Context<CleisApp>
                     )
                     .child(
                         button("col-create", t, BtnKind::Primary, false)
-                            .child("Create")
+                            .child(tr("Create"))
                             .on_click(cx.listener(|this, _, _, cx| this.create_column(cx)))
                             .test_support(),
                     ),
@@ -407,7 +411,7 @@ impl CleisApp {
             .set_vault_columns(&vault_cols)
             .and_then(|()| s.vault.set_contact_columns(&contact_cols));
         if let Err(e) = r {
-            s.toast = Some(format!("Columns not saved: {e}").into());
+            s.toast = Some(crate::trf!("Columns not saved: {}", e).into());
         }
         cx.notify();
     }
@@ -450,7 +454,7 @@ impl CleisApp {
     }
 
     pub fn start_new_column(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Cancellation date"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Cancellation date")));
         let extra = cx.new(|cx| InputState::new(window, cx));
         name.update(cx, |st, cx| st.focus(window, cx));
         if let Some(m) = self.session().and_then(|s| s.columns_menu.as_mut()) {
@@ -470,7 +474,9 @@ impl CleisApp {
         if let Some(n) = self.new_column_form() {
             n.kind = 4;
             let name = n.name.clone();
-            name.update(cx, |st, cx| st.set_value("Cancellation date", window, cx));
+            name.update(cx, |st, cx| {
+                st.set_value(tr("Cancellation date"), window, cx)
+            });
         }
     }
 

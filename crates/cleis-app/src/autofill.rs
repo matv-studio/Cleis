@@ -2,6 +2,7 @@
 //! running in the background, and the steps kept for the next press (password page, 2FA).
 
 use crate::app::{CleisApp, Phase};
+use crate::i18n::tr;
 use crate::screens::quick_access::QuickAccess;
 use cleis_autofill::hotkeys::{Hotkeys, Shortcut, Status};
 use cleis_autofill::{FillError, Foreground, Outcome, Values, WindowRef};
@@ -81,7 +82,7 @@ impl CleisApp {
             match Hotkeys::new() {
                 Ok(h) => self.autofill.hotkeys = Some(h),
                 Err(e) => {
-                    let msg = format!("Shortcuts unavailable: {e}");
+                    let msg = crate::trf!("Shortcuts unavailable: {}", e);
                     self.autofill.status = Some([
                         (Shortcut::QuickAccess, Status::Unavailable(msg.clone())),
                         (Shortcut::FillBestMatch, Status::Unavailable(msg)),
@@ -204,7 +205,7 @@ impl CleisApp {
             && s.is_org_space(e.space)
         {
             if !s.may(e.space, cleis_core::org::Perm::Fill) {
-                s.toast = Some("Your role does not allow filling this item".into());
+                s.toast = Some(tr("Your role does not allow filling this item").into());
                 cx.notify();
                 return;
             }
@@ -296,7 +297,7 @@ impl CleisApp {
             }
             Err(e) => {
                 self.autofill.pending = None;
-                self.toast_for(format!("Not filled: {e}"), 10, cx);
+                self.toast_for(crate::trf!("Not filled: {}", e), 10, cx);
             }
         }
     }
@@ -321,7 +322,7 @@ impl CleisApp {
         if logic::learn_link(e, &fg.context) {
             e.touch(None);
             if let Err(err) = s.vault.put_entry(e) {
-                s.toast = Some(format!("Link not saved: {err}").into());
+                s.toast = Some(crate::trf!("Link not saved: {}", err).into());
             }
             cx.notify();
         }
@@ -336,7 +337,7 @@ impl CleisApp {
             .retain(|l| !l.program.eq_ignore_ascii_case(&program));
         e.touch(None);
         if let Err(err) = s.vault.put_entry(e) {
-            s.toast = Some(format!("Not saved: {err}").into());
+            s.toast = Some(crate::trf!("Not saved: {}", err).into());
         }
         cx.notify();
     }
@@ -377,7 +378,7 @@ impl CleisApp {
                     a.autofill.quick_access = Some(handle);
                     cx.activate(true);
                 }
-                Err(e) => a.toast(format!("Quick Access unavailable: {e}"), cx),
+                Err(e) => a.toast(crate::trf!("Quick Access unavailable: {}", e), cx),
             })
             .ok();
         });

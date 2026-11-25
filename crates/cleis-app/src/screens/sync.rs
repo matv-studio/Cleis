@@ -1,6 +1,7 @@
 //! Settings › Sync & backups (screen 23, with the backups list of screen 13).
 
 use crate::app::{CleisApp, Session};
+use crate::i18n::tr;
 use crate::sync::{Provider, backups};
 use crate::theme::*;
 use crate::ui::*;
@@ -13,15 +14,17 @@ const KEEP: [u32; 3] = [10, 30, 100];
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 fn ago(ts: i64) -> String {
     let d = cleis_core::now() - ts;
     match d {
-        ..=59 => "just now".into(),
-        60..=3599 => format!("{} min ago", d / 60),
-        3600..=86_399 => format!("{} h ago", d / 3600),
+        ..=59 => tr("just now").into(),
+        60..=3599 => crate::trf!("{} min ago", d / 60),
+        3600..=86_399 => crate::trf!("{} h ago", d / 3600),
         _ => crate::format::date(ts),
     }
 }
@@ -54,7 +57,7 @@ fn place_row(
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(name.to_owned())
+                .child(crate::i18n::tr_owned(name))
                 .child(
                     div()
                         .text_size(TEXT_SM)
@@ -62,7 +65,7 @@ fn place_row(
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
-                        .child(sub.to_owned()),
+                        .child(crate::i18n::tr_owned(sub)),
                 ),
         )
         .child(action)
@@ -91,13 +94,13 @@ pub fn page_with(
                 .flex_1()
                 .text_size(TEXT_XL)
                 .font_weight(W_STRONG)
-                .child("Sync & backups"),
+                .child(tr("Sync & backups")),
         )
         .when(c.place.is_some(), |d| {
             d.child(
                 button("sync-now", t, BtnKind::Primary, false)
                     .child(icon("sync", 16., t.primary_ink))
-                    .child("Sync now")
+                    .child(tr("Sync now"))
                     .on_click(cx.listener(|this, _, _, cx| this.sync_now(cx)))
                     .test_support(),
             )
@@ -105,7 +108,7 @@ pub fn page_with(
     let mut sync = section(t).child(
         div()
             .id("sync-title")
-            .child(section_title(t, "Sync"))
+            .child(section_title(t, tr("Sync")))
             .tooltip(tip(
                 "Your encrypted vault, kept the same on every device using this place. Your master password stays on your devices.",
             )),
@@ -113,12 +116,12 @@ pub fn page_with(
     match &c.place {
         Some(p) => {
             let status = match (&c.last_error, c.last_sync) {
-                _ if c.busy => chip(t, Tone::Neutral, "Syncing…", false),
-                (Some(_), _) => chip(t, Tone::Danger, "Not synced", true),
-                (None, Some(ts)) => chip(t, Tone::Ok, format!("Synced {}", ago(ts)), true),
-                (None, None) => chip(t, Tone::Neutral, "Never synced", false),
+                _ if c.busy => chip(t, Tone::Neutral, tr("Syncing…"), false),
+                (Some(_), _) => chip(t, Tone::Danger, tr("Not synced"), true),
+                (None, Some(ts)) => chip(t, Tone::Ok, crate::trf!("Synced {}", ago(ts)), true),
+                (None, None) => chip(t, Tone::Neutral, tr("Never synced"), false),
             };
-            let err = c.last_error.clone();
+            let err = c.last_error.clone().map(|e| crate::i18n::tr_dynamic(&e));
             sync = sync
                 .child(place_row(
                     "sync-place",
@@ -135,7 +138,7 @@ pub fn page_with(
                         .map_or_else(|| p.display().to_string(), |r| r.label()),
                     div().flex().items_center().gap(px(8.)).child(status).child(
                         button("sync-disconnect", t, BtnKind::Ghost, true)
-                            .child("Disconnect")
+                            .child(tr("Disconnect"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
                             }))
@@ -148,10 +151,12 @@ pub fn page_with(
                 })
                 .child(
                     row(t, false)
-                        .child(div().flex_1().child("Sync automatically"))
+                        .child(div().flex_1().child(tr("Sync automatically")))
                         .child(
                             switch("sync-auto", t, c.auto)
-                                .tooltip(tip("When Cleis opens, every 5 minutes and when it locks"))
+                                .tooltip(tip(tr(
+                                    "When Cleis opens, every 5 minutes and when it locks",
+                                )))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if let Some(s) = this.session() {
                                         s.sync.auto = !s.sync.auto;
@@ -172,14 +177,14 @@ pub fn page_with(
                     div()
                         .flex_1()
                         .text_color(t.text_muted)
-                        .child("This vault stays on this computer"),
+                        .child(tr("This vault stays on this computer")),
                 ),
             );
         }
     }
     let choose = |id: &'static str, p: Provider, cx: &mut Context<CleisApp>| {
         button(id, t, BtnKind::Default, true)
-            .child("Choose folder")
+            .child(tr("Choose folder"))
             .on_click(cx.listener(move |this, _, _, cx| this.choose_sync_folder(p, cx)))
             .test_support()
     };
@@ -196,7 +201,9 @@ pub fn page_with(
                             "Places"
                         },
                     ))
-                    .tooltip(tip("One place at a time; choosing another moves the copy.")),
+                    .tooltip(tip(tr(
+                        "One place at a time; choosing another moves the copy.",
+                    ))),
             )
             .child(place_row(
                 "p-onedrive",
@@ -232,7 +239,7 @@ pub fn page_with(
                 "GitHub",
                 "Private repository",
                 button("sync-github", t, BtnKind::Default, true)
-                    .child("Connect")
+                    .child(tr("Connect"))
                     .tooltip(tip(
                         "A file in one of your private repositories, with an access token",
                     ))
@@ -249,7 +256,7 @@ pub fn page_with(
                 "SFTP",
                 "Your own server",
                 button("sync-sftp", t, BtnKind::Default, true)
-                    .child("Set up")
+                    .child(tr("Set up"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_place(Provider::Sftp, window, cx)
                     }))
@@ -260,8 +267,8 @@ pub fn page_with(
         .child(
             div()
                 .id("device-title")
-                .child(section_title(t, "New device"))
-                .tooltip(tip("What a new computer needs besides your master password.")),
+                .child(section_title(t, tr("New device")))
+                .tooltip(tip(tr("What a new computer needs besides your master password."))),
         )
         .child(
             row(t, true)
@@ -273,7 +280,7 @@ pub fn page_with(
                         .items_center()
                         .gap(px(8.))
                         .child(icon("file", 16., t.text))
-                        .child("Emergency kit")
+                        .child(tr("Emergency kit"))
                         .tooltip(tip(
                             "PDF with where your vault is and a space to write your master password. Print it and keep it safe.",
                         )),
@@ -281,7 +288,7 @@ pub fn page_with(
                 .child(
                     button("kit", t, BtnKind::Default, true)
                         .child(icon("download", 14., t.text))
-                        .child("Download")
+                        .child(tr("Download"))
                         .on_click(cx.listener(|this, _, _, cx| this.save_emergency_kit(cx)))
                         .test_support(),
                 ),
@@ -289,20 +296,26 @@ pub fn page_with(
     let mut keep_menu = menu_box(t).top(px(32.)).right_0().w(px(220.));
     for k in KEEP {
         keep_menu = keep_menu.child(
-            menu_item(format!("keep-{k}"), t, None, format!("{k} versions"), false)
-                .when(c.keep == k, |d| d.text_color(t.accent_text))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(s) = this.session() {
-                        s.sync.keep = k;
-                        s.sync_menu = false;
-                    }
-                    let p = this.path.clone();
-                    if let Some(s) = this.session() {
-                        crate::sync::save_config(&p, &s.sync);
-                    }
-                    cx.notify();
-                }))
-                .test_support(),
+            menu_item(
+                format!("keep-{k}"),
+                t,
+                None,
+                crate::trf!("{} versions", k),
+                false,
+            )
+            .when(c.keep == k, |d| d.text_color(t.accent_text))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.sync.keep = k;
+                    s.sync_menu = false;
+                }
+                let p = this.path.clone();
+                if let Some(s) = this.session() {
+                    crate::sync::save_config(&p, &s.sync);
+                }
+                cx.notify();
+            }))
+            .test_support(),
         );
     }
     let list = backups(&s.vault.path().unwrap_or_default());
@@ -315,12 +328,12 @@ pub fn page_with(
             .unwrap_or_default();
         history = history.child(
             row(t, i == 0)
-                .child(div().flex_1().child(name))
+                .child(div().flex_1().child(crate::i18n::tr_owned(&name)))
                 .child(
                     div()
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
-                        .child(format!("{} KB", size.div_ceil(1024))),
+                        .child(crate::trf!("{} KB", size.div_ceil(1024))),
                 )
                 .child(
                     button(
@@ -329,7 +342,7 @@ pub fn page_with(
                         BtnKind::Default,
                         true,
                     )
-                    .child("Restore")
+                    .child(tr("Restore"))
                     .tooltip(tip(
                         "Brings back what this backup holds; nothing newer is lost",
                     ))
@@ -342,12 +355,12 @@ pub fn page_with(
         .child(
             div()
                 .id("backups-title")
-                .child(section_title(t, "Backups"))
-                .tooltip(tip("Dated copies on this computer you can go back to.")),
+                .child(section_title(t, tr("Backups")))
+                .tooltip(tip(tr("Dated copies on this computer you can go back to."))),
         )
         .child(
             row(t, true)
-                .child(div().flex_1().child("Keep"))
+                .child(div().flex_1().child(tr("Keep")))
                 .child(
                     div()
                         .relative()
@@ -358,7 +371,11 @@ pub fn page_with(
                                     value_box(t)
                                         .w(px(160.))
                                         .cursor_pointer()
-                                        .child(div().flex_1().child(format!("{} versions", c.keep)))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .child(crate::trf!("{} versions", c.keep)),
+                                        )
                                         .child(icon("chevron", 14., t.text_muted)),
                                 )
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -374,7 +391,7 @@ pub fn page_with(
                 .child(
                     button("backup-now", t, BtnKind::Default, true)
                         .child(icon("upload", 14., t.text))
-                        .child("Back up now")
+                        .child(tr("Back up now"))
                         .on_click(cx.listener(|this, _, _, cx| this.backup_now(cx)))
                         .test_support(),
                 ),
@@ -386,13 +403,15 @@ pub fn page_with(
                     div()
                         .id("export-label")
                         .flex_1()
-                        .child("Encrypted export")
-                        .tooltip(tip("Copy of your vault, opened with your master password")),
+                        .child(tr("Encrypted export"))
+                        .tooltip(tip(tr(
+                            "Copy of your vault, opened with your master password",
+                        ))),
                 )
                 .child(
                     button("export", t, BtnKind::Default, true)
                         .child(icon("download", 14., t.text))
-                        .child("Export")
+                        .child(tr("Export"))
                         .on_click(cx.listener(|this, _, _, cx| this.export_vault(cx)))
                         .test_support(),
                 ),

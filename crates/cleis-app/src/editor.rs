@@ -4,6 +4,7 @@
 //! written (charter §6, field).
 
 use crate::app::{CleisApp, Phase};
+use crate::i18n::tr;
 use cleis_core::column::{ColumnDef, ColumnKind, ColumnScope, Table, Value};
 use cleis_core::edit::{self, Field};
 use cleis_core::{ColumnId, EntryId};
@@ -48,6 +49,20 @@ pub enum Menu {
     Subscription,
 }
 
+/// The text of a box, its price period in the interface language (the parser reads both).
+fn shown_text(e: &cleis_core::Entry, f: Field) -> String {
+    let v = edit::text(e, f);
+    if f != Field::Price {
+        return v;
+    }
+    [" / month", " / quarter", " / year"]
+        .into_iter()
+        .find(|p| v.ends_with(p))
+        .map_or(v.clone(), |p| {
+            format!("{}{}", &v[..v.len() - p.len()], tr(p))
+        })
+}
+
 fn placeholder(f: Field) -> &'static str {
     match f {
         Field::Name => "Name",
@@ -80,7 +95,7 @@ impl CleisApp {
         let values: Vec<(Field, String)> = LINE_FIELDS
             .iter()
             .chain([Field::Totp, Field::Notes].iter())
-            .map(|f| (*f, edit::text(e, *f)))
+            .map(|f| (*f, shown_text(e, *f)))
             .collect();
         let has_totp = e.totp.is_some();
         let space = e.space;
@@ -104,7 +119,7 @@ impl CleisApp {
                 let st = cx.new(|cx| {
                     TextareaState::new(window, cx)
                         .auto_grow(2, 10)
-                        .placeholder(placeholder(f))
+                        .placeholder(tr(placeholder(f)))
                         .default_value(v)
                 });
                 subs.push(
@@ -119,7 +134,7 @@ impl CleisApp {
             let st = cx.new(|cx| {
                 InputState::new(window, cx)
                     .masked(masked)
-                    .placeholder(placeholder(f))
+                    .placeholder(tr(placeholder(f)))
                     .default_value(v)
             });
             subs.push(
@@ -139,7 +154,7 @@ impl CleisApp {
             let st = cx.new(|cx| {
                 InputState::new(window, cx)
                     .masked(masked)
-                    .placeholder(custom_placeholder(&c.kind))
+                    .placeholder(tr(custom_placeholder(&c.kind)))
                     .default_value(v)
             });
             let cid = c.id.clone();
@@ -241,8 +256,8 @@ impl CleisApp {
                 e.touch(None);
                 let r = s.vault.put_entry(e);
                 s.toast = Some(match r {
-                    Ok(()) => "Saved".into(),
-                    Err(err) => format!("Not saved: {err}").into(),
+                    Ok(()) => tr("Saved").into(),
+                    Err(err) => crate::trf!("Not saved: {}", err).into(),
                 });
             }
             Err(_) => {
@@ -292,8 +307,8 @@ impl CleisApp {
                 if changed {
                     let r = s.vault.put_entry(e);
                     s.toast = Some(match r {
-                        Ok(()) => "Saved".into(),
-                        Err(err) => format!("Not saved: {err}").into(),
+                        Ok(()) => tr("Saved").into(),
+                        Err(err) => crate::trf!("Not saved: {}", err).into(),
                     });
                     if matches!(f, Field::Name | Field::Website | Field::Username) {
                         s.refilter();
@@ -301,7 +316,8 @@ impl CleisApp {
                 }
             }
             Err(err) => {
-                ed.errors.insert(f, err.to_string().into());
+                ed.errors
+                    .insert(f, crate::i18n::tr_dynamic(&err.to_string()).into());
             }
         }
         cx.notify();
@@ -317,7 +333,7 @@ impl CleisApp {
         let Some(e) = s.entries.iter().find(|e| e.id == ed.entry) else {
             return;
         };
-        let v = edit::text(e, f);
+        let v = shown_text(e, f);
         if let Some(i) = ed.inputs.get(&f) {
             i.update(cx, |st, cx| st.set_value(v, window, cx));
         }
@@ -330,7 +346,7 @@ impl CleisApp {
         };
         let entry = s.selected_entry().cloned();
         if reveal && entry.as_ref().is_some_and(|e| !s.may_see(e)) {
-            s.toast = Some("Your role copies and fills, without showing".into());
+            s.toast = Some(tr("Your role copies and fills, without showing").into());
             cx.notify();
             return;
         }
@@ -402,10 +418,10 @@ pub fn custom_placeholder(kind: &ColumnKind) -> &'static str {
 
 pub fn refused(kind: &ColumnKind) -> String {
     match kind {
-        ColumnKind::Date => "Not a date".into(),
-        ColumnKind::Number { .. } => "Not a number".into(),
-        ColumnKind::Price { .. } => "Not a price".into(),
-        ColumnKind::Choice { options } => format!(
+        ColumnKind::Date => tr("Not a date").into(),
+        ColumnKind::Number { .. } => tr("Not a number").into(),
+        ColumnKind::Price { .. } => tr("Not a price").into(),
+        ColumnKind::Choice { options } => crate::trf!(
             "One of: {}",
             options
                 .iter()
@@ -413,7 +429,7 @@ pub fn refused(kind: &ColumnKind) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        _ => "Not accepted".into(),
+        _ => tr("Not accepted").into(),
     }
 }
 
@@ -425,7 +441,7 @@ fn refuse_edit(s: &mut crate::app::Session) -> bool {
     };
     let space = s.entries.iter().find(|e| e.id == id).map(|e| e.space);
     if space.is_some_and(|sp| !s.may(sp, cleis_core::org::Perm::Edit)) {
-        s.toast = Some("Your role does not allow editing here".into());
+        s.toast = Some(tr("Your role does not allow editing here").into());
         s.editor = None;
         return true;
     }

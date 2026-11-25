@@ -3,6 +3,7 @@
 
 use super::unlock::{logo, stage};
 use crate::app::{CleisApp, Phase};
+use crate::i18n::tr;
 use crate::sync::{Provider, find_vaults};
 use crate::theme::*;
 use crate::ui::*;
@@ -30,7 +31,9 @@ pub struct Restore {
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 fn tile(
@@ -60,7 +63,7 @@ fn tile(
         .text_color(fg)
         .cursor_pointer()
         .child(icon(ico, 18., fg))
-        .child(label.to_owned())
+        .child(crate::i18n::tr_owned(label))
 }
 
 fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -162,7 +165,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .text_size(TEXT_XL)
                         .font_weight(W_STRONG)
-                        .child("Restore my vault"),
+                        .child(tr("Restore my vault")),
                 ),
         )
         .child(
@@ -170,18 +173,18 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(
                     div()
                         .id("restore-where")
-                        .child(section_title(t, "Where is it?"))
-                        .tooltip(tip("Cleis opens your encrypted vault there. The provider never sees your passwords.")),
+                        .child(section_title(t, tr("Where is it?")))
+                        .tooltip(tip(tr("Cleis opens your encrypted vault there. The provider never sees your passwords."))),
                 )
                 .child(tiles)
-                .child(field(t, "Vault", vault_box)),
+                .child(field(t, tr("Vault"), vault_box)),
         )
         .child(section(t).child(field(
             t,
             "Master password",
             Input::new(&r.password).id("restore-password").mask_toggle(),
         )))
-        .when_some(r.error.clone(), |d, e| {
+        .when_some(r.error.clone().map(|e| crate::i18n::tr_dynamic(&e)), |d, e| {
             d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
         })
         .child(
@@ -190,7 +193,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .justify_between()
                 .child(
                     button("restore-back", t, BtnKind::Ghost, false)
-                        .child("Back")
+                        .child(tr("Back"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Phase::Welcome(w) = &mut this.phase {
                                 w.restore = None;
@@ -202,7 +205,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(
                     button("restore-go", t, BtnKind::Primary, false)
                         .when(busy || r.found.is_empty(), |b| b.opacity(0.6))
-                        .child(if busy { "Restoring…" } else { "Restore" })
+                        .child(if busy { tr("Restoring…") } else { tr("Restore") })
                         .on_click(cx.listener(|this, _, window, cx| this.restore_vault(window, cx)))
                         .test_support(),
                 ),
@@ -244,12 +247,16 @@ fn choice_with(
                 .flex_col()
                 .gap(px(2.))
                 .flex_1()
-                .child(div().font_weight(W_MEDIUM).child(title.to_owned()))
+                .child(
+                    div()
+                        .font_weight(W_MEDIUM)
+                        .child(crate::i18n::tr_owned(title)),
+                )
                 .child(
                     div()
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
-                        .child(sub.to_owned()),
+                        .child(crate::i18n::tr_owned(sub)),
                 )
                 .when_some(extra, |d, e| d.child(div().pt(px(12.)).child(e))),
         )
@@ -300,7 +307,7 @@ pub fn render(
                     div()
                         .text_size(TEXT_XL)
                         .font_weight(W_STRONG)
-                        .child("Welcome to Cleis"),
+                        .child(tr("Welcome to Cleis")),
                 ),
         )
         .child(
@@ -330,7 +337,7 @@ pub fn render(
                 .child(choice_with(
                     &t,
                     w.org,
-                    "Join an organization",
+                    tr("Join an organization"),
                     "Shared spaces, on top of your personal vault",
                     "server",
                     w.org.then(|| super::org::join_fields(&w.join, &t, cx)),
@@ -358,9 +365,10 @@ pub fn render(
                     "Confirm",
                     Input::new(&w.confirm).id("confirm-password").mask_toggle(),
                 ))
-                .when_some(w.error.clone(), |d, e| {
-                    d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-                }),
+                .when_some(
+                    w.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+                    |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+                ),
         )
         .child(
             div()
@@ -369,15 +377,19 @@ pub fn render(
                 .child(
                     button("restore", &t, BtnKind::Ghost, false)
                         .child(icon("sync", 16., t.text_muted))
-                        .child("Restore my vault")
-                        .tooltip(tip("From OneDrive, Google Drive or a folder"))
+                        .child(tr("Restore my vault"))
+                        .tooltip(tip(tr("From OneDrive, Google Drive or a folder")))
                         .on_click(cx.listener(|this, _, window, cx| this.start_restore(window, cx)))
                         .test_support(),
                 )
                 .child(
                     button("create", &t, BtnKind::Primary, false)
                         .when(busy, |b| b.opacity(0.6))
-                        .child(if busy { "Creating…" } else { "Create vault" })
+                        .child(if busy {
+                            tr("Creating…")
+                        } else {
+                            tr("Create vault")
+                        })
                         .on_click(cx.listener(|this, _, window, cx| this.create_vault(window, cx)))
                         .test_support(),
                 ),
@@ -414,7 +426,7 @@ impl CleisApp {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Open".into()),
+            prompt: Some(tr("Open").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await
@@ -469,7 +481,7 @@ impl CleisApp {
                         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                     }
                     if d2.exists() {
-                        return Err("A vault already exists on this computer".to_owned());
+                        return Err(tr("A vault already exists on this computer").to_owned());
                     }
                     std::fs::copy(&src, &d2).map_err(|e| e.to_string())?;
                     let v = cleis_store::LockedVault::open(&d2)

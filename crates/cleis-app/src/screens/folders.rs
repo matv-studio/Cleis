@@ -2,6 +2,7 @@
 //! every folder together; deleting a folder moves its items to My vault.
 
 use crate::app::{CleisApp, Filter, FolderDialog, Session};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::SpaceId;
@@ -14,30 +15,42 @@ use gpui_kit::{Context, Div, SharedString, Window, div, px};
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 /// The menu of a folder in the sidebar: rename, delete (not My vault).
 pub fn menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let home = s.vault.home_space() == id;
     let mut m = menu_box(t).top(px(28.)).right_0().w(px(220.)).child(
-        menu_item(format!("frename-{id}"), t, Some("text"), "Rename", false)
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.open_folder_rename(id, window, cx)),
-            )
-            .test_support(),
+        menu_item(
+            format!("frename-{id}"),
+            t,
+            Some("text"),
+            tr("Rename"),
+            false,
+        )
+        .on_click(cx.listener(move |this, _, window, cx| this.open_folder_rename(id, window, cx)))
+        .test_support(),
     );
     if !home {
         m = m.child(
-            menu_item(format!("fdelete-{id}"), t, Some("trash"), "Delete", true)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(s) = this.session() {
-                        s.folder_menu = None;
-                        s.folder = Some(FolderDialog::Delete(id));
-                    }
-                    cx.notify();
-                }))
-                .test_support(),
+            menu_item(
+                format!("fdelete-{id}"),
+                t,
+                Some("trash"),
+                tr("Delete"),
+                true,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.folder_menu = None;
+                    s.folder = Some(FolderDialog::Delete(id));
+                }
+                cx.notify();
+            }))
+            .test_support(),
         );
     }
     m
@@ -46,7 +59,7 @@ pub fn menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) ->
 /// The "⋯" button of a folder row, shown on hover.
 pub fn more_button(id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
     icon_button(SharedString::from(format!("fmore-{id}")), t, "more", true)
-        .tooltip(tip("Folder"))
+        .tooltip(tip(tr("Folder")))
         .on_click(cx.listener(move |this, _, _, cx| {
             if let Some(s) = this.session() {
                 s.folder_menu = if s.folder_menu == Some(id) {
@@ -67,19 +80,19 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         s.spaces
             .iter()
             .find(|x| x.id == id)
-            .map(|x| x.name.clone())
+            .map(|x| crate::i18n::space(&x.name))
             .unwrap_or_default()
     };
     let (title, body, ok, danger): (String, Div, &str, bool) = match d {
         FolderDialog::New(input) => (
-            "New folder".into(),
-            field(t, "Name", Input::new(input).id("folder-name")),
+            tr("New folder").into(),
+            field(t, tr("Name"), Input::new(input).id("folder-name")),
             "Create",
             false,
         ),
         FolderDialog::Rename(id, input) => (
-            format!("Rename “{}”", name_of(*id)),
-            field(t, "Name", Input::new(input).id("folder-name")),
+            crate::trf!("Rename “{}”", name_of(*id)),
+            field(t, tr("Name"), Input::new(input).id("folder-name")),
             "Rename",
             false,
         ),
@@ -87,13 +100,15 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             let n = s.entries.iter().filter(|e| e.space == *id).count();
             let home = name_of(s.vault.home_space());
             (
-                format!("Delete “{}”?", name_of(*id)),
+                crate::trf!("Delete “{}”?", name_of(*id)),
                 div().text_color(t.text_muted).child(if n == 0 {
-                    "It is empty.".to_owned()
+                    tr("It is empty.").to_owned()
                 } else {
-                    format!(
-                        "Its {n} item{} move to {home}.",
-                        if n == 1 { "" } else { "s" }
+                    crate::trf!(
+                        "Its {} item{} move to {}.",
+                        n,
+                        if n == 1 { "" } else { "s" },
+                        home
                     )
                 }),
                 "Delete",
@@ -102,7 +117,12 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         }
     };
     let card = dialog_box(t)
-        .child(div().text_size(TEXT_LG).font_weight(W_MEDIUM).child(title))
+        .child(
+            div()
+                .text_size(TEXT_LG)
+                .font_weight(W_MEDIUM)
+                .child(crate::i18n::tr_owned(&title)),
+        )
         .child(body)
         .child(
             div()
@@ -112,7 +132,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 .gap(px(8.))
                 .child(
                     button("folder-cancel", t, BtnKind::Default, false)
-                        .child("Cancel")
+                        .child(tr("Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(s) = this.session() {
                                 s.folder = None;
@@ -132,7 +152,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                         },
                         false,
                     )
-                    .child(ok.to_owned())
+                    .child(crate::i18n::tr_owned(ok))
                     .on_click(cx.listener(|this, _, _, cx| this.folder_confirm(cx)))
                     .test_support(),
                 ),
@@ -156,7 +176,7 @@ impl CleisApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui_kit::Entity<InputState> {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Banking"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Banking")));
         let value = value.to_owned();
         input.update(cx, |i, cx| {
             i.set_value(value, window, cx);
@@ -228,7 +248,7 @@ impl CleisApp {
                 // Preferences › Vaults shows the personal vault's name: read again.
                 s.vault_name = None;
             }
-            Err(e) => s.toast = Some(format!("Not done: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not done: {}", e).into()),
         }
         cx.notify();
     }

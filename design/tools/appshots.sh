@@ -2,18 +2,20 @@
 # Captures the real app (demo data) under a virtual X display, dark theme (user's choice,
 # 25/11/2026; pass THEMES="dark light" for both).
 # Needs: Xvfb, ImageMagick `import`, mesa-vulkan-drivers (llvmpipe). Output: target/app-captures/.
-# ONLY="vault-dark members-dark" takes only those. A capture waits until the window is drawn
+# ONLY="vault-dark members-dark" takes only those. UI_LANG=fr: French interface, into
+# target/app-captures/fr/. A capture waits until the window is drawn
 # (not a fixed time); an app that stops or never draws fails the run (audit X-5).
 set -e
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cargo build -q -p cleis-app --manifest-path "$root/Cargo.toml"
-out="$root/target/app-captures"; mkdir -p "$out"
+out="$root/target/app-captures${UI_LANG:+/$UI_LANG}"; mkdir -p "$out"
+lang=${UI_LANG:+--lang $UI_LANG}
 failed=()
 shot() { # name, args...
   local name=$1; shift
   if [ -n "$ONLY" ] && [[ " $ONLY " != *" $name "* ]]; then return; fi
   if ! xvfb-run -a -s "-screen 0 1440x900x24" bash -c "
-      '$root/target/debug/cleis' $* >/dev/null 2>&1 & pid=\$!
+      '$root/target/debug/cleis' $* $lang >/dev/null 2>&1 & pid=\$!
       drawn=0
       for i in \$(seq 1 60); do
         sleep 0.5

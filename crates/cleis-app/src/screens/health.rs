@@ -2,6 +2,7 @@
 //! a figure filters the list, "Change" opens the item with a new password ready.
 
 use crate::app::{CleisApp, Filter, Session, Tab};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::health::{Issue, Policy, scan_by};
@@ -44,7 +45,9 @@ fn matches(i: &Issue, k: IssueKind) -> bool {
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement + use<> {
@@ -87,7 +90,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         s.spaces
             .iter()
             .find(|sp| sp.id == id)
-            .map(|sp| sp.name.clone())
+            .map(|sp| crate::i18n::space(&sp.name))
             .unwrap_or_default()
     };
     let stat = |id: &'static str,
@@ -111,7 +114,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                 div()
                     .text_size(TEXT_SM)
                     .text_color(t.text_muted)
-                    .child(label.to_owned()),
+                    .child(crate::i18n::tr_owned(label)),
             )
             .id(id)
             .flex_1()
@@ -129,7 +132,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
             .test_support()
     };
     let head_cell = |w: f32, label: &str| {
-        let d = div().px(px(12.)).child(label.to_owned());
+        let d = div().px(px(12.)).child(crate::i18n::tr_owned(label));
         if w > 0. {
             d.w(px(w)).flex_none()
         } else {
@@ -164,10 +167,12 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         let mut chips = div().flex().gap(px(4.));
         for i in &f.issues {
             chips = chips.child(match i {
-                Issue::Weak => chip(t, Tone::Danger, "Weak", false),
-                Issue::Reused { count } => chip(t, Tone::Warn, format!("Reused ×{count}"), false),
-                Issue::Old => chip(t, Tone::Warn, "Over a year", false),
-                Issue::NoTwoFactor => chip(t, Tone::Neutral, "No 2FA", false),
+                Issue::Weak => chip(t, Tone::Danger, tr("Weak"), false),
+                Issue::Reused { count } => {
+                    chip(t, Tone::Warn, crate::trf!("Reused ×{}", count), false)
+                }
+                Issue::Old => chip(t, Tone::Warn, tr("Over a year"), false),
+                Issue::NoTwoFactor => chip(t, Tone::Neutral, tr("No 2FA"), false),
             });
         }
         let needs_password = f.issues.iter().any(|i| !matches!(i, Issue::NoTwoFactor));
@@ -220,7 +225,11 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                             BtnKind::Default,
                             true,
                         )
-                        .child(if needs_password { "Change" } else { "Add 2FA" })
+                        .child(if needs_password {
+                            tr("Change")
+                        } else {
+                            tr("Add 2FA")
+                        })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.fix_from_health(id, needs_password, window, cx)
                         }))
@@ -238,15 +247,15 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                 .gap(px(8.))
                 .text_color(t.text_muted)
                 .child(icon("check", 16., t.success_text))
-                .child("Nothing to fix"),
+                .child(tr("Nothing to fix")),
         );
     }
     let label = ui
         .space
         .map(space_name)
-        .unwrap_or_else(|| "All spaces".into());
+        .unwrap_or_else(|| tr("All spaces").into());
     let mut menu = menu_box(t).top(px(32.)).right_0().w(px(220.)).child(
-        menu_item("hs-all", t, None, "All spaces", false)
+        menu_item("hs-all", t, None, tr("All spaces"), false)
             .on_click(cx.listener(|this, _, _, cx| this.health_space(None, cx)))
             .test_support(),
     );
@@ -257,15 +266,21 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
     {
         let id = sp.id;
         menu = menu.child(
-            menu_item(format!("hs-{id}"), t, None, sp.name.clone(), false)
-                .on_click(cx.listener(move |this, _, _, cx| this.health_space(Some(id), cx)))
-                .test_support(),
+            menu_item(
+                format!("hs-{id}"),
+                t,
+                None,
+                crate::i18n::space(&sp.name),
+                false,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.health_space(Some(id), cx)))
+            .test_support(),
         );
     }
     // Mockup 32e: with an organization, the vault comes first (personal, then each one).
     use crate::app::Scope;
     let mut vaults: Vec<(Option<Scope>, String, Option<&str>, String)> =
-        vec![(None, "All vaults".into(), None, "hv-all".into())];
+        vec![(None, tr("All vaults").into(), None, "hv-all".into())];
     vaults.push((
         Some(Scope::Personal),
         s.personal_name(),
@@ -302,7 +317,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
             .child(
                 div()
                     .id("health-vault")
-                    .tooltip(tip("Vault"))
+                    .tooltip(tip(tr("Vault")))
                     .child(
                         value_box(t)
                             .w(px(170.))
@@ -350,7 +365,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                                 .flex_1()
                                 .text_size(TEXT_XL)
                                 .font_weight(W_STRONG)
-                                .child("Health report"),
+                                .child(tr("Health report")),
                         )
                         .children(vault_select)
                         .child(
@@ -368,7 +383,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                                                         .flex_1()
                                                         .overflow_hidden()
                                                         .text_ellipsis()
-                                                        .child(label),
+                                                        .child(crate::i18n::tr_owned(&label)),
                                                 )
                                                 .child(icon("chevron", 14., t.text_muted)),
                                         )
@@ -386,10 +401,10 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                         .child(
                             button("health-scan", t, BtnKind::Default, false)
                                 .child(icon("refresh", 16., t.text))
-                                .child("Scan")
-                                .tooltip(tip("Check again (the report also updates by itself)"))
+                                .child(tr("Scan"))
+                                .tooltip(tip(tr("Check again (the report also updates by itself)")))
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toast("Scanned", cx);
+                                    this.toast(tr("Scanned"), cx);
                                 }))
                                 .test_support(),
                         ),

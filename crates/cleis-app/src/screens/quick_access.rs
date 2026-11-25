@@ -4,6 +4,7 @@
 
 use crate::app::{CleisApp, Phase};
 use crate::autofill::standard;
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_autofill::Foreground;
@@ -51,7 +52,7 @@ pub fn items(app: &CleisApp, fg: &Foreground, query: &str) -> Vec<Item> {
         s.spaces
             .iter()
             .find(|sp| sp.id == e.space)
-            .map(|sp| sp.name.clone())
+            .map(|sp| crate::i18n::space(&sp.name))
             .unwrap_or_default()
     };
     let item = |e: &cleis_core::Entry, matched| Item {
@@ -100,7 +101,7 @@ impl QuickAccess {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search")));
         let subs = vec![
             cx.subscribe_in(&search, window, |this, input, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
@@ -227,7 +228,7 @@ fn hint(t: &Tokens, ks: &[&str], label: &str) -> Div {
         .text_size(TEXT_SM)
         .text_color(t.text_muted)
         .child(keys(t, ks))
-        .child(label.to_owned())
+        .child(crate::i18n::tr_owned(label))
 }
 
 use gpui_kit::Div;
@@ -242,7 +243,7 @@ impl Render for QuickAccess {
             .host()
             .or_else(|| (!ctx.app_name.is_empty()).then(|| ctx.app_name.clone()));
         let tip: SharedString =
-            format!("Detected from the window in front: {}", ctx.program).into();
+            crate::trf!("Detected from the window in front: {}", ctx.program).into();
         let cmd = if cfg!(target_os = "macos") {
             "⌘"
         } else {
@@ -269,7 +270,7 @@ impl Render for QuickAccess {
                 .text_size(TEXT_XS)
                 .font_weight(W_MEDIUM)
                 .text_color(t.text_muted)
-                .child(label.to_owned())
+                .child(crate::i18n::tr_owned(label))
         };
         let mut last_section: Option<Option<Reason>> = None;
         for (i, it) in list.iter().enumerate().take(9) {
@@ -336,7 +337,7 @@ impl Render for QuickAccess {
                     .px(px(8.))
                     .py(px(16.))
                     .text_color(t.text_muted)
-                    .child("No item"),
+                    .child(tr("No item")),
             );
         }
 
@@ -351,7 +352,7 @@ impl Render for QuickAccess {
             .border_t_1()
             .border_color(t.line)
             .bg(t.surface)
-            .child(hint(&t, &["Shift", "↵"], "Type"))
+            .child(hint(&t, &["Shift", "↵"], "Type it"))
             .child(hint(&t, &[cmd, "C"], "Password"))
             .when(totp.is_some(), |d| {
                 d.child(hint(&t, &[cmd, alt, "C"], "2FA code"))
@@ -427,7 +428,7 @@ fn bring_to_front(window: &mut Window, cx: &mut Context<QuickAccess>) {
     };
     cx.background_spawn(async move {
         if let Err(e) = cleis_autofill::activate(cleis_autofill::WindowRef(hwnd)) {
-            cleis_autofill::log(&format!("quick access: not in front ({e})"));
+            cleis_autofill::log(&crate::trf!("quick access: not in front ({})", e));
         }
     })
     .detach();

@@ -2,6 +2,7 @@
 //! opening code with recovery codes, locking after inactivity, clipboard, master password.
 
 use crate::app::{CleisApp, Session};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::open_code::{Check, OpenCode};
@@ -53,22 +54,24 @@ fn secs_label(s: u32) -> String {
     if s < 60 {
         format!("{s} s")
     } else {
-        format!("{} min", s / 60)
+        crate::trf!("{} min", s / 60)
     }
 }
 
 fn lock_label(m: Option<u32>) -> String {
     match m {
-        None => "Never".into(),
-        Some(60) => "1 hour".into(),
-        Some(m) => format!("{m} min"),
+        None => tr("Never").into(),
+        Some(60) => tr("1 hour").into(),
+        Some(m) => crate::trf!("{} min", m),
     }
 }
 
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 fn select_button(id: &'static str, t: &Tokens, label: String, w: f32) -> gpui_kit::Stateful<Div> {
@@ -76,7 +79,7 @@ fn select_button(id: &'static str, t: &Tokens, label: String, w: f32) -> gpui_ki
         value_box(t)
             .w(px(w))
             .cursor_pointer()
-            .child(div().flex_1().child(label))
+            .child(div().flex_1().child(crate::i18n::tr_owned(&label)))
             .child(icon("chevron", 14., t.text_muted)),
     )
 }
@@ -90,14 +93,14 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             div()
                 .id("sec-opening")
-                .child(section_title(t, "Opening the app"))
+                .child(section_title(t, tr("Opening the app")))
                 .tooltip(tip(
                     "Code asked each time Cleis opens, on top of the master password. This computer only: an organization's two-step verification is in Profile.",
                 )),
         )
         .child(
             row(t, true)
-                .child(div().flex_1().child("Verification code on open"))
+                .child(div().flex_1().child(tr("Verification code on open")))
                 .child(
                     switch("open-code", t, code_on)
                         .on_click(
@@ -108,25 +111,25 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .when(code_on, |d| {
             d.child(
-                row(t, false).child(div().flex_1().child("Method")).child(
+                row(t, false).child(div().flex_1().child(tr("Method"))).child(
                     div()
                         .id("code-method")
-                        .child(segmented("method", t, &["App", "Email", "SMS"], 0))
-                        .tooltip(tip("Email and SMS need a mail server or a paid service")),
+                        .child(segmented("method", t, &[tr("App"), tr("Email"), "SMS"], 0))
+                        .tooltip(tip(tr("Email and SMS need a mail server or a paid service"))),
                 ),
             )
             .child(
                 row(t, false)
-                    .child(div().flex_1().child("Recovery codes"))
+                    .child(div().flex_1().child(tr("Recovery codes")))
                     .child(
                         div()
                             .text_size(TEXT_SM)
                             .text_color(t.text_muted)
-                            .child(format!("{left} left")),
+                            .child(crate::trf!("{} left", left)),
                     )
                     .child(
                         button("show-recovery", t, BtnKind::Default, false)
-                            .child("Show")
+                            .child(tr("Show"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(s) = this.session() {
                                     s.security.dialog = Some(SecDialog::RecoveryCodes);
@@ -155,9 +158,9 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         m
     };
     let locking =
-        section(t).child(section_title(t, "Locking")).child(
+        section(t).child(section_title(t, tr("Locking"))).child(
             row(t, true)
-                .child(div().flex_1().child("After inactivity"))
+                .child(div().flex_1().child(tr("After inactivity")))
                 .child(
                     div()
                         .relative()
@@ -191,9 +194,9 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         }
         m
     };
-    let clipboard = section(t).child(section_title(t, "Clipboard")).child(
+    let clipboard = section(t).child(section_title(t, tr("Clipboard"))).child(
         row(t, true)
-            .child(div().flex_1().child("Clear after copying"))
+            .child(div().flex_1().child(tr("Clear after copying")))
             .child(
                 div()
                     .relative()
@@ -226,21 +229,24 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             ),
     );
     let changed = match p.password_changed {
-        Some(ts) => format!("Changed {}", crate::format::date(ts)),
-        None => "Never changed".into(),
+        Some(ts) => crate::trf!("Changed {}", crate::format::date(ts)),
+        None => tr("Never changed").into(),
     };
-    let master = section(t).child(section_title(t, "Master password")).child(
-        row(t, true)
-            .child(div().flex_1().text_color(t.text_muted).child(changed))
+    let master =
+        section(t)
+            .child(section_title(t, tr("Master password")))
             .child(
-                button("chpw", t, BtnKind::Default, false)
-                    .child("Change")
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.start_change_password(window, cx)),
-                    )
-                    .test_support(),
-            ),
-    );
+                row(t, true)
+                    .child(div().flex_1().text_color(t.text_muted).child(changed))
+                    .child(
+                        button("chpw", t, BtnKind::Default, false)
+                            .child(tr("Change"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.start_change_password(window, cx)
+                            }))
+                            .test_support(),
+                    ),
+            );
     div()
         .flex()
         .flex_col()
@@ -249,7 +255,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             div()
                 .text_size(TEXT_XL)
                 .font_weight(W_STRONG)
-                .child("Security"),
+                .child(tr("Security")),
         )
         .child(opening)
         .child(locking)
@@ -262,7 +268,7 @@ fn card(t: &Tokens, title: &str) -> Div {
         div()
             .text_size(TEXT_LG)
             .font_weight(W_MEDIUM)
-            .child(title.to_owned()),
+            .child(crate::i18n::tr_owned(title)),
     )
 }
 
@@ -279,7 +285,7 @@ fn actions(
         .gap(px(8.))
         .child(
             button("sec-cancel", t, BtnKind::Default, false)
-                .child("Cancel")
+                .child(tr("Cancel"))
                 .on_click(cx.listener(|this, _, window, cx| this.close_sec_dialog(window, cx)))
                 .test_support(),
         )
@@ -336,7 +342,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
             busy,
         } => {
             let typed = new.read(cx).value().to_string();
-            card(t, "Change the master password")
+            card(t, tr("Change the master password"))
                 .child(field(
                     t,
                     "Current password",
@@ -360,14 +366,14 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                     t,
                     "chpw-ok",
                     if *busy {
-                        "Changing…".into()
+                        tr("Changing…").into()
                     } else {
-                        "Change".into()
+                        tr("Change").into()
                     },
                     cx,
                 ))
         }
-        SecDialog::SetupCode { code, input, error } => card(t, "Verification code on open")
+        SecDialog::SetupCode { code, input, error } => card(t, tr("Verification code on open"))
             .child(hint(
                 "hint-open-code",
                 t,
@@ -390,18 +396,18 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                     )
                     .child(
                         icon_button("copy-key", t, "copy", true)
-                            .tooltip(tip("Copy the key"))
+                            .tooltip(tip(tr("Copy the key")))
                             .on_click({
                                 let k = code.secret.clone();
                                 cx.listener(move |this, _, _, cx| this.copy(k.clone(), "Key", cx))
                             }),
                     ),
             )
-            .child(field(t, "Code", Input::new(input).id("code-check")))
+            .child(field(t, tr("Code"), Input::new(input).id("code-check")))
             .when_some(error.clone(), |d, e| {
                 d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
             })
-            .child(actions(t, "code-ok", "Turn on".into(), cx)),
+            .child(actions(t, "code-ok", tr("Turn on").into(), cx)),
         SecDialog::RecoveryCodes => {
             let codes = s
                 .prefs
@@ -414,7 +420,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
             for c in &codes {
                 grid = grid.child(div().w(px(180.)).font_family(FONT_MONO).child(c.clone()));
             }
-            card(t, "Recovery codes")
+            card(t, tr("Recovery codes"))
                 .child(hint(
                     "hint-recovery",
                     t,
@@ -430,7 +436,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                         .child(
                             button("copy-recovery", t, BtnKind::Default, false)
                                 .child(icon("copy", 14., t.text))
-                                .child("Copy")
+                                .child(tr("Copy"))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.copy(all.clone(), "Recovery codes", cx)
                                 }))
@@ -438,7 +444,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                         )
                         .child(
                             button("recovery-done", t, BtnKind::Primary, false)
-                                .child("Done")
+                                .child(tr("Done"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.close_sec_dialog(window, cx)
                                 }))
@@ -491,22 +497,29 @@ pub fn gate(g: &Gate, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             div()
                                 .text_size(TEXT_XL)
                                 .font_weight(W_STRONG)
-                                .child("Verification code"),
+                                .child(tr("Verification code")),
                         )
-                        .child(div().text_color(t.text_muted).child("Authenticator app")),
+                        .child(
+                            div()
+                                .text_color(t.text_muted)
+                                .child(tr("Authenticator app")),
+                        ),
                 )
                 .child(
                     section(t)
                         .gap(px(16.))
                         .child(Input::new(&g.input).id("gate-code"))
-                        .when_some(g.error.clone(), |d, e| {
-                            d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-                        })
+                        .when_some(
+                            g.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+                            |d, e| {
+                                d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+                            },
+                        )
                         .child(
                             button("gate-verify", t, BtnKind::Primary, false)
                                 .h(px(32.))
                                 .w_full()
-                                .child("Verify")
+                                .child(tr("Verify"))
                                 .on_click(
                                     cx.listener(|this, _, window, cx| this.check_gate(window, cx)),
                                 )
@@ -520,7 +533,7 @@ pub fn gate(g: &Gate, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .justify_center()
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
-                        .child("A recovery code works too")
+                        .child(tr("A recovery code works too"))
                         .tooltip(tip(
                             "Shown when the code was turned on, in Settings › Security",
                         )),
@@ -553,13 +566,13 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         if s.prefs.open_code.is_some() {
             self.update_prefs(|p| p.open_code = None, cx);
-            self.toast("Verification code turned off", cx);
+            self.toast(tr("Verification code turned off"), cx);
             return;
         }
         let code = match OpenCode::generate() {
             Ok(c) => c,
             Err(e) => {
-                s.toast = Some(format!("No key: {e}").into());
+                s.toast = Some(crate::trf!("No key: {}", e).into());
                 cx.notify();
                 return;
             }
@@ -592,7 +605,8 @@ impl CleisApp {
         let mut probe = code.clone();
         probe.recovery.clear();
         if probe.check(&typed, cleis_core::now()) != Check::Code {
-            *error = Some("Wrong code: check the time of this computer and of the phone".into());
+            *error =
+                Some(tr("Wrong code: check the time of this computer and of the phone").into());
             cx.notify();
             return;
         }
@@ -644,11 +658,11 @@ impl CleisApp {
         let pw = new.read(cx).value().to_string();
         let again = confirm.read(cx).value().to_string();
         let refuse = if pw.chars().count() < 10 {
-            Some("At least 10 characters")
+            Some(tr("At least 10 characters"))
         } else if pw != again {
-            Some("The new passwords differ")
+            Some(tr("The new passwords differ"))
         } else if pw == cur {
-            Some("The new password is the current one")
+            Some(tr("The new password is the current one"))
         } else {
             None
         };
@@ -678,7 +692,7 @@ impl CleisApp {
                     Ok(true) => {
                         s.security.dialog = None;
                         this.update_prefs(|p| p.password_changed = Some(cleis_core::now()), cx);
-                        this.toast("Master password changed", cx);
+                        this.toast(tr("Master password changed"), cx);
                     }
                     other => {
                         if let Some(SecDialog::ChangePassword { error, busy, .. }) =
@@ -686,8 +700,8 @@ impl CleisApp {
                         {
                             *busy = false;
                             *error = Some(match other {
-                                Ok(_) => "Wrong current password".into(),
-                                Err(e) => format!("Not changed: {e}").into(),
+                                Ok(_) => tr("Wrong current password").into(),
+                                Err(e) => crate::trf!("Not changed: {}", e).into(),
                             });
                         }
                         cx.notify();
@@ -729,7 +743,7 @@ impl CleisApp {
         };
         match code.check(&typed, cleis_core::now()) {
             Check::Wrong => {
-                g.error = Some("Wrong code".into());
+                g.error = Some(tr("Wrong code").into());
                 cx.notify();
             }
             Check::Code => {
@@ -742,7 +756,7 @@ impl CleisApp {
                 let left = s.prefs.open_code.as_ref().map_or(0, |c| c.recovery.len());
                 // The used code is removed from the saved list.
                 self.update_prefs(|_| {}, cx);
-                self.toast_for(format!("Recovery code used · {left} left"), 8, cx);
+                self.toast_for(crate::trf!("Recovery code used · {} left", left), 8, cx);
             }
         }
     }

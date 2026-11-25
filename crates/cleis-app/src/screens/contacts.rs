@@ -3,6 +3,7 @@
 
 use crate::app::{CleisApp, Confirm, ConfirmAction, Session};
 use crate::contact_editor::ContactEditor;
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::column::{ColumnDef, Table};
@@ -70,7 +71,9 @@ fn label_tone(l: &str) -> Tone {
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 fn today_md() -> (u8, u8) {
@@ -152,7 +155,7 @@ fn side_item(
                 .overflow_hidden()
                 .text_ellipsis()
                 .whitespace_nowrap()
-                .child(label.into()),
+                .child(crate::i18n::tr_owned(&label.into())),
         )
         .when_some(count, |d, n| {
             d.child(
@@ -174,7 +177,7 @@ fn group_head(t: &Tokens, label: &str) -> Div {
         .text_size(TEXT_XS)
         .font_weight(W_MEDIUM)
         .text_color(t.text_muted)
-        .child(div().flex_1().child(label.to_owned()))
+        .child(div().flex_1().child(crate::i18n::tr_owned(label)))
 }
 
 fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -208,7 +211,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 "cf-all",
                 t,
                 Some("users"),
-                "All contacts",
+                tr("All contacts"),
                 Some(s.contacts.len()),
                 *f == ContactFilter::All,
             )
@@ -220,7 +223,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 "cf-fav",
                 t,
                 Some("star"),
-                "Favorites",
+                tr("Favorites"),
                 Some(s.contacts.iter().filter(|c| c.favorite).count()),
                 *f == ContactFilter::Favorites,
             )
@@ -232,11 +235,11 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 "cf-bday",
                 t,
                 Some("calendar"),
-                "Birthdays soon",
+                tr("Birthdays soon"),
                 Some(s.contacts.iter().filter(|c| birthday_soon(c)).count()),
                 *f == ContactFilter::Birthdays,
             )
-            .tooltip(tip("Next 30 days"))
+            .tooltip(tip(tr("Next 30 days")))
             .on_click(cx.listener(set(ContactFilter::Birthdays)))
             .test_support(),
         );
@@ -246,7 +249,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .iter()
             .filter(move |sp| sp.for_contacts && sp.kind == kind)
     };
-    side = side.child(group_head(t, "Personal"));
+    side = side.child(group_head(t, tr("Personal")));
     for sp in folders(SpaceKind::Personal) {
         let id = sp.id;
         side = side.child(
@@ -254,7 +257,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 format!("cf-folder-{}", sp.id),
                 t,
                 Some("user"),
-                sp.name.clone(),
+                crate::i18n::space(&sp.name),
                 Some(count(sp.id)),
                 *f == ContactFilter::Folder(id),
             )
@@ -283,14 +286,14 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .filter(|sp| s.org_of(sp.id).is_none())
         .collect();
     if !orphans.is_empty() || groups.is_empty() {
-        groups.push(("Shared".into(), orphans));
+        groups.push((tr("Shared").into(), orphans));
     }
     for (gi, (name, spaces)) in groups.into_iter().enumerate() {
         let head = group_head(t, &name);
         side = side.child(if gi == 0 {
             head.child(
                 icon_button("new-folder", t, "plus", true)
-                    .tooltip(tip("New folder"))
+                    .tooltip(tip(tr("New folder")))
                     .on_click(cx.listener(|this, _, window, cx| this.start_new_folder(window, cx)))
                     .test_support(),
             )
@@ -304,7 +307,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     format!("cf-folder-{}", sp.id),
                     t,
                     Some("folder"),
-                    sp.name.clone(),
+                    crate::i18n::space(&sp.name),
                     Some(count(sp.id)),
                     *f == ContactFilter::Folder(id),
                 )
@@ -322,7 +325,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     }
     let labels = all_labels(s);
     if !labels.is_empty() {
-        side = side.child(group_head(t, "Labels"));
+        side = side.child(group_head(t, tr("Labels")));
         for (l, n) in labels {
             let tone = label_tone(&l);
             let dot = match tone {
@@ -380,20 +383,20 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 "cf-merge",
                 t,
                 Some("users"),
-                "Merge & fix",
+                tr("Merge & fix"),
                 None,
                 *f == ContactFilter::Merge,
             )
             .when(dups > 0, |d| {
                 d.child(chip(t, Tone::Auto, dups.to_string(), false))
             })
-            .tooltip(tip("Possible duplicates"))
+            .tooltip(tip(tr("Possible duplicates")))
             .on_click(cx.listener(set(ContactFilter::Merge)))
             .test_support(),
         )
         .child(
-            side_item("cf-import", t, Some("upload"), "Import", None, false)
-                .tooltip(tip("vCard (.vcf) or CSV (Google, Outlook)"))
+            side_item("cf-import", t, Some("upload"), tr("Import"), None, false)
+                .tooltip(tip(tr("vCard (.vcf) or CSV (Google, Outlook)")))
                 .on_click(cx.listener(|this, _, _, cx| this.choose_vcard(cx)))
                 .test_support(),
         )
@@ -487,7 +490,7 @@ fn contact_cell(
                     d.child(
                         icon_button(SharedString::from(format!("ce-{id}")), t, "copy", true)
                             .tooltip(|window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new("Copy e-mail")
+                                gpui_kit::component::tooltip::Tooltip::new(tr("Copy e-mail"))
                                     .build(window, cx)
                             })
                             .when(!selected, |d| {
@@ -519,7 +522,7 @@ fn contact_cell(
                 s.spaces
                     .iter()
                     .find(|sp| sp.id == c.space)
-                    .map(|sp| sp.name.clone())
+                    .map(|sp| crate::i18n::space(&sp.name))
                     .unwrap_or_default(),
             )
             .into_any_element(),
@@ -571,9 +574,12 @@ fn table(
         head = head.child(
             cell(contact_col_width(c))
                 .when(c.id.0 == "name", |d| {
-                    d.text_color(t.text).child(format!("{} ↑", c.name))
+                    d.text_color(t.text)
+                        .child(format!("{} ↑", crate::i18n::tr_owned(&c.name)))
                 })
-                .when(c.id.0 != "name", |d| d.child(c.name.clone())),
+                .when(c.id.0 != "name", |d| {
+                    d.child(crate::i18n::tr_owned(&c.name))
+                }),
         );
     }
     let mut rows = div()
@@ -742,7 +748,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             button("contact-columns", t, BtnKind::Ghost, false)
                                 .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
                                 .child(icon("columns", 16., t.text_muted))
-                                .child("Columns")
+                                .child(tr("Columns"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.toggle_columns_menu(Table::Contacts, cx)
                                 }))
@@ -815,13 +821,13 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .spaces
                 .iter()
                 .find(|sp| sp.id == c.space)
-                .map(|sp| sp.name.clone())
+                .map(|sp| crate::i18n::space(&sp.name))
                 .unwrap_or_default();
             format!("{folder} › {}", c.display_name())
         })
-        .unwrap_or_else(|| format!("{} contacts", list.len()));
+        .unwrap_or_else(|| crate::trf!("{} contacts", list.len()));
     let crumb = if ui.filter == ContactFilter::Merge {
-        "Merge & fix".to_owned()
+        tr("Merge & fix").to_owned()
     } else {
         crumb
     };
@@ -864,8 +870,8 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .items_center()
                         .gap(px(4.))
                         .child(icon("shield", 12., t.text_muted))
-                        .child("End-to-end encryption")
-                        .tooltip(tip("Contacts are encrypted like passwords")),
+                        .child(tr("End-to-end encryption"))
+                        .tooltip(tip(tr("Contacts are encrypted like passwords"))),
                 ),
         )
 }
@@ -897,7 +903,7 @@ fn field_head(t: &Tokens, label: &str, add: Option<impl IntoElement>) -> Div {
         .text_size(TEXT_XS)
         .text_color(t.text_muted)
         .font_weight(W_MEDIUM)
-        .child(div().flex_1().child(label.to_owned()))
+        .child(div().flex_1().child(crate::i18n::tr_owned(label)))
         .when_some(add, |d, b| d.child(b))
 }
 
@@ -916,12 +922,12 @@ fn inspector(
         .top(px(32.))
         .right_0()
         .child(
-            menu_item("cm-vcard", t, Some("download"), "Share vCard", false)
+            menu_item("cm-vcard", t, Some("download"), tr("Share vCard"), false)
                 .on_click(cx.listener(move |this, _, _, cx| this.export_vcard(vec![id], cx)))
                 .test_support(),
         )
         .child(
-            menu_item("cm-merge", t, Some("users"), "Merge & fix", false)
+            menu_item("cm-merge", t, Some("users"), tr("Merge & fix"), false)
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(s) = this.session() {
                         s.contacts_ui.filter = ContactFilter::Merge;
@@ -932,7 +938,7 @@ fn inspector(
                 .test_support(),
         )
         .child(
-            menu_item("cm-delete", t, Some("trash"), "Delete", true)
+            menu_item("cm-delete", t, Some("trash"), tr("Delete"), true)
                 .on_click(cx.listener(move |this, _, _, cx| this.ask_delete_contact(id, cx)))
                 .test_support(),
         );
@@ -981,7 +987,7 @@ fn inspector(
         .child(
             icon_button("contact-fav", t, "star", false)
                 .when(c.favorite, |d| d.child(div()).text_color(t.warning_text))
-                .tooltip(tip("Favorite"))
+                .tooltip(tip(tr("Favorite")))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.update_contact(
                         id,
@@ -999,7 +1005,7 @@ fn inspector(
                 .relative()
                 .child(
                     icon_button("contact-more", t, "more", false)
-                        .tooltip(tip("Share vCard, merge, delete"))
+                        .tooltip(tip(tr("Share vCard, merge, delete")))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.toggle_contact_menu(ContactMenu::More, cx)
                         }))
@@ -1018,9 +1024,9 @@ fn inspector(
         .child(
             button("contact-email", t, BtnKind::Default, true)
                 .child(icon("mail", 14., t.text))
-                .child("Email")
+                .child(tr("Email"))
                 .when(email.is_none(), |d| d.opacity(0.45))
-                .tooltip(tip("New email"))
+                .tooltip(tip(tr("New email")))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     if let Some(e) = &email {
                         cx.open_url(&format!("mailto:{e}"));
@@ -1031,9 +1037,9 @@ fn inspector(
         .child(
             button("contact-call", t, BtnKind::Default, true)
                 .child(icon("phone", 14., t.text))
-                .child("Call")
+                .child(tr("Call"))
                 .when(phone.is_none(), |d| d.opacity(0.45))
-                .tooltip(tip("Call with the default app"))
+                .tooltip(tip(tr("Call with the default app")))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     if let Some(p) = &phone {
                         let n: String = p
@@ -1048,8 +1054,8 @@ fn inspector(
         .child(
             button("contact-copy", t, BtnKind::Default, true)
                 .child(icon("copy", 14., t.text))
-                .child("Copy")
-                .tooltip(tip("Copy as text"))
+                .child(tr("Copy"))
+                .tooltip(tip(tr("Copy as text")))
                 .on_click(cx.listener(move |this, _, _, cx| this.copy(card.clone(), "Contact", cx)))
                 .test_support(),
         );
@@ -1078,7 +1084,7 @@ fn inspector(
                             gpui_kit::transparent_black()
                         })
                         .text_color(if on { t.text } else { t.text_muted })
-                        .child(*name)
+                        .child(tr(name))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(s) = this.session() {
                                 s.contacts_ui.tab = i as u8;
@@ -1129,7 +1135,7 @@ fn multi(
             c.emails
                 .iter()
                 .enumerate()
-                .map(|(i, x)| (x.label.clone(), Field::Email(i)))
+                .map(|(i, x)| (crate::i18n::tr_owned(&x.label), Field::Email(i)))
                 .collect(),
         ),
         List::Phone => (
@@ -1137,7 +1143,7 @@ fn multi(
             c.phones
                 .iter()
                 .enumerate()
-                .map(|(i, x)| (x.label.clone(), Field::Phone(i)))
+                .map(|(i, x)| (crate::i18n::tr_owned(&x.label), Field::Phone(i)))
                 .collect(),
         ),
         List::Address => (
@@ -1145,7 +1151,7 @@ fn multi(
             c.addresses
                 .iter()
                 .enumerate()
-                .map(|(i, x)| (x.label.clone(), Field::Address(i)))
+                .map(|(i, x)| (crate::i18n::tr_owned(&x.label), Field::Address(i)))
                 .collect(),
         ),
         List::Url => (
@@ -1153,13 +1159,13 @@ fn multi(
             c.urls
                 .iter()
                 .enumerate()
-                .map(|(i, x)| (x.label.clone(), Field::Url(i)))
+                .map(|(i, x)| (crate::i18n::tr_owned(&x.label), Field::Url(i)))
                 .collect(),
         ),
     };
     let key = label.to_lowercase();
     let add = icon_button(SharedString::from(format!("add-{key}")), t, "plus", true)
-        .tooltip(tip("Add"))
+        .tooltip(tip(tr("Add")))
         .on_click(cx.listener(move |this, _, _, cx| this.add_contact_row(id, list, cx)))
         .test_support();
     let mut d = div()
@@ -1181,7 +1187,7 @@ fn multi(
                     "external",
                     true,
                 )
-                .tooltip(tip("Open in maps"))
+                .tooltip(tip(tr("Open in maps")))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     let enc: String = q
                         .chars()
@@ -1204,7 +1210,7 @@ fn multi(
                     "copy",
                     true,
                 )
-                .tooltip(tip("Copy"))
+                .tooltip(tip(tr("Copy")))
                 .on_click(cx.listener(move |this, _, _, cx| this.copy(value.clone(), what, cx)))
             }
         };
@@ -1227,7 +1233,7 @@ fn multi(
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
                         .hover(|s| s.bg(t.surface_hover))
-                        .tooltip(tip("Change type"))
+                        .tooltip(tip(tr("Change type")))
                         .child(kind)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.update_contact(
@@ -1278,7 +1284,7 @@ fn details(
                     icon_button(SharedString::from(format!("unlabel-{l}")), t, "x", true)
                         .invisible()
                         .group_hover("lbl", |s| s.visible())
-                        .tooltip(tip("Remove label"))
+                        .tooltip(tip(tr("Remove label")))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let l = l2.clone();
                             this.update_contact(
@@ -1316,7 +1322,7 @@ fn details(
             .relative()
             .child(
                 icon_button("add-label", t, "plus", true)
-                    .tooltip(tip("Add label"))
+                    .tooltip(tip(tr("Add label")))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_contact_menu(ContactMenu::AddLabel, cx);
                         if let Some(ed) = this.session().and_then(|s| s.contacts_ui.editor.as_ref())
@@ -1369,11 +1375,11 @@ fn details(
                     }),
             )
         }))
-        .child(field(t, "Labels", labels))
+        .child(field(t, tr("Labels"), labels))
         .when(!c.linked_entries.is_empty(), |d| {
-            d.child(field(t, "Linked items", linked_list(s, c, t, cx)))
+            d.child(field(t, tr("Linked items"), linked_list(s, c, t, cx)))
         })
-        .child(field(t, "Notes", Textarea::new(&ed.notes)))
+        .child(field(t, tr("Notes"), Textarea::new(&ed.notes)))
 }
 
 fn linked_list(s: &Session, c: &Contact, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -1409,7 +1415,7 @@ fn linked_list(s: &Session, c: &Contact, t: &Tokens, cx: &mut Context<CleisApp>)
                 .when(!pw.is_empty(), |d| {
                     d.child(
                         icon_button(SharedString::from(format!("lk-pw-{eid}")), t, "key", true)
-                            .tooltip(tip("Copy password"))
+                            .tooltip(tip(tr("Copy password")))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.copy(pw.clone(), "Password", cx)
                             })),
@@ -1417,7 +1423,7 @@ fn linked_list(s: &Session, c: &Contact, t: &Tokens, cx: &mut Context<CleisApp>)
                 })
                 .child(
                     icon_button(SharedString::from(format!("unlink-{eid}")), t, "x", true)
-                        .tooltip(tip("Unlink"))
+                        .tooltip(tip(tr("Unlink")))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.update_contact(
                                 id,
@@ -1483,7 +1489,7 @@ fn linked(s: &Session, c: &Contact, t: &Tokens, cx: &mut Context<CleisApp>) -> D
                 .child(
                     button("link-item", t, BtnKind::Default, true)
                         .child(icon("link", 14., t.text))
-                        .child("Link an item")
+                        .child(tr("Link an item"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.toggle_contact_menu(ContactMenu::Link, cx)
                         }))
@@ -1502,7 +1508,7 @@ fn history(c: &Contact, t: &Tokens) -> Div {
                 div()
                     .w(px(80.))
                     .text_color(t.text_muted)
-                    .child(k.to_owned()),
+                    .child(crate::i18n::tr_owned(k)),
             )
             .child(div().flex_1().child(v))
     };
@@ -1538,7 +1544,7 @@ fn merge_card(
         .spaces
         .iter()
         .find(|sp| sp.id == c.space)
-        .map(|sp| sp.name.clone())
+        .map(|sp| crate::i18n::space(&sp.name))
         .unwrap_or_default();
     let rows = [
         ("Company", c.company.clone(), other.company.clone()),
@@ -1566,7 +1572,7 @@ fn merge_card(
             div()
                 .flex()
                 .text_size(TEXT_SM)
-                .child(div().w(px(80.)).text_color(t.text_muted).child(k))
+                .child(div().w(px(80.)).text_color(t.text_muted).child(tr(k)))
                 .child(
                     div()
                         .flex_1()
@@ -1587,7 +1593,7 @@ fn merge_card(
         .border_color(if keep { t.primary } else { t.line })
         .rounded(RADIUS_LG)
         .cursor_pointer()
-        .tooltip(tip("Keep this one"))
+        .tooltip(tip(tr("Keep this one")))
         .on_click(cx.listener(move |this, _, _, cx| {
             if let Some(s) = this.session() {
                 let group = duplicates(s)
@@ -1611,16 +1617,13 @@ fn merge_card(
                         .flex()
                         .flex_col()
                         .child(div().font_weight(W_MEDIUM).child(c.display_name()))
-                        .child(
-                            div()
-                                .text_size(TEXT_SM)
-                                .text_color(t.text_muted)
-                                .child(if keep {
-                                    "Kept"
-                                } else {
-                                    "Merged into the other"
-                                }),
-                        ),
+                        .child(div().text_size(TEXT_SM).text_color(t.text_muted).child(tr(
+                            if keep {
+                                "Kept"
+                            } else {
+                                "Merged into the other"
+                            },
+                        ))),
                 ),
         )
         .child(kv)
@@ -1654,13 +1657,13 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .flex_1()
                         .text_size(TEXT_XL)
                         .font_weight(W_STRONG)
-                        .child("Merge & fix"),
+                        .child(tr("Merge & fix")),
                 )
                 .when(!groups.is_empty(), |d| {
                     d.child(chip(
                         t,
                         Tone::Auto,
-                        format!(
+                        crate::trf!(
                             "{} possible duplicate{}",
                             groups.len(),
                             if groups.len() == 1 { "" } else { "s" }
@@ -1669,7 +1672,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     ))
                     .child(
                         button("merge-all", t, BtnKind::Primary, false)
-                            .child("Merge all")
+                            .child(tr("Merge all"))
                             .on_click(cx.listener(|this, _, _, cx| this.merge_all(cx)))
                             .test_support(),
                     )
@@ -1689,7 +1692,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .rounded(RADIUS_LG)
                 .text_color(t.text_muted)
                 .child(icon("check", 16., t.success_text))
-                .child("No duplicates"),
+                .child(tr("No duplicates")),
         );
     }
     for (gi, g) in groups.iter().enumerate() {
@@ -1727,7 +1730,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         div()
                             .text_size(TEXT_SM)
                             .text_color(t.text_muted)
-                            .child(format!("{} contacts", members.len())),
+                            .child(crate::trf!("{} contacts", members.len())),
                     )
                 })
                 .child(
@@ -1737,7 +1740,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::Ghost,
                         true,
                     )
-                    .child("Not a duplicate")
+                    .child(tr("Not a duplicate"))
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.not_duplicate(&ids_dismiss, cx)),
                     )
@@ -1750,7 +1753,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::Default,
                         true,
                     )
-                    .child("Merge")
+                    .child(tr("Merge"))
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.merge_group(&ids_merge, keep, cx)),
                     )
@@ -1761,7 +1764,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::Default,
                         true,
                     )
-                    .child("Review")
+                    .child(tr("Review"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(s) = this.session() {
                             s.contacts_ui.review = Some((ids_review.clone(), ids_review[0]));
@@ -1832,7 +1835,7 @@ impl CleisApp {
                 .unwrap_or_else(|| s.vault.home_space()),
         };
         let mut c = Contact::new(space);
-        c.given = "New contact".into();
+        c.given = tr("New contact").into();
         if let ContactFilter::Label(l) = &s.contacts_ui.filter {
             c.labels.insert(l.clone());
         }
@@ -1856,7 +1859,7 @@ impl CleisApp {
                 }
                 s.contacts_ui.query.clear();
             }
-            Err(e) => s.toast = Some(format!("Not saved: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not saved: {}", e).into()),
         }
         // Name box focused, its text selected, once the boxes exist.
         self.ensure_contact_editor(window, cx);
@@ -1883,9 +1886,9 @@ impl CleisApp {
             .map(|c| c.display_name())
             .unwrap_or_default();
         s.confirm = Some(Confirm {
-            title: format!("Delete {name}?").into(),
-            body: "The contact is removed from every device. This cannot be undone.".into(),
-            button: "Delete".into(),
+            title: crate::trf!("Delete {}?", name).into(),
+            body: tr("The contact is removed from every device. This cannot be undone.").into(),
+            button: tr("Delete").into(),
             action: ConfirmAction::DeleteContact(id),
         });
         cx.notify();
@@ -1901,9 +1904,9 @@ impl CleisApp {
         };
         let org_key = |sp| s.org_of(sp).map(|o| o.m.key());
         let refusal = if s.is_org_space(from) && org_key(from) != org_key(to) {
-            Some("An organization's contacts stay in the organization")
+            Some(tr("An organization's contacts stay in the organization"))
         } else if !s.may(to, Perm::Edit) || !s.may(from, Perm::Delete) {
-            Some("Your role does not allow moving it")
+            Some(tr("Your role does not allow moving it"))
         } else {
             None
         };
@@ -1931,9 +1934,9 @@ impl CleisApp {
                 s.selected_contact = Some(c.id);
                 s.contacts[i] = c;
                 s.contacts_ui.editor = None;
-                s.toast = Some("Moved".into());
+                s.toast = Some(tr("Moved").into());
             }
-            Err(e) => s.toast = Some(format!("Not moved: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not moved: {}", e).into()),
         }
         cx.notify();
     }
@@ -1947,14 +1950,14 @@ impl CleisApp {
                     s.selected_contact = None;
                 }
                 s.contacts_ui.editor = None;
-                s.toast = Some("Contact deleted".into());
+                s.toast = Some(tr("Contact deleted").into());
             }
-            Err(e) => s.toast = Some(format!("Not deleted: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not deleted: {}", e).into()),
         }
     }
 
     fn start_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let st = cx.new(|cx| InputState::new(window, cx).placeholder("Folder name"));
+        let st = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Folder name")));
         st.update(cx, |st, cx| st.focus(window, cx));
         let sub = cx.subscribe_in(
             &st,
@@ -2002,7 +2005,7 @@ impl CleisApp {
                 s.spaces = spaces;
                 s.contacts_ui.filter = ContactFilter::Folder(id);
             }
-            Err(e) => s.toast = Some(format!("Folder not created: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Folder not created: {}", e).into()),
         }
         cx.notify();
     }
@@ -2016,7 +2019,7 @@ impl CleisApp {
             }
         }
         if let Err(e) = s.vault.set_preferences(&s.prefs) {
-            s.toast = Some(format!("Not saved: {e}").into());
+            s.toast = Some(crate::trf!("Not saved: {}", e).into());
         }
         s.contacts_ui.review = None;
         cx.notify();
@@ -2040,7 +2043,7 @@ impl CleisApp {
         k.updated = cleis_core::now();
         let saved = s.vault.put_contact(k);
         if let Err(e) = saved {
-            s.toast = Some(format!("Not merged: {e}").into());
+            s.toast = Some(crate::trf!("Not merged: {}", e).into());
             cx.notify();
             return;
         }
@@ -2051,7 +2054,7 @@ impl CleisApp {
         s.contacts_ui.review = None;
         s.contacts_ui.editor = None;
         s.selected_contact = Some(keep);
-        s.toast = Some("Merged".into());
+        s.toast = Some(tr("Merged").into());
         cx.notify();
     }
 
@@ -2080,7 +2083,7 @@ impl CleisApp {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Import".into()),
+            prompt: Some(tr("Import").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
@@ -2110,7 +2113,7 @@ impl CleisApp {
         let text = match std::fs::read(path) {
             Ok(b) => cleis_core::import_csv::decode(&b),
             Err(e) => {
-                s.toast = Some(format!("Not imported: {e}").into());
+                s.toast = Some(crate::trf!("Not imported: {}", e).into());
                 cx.notify();
                 return;
             }
@@ -2122,7 +2125,7 @@ impl CleisApp {
             match cleis_core::import_contacts::contacts_from_csv(&text, space) {
                 Ok(r) => r.contacts,
                 Err(e) => {
-                    s.toast = Some(format!("Not imported: {e}").into());
+                    s.toast = Some(crate::trf!("Not imported: {}", e).into());
                     cx.notify();
                     return;
                 }
@@ -2135,12 +2138,12 @@ impl CleisApp {
             Ok(()) => {
                 s.contacts.extend(new);
                 s.toast = Some(if n == 0 {
-                    "No contact found in this file".into()
+                    tr("No contact found in this file").into()
                 } else {
                     format!("{n} contact{} imported", if n == 1 { "" } else { "s" }).into()
                 });
             }
-            Err(e) => s.toast = Some(format!("Not imported: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not imported: {}", e).into()),
         }
         cx.notify();
     }
@@ -2164,7 +2167,7 @@ impl CleisApp {
                 .and_then(|o| o.me())
                 .is_some_and(|m| m.export || cleis_core::org::is_admin_role(&m.role));
             if !allowed {
-                s.toast = Some("Your organization does not let you export its contacts".into());
+                s.toast = Some(tr("Your organization does not let you export its contacts").into());
                 cx.notify();
                 return;
             }
@@ -2194,8 +2197,8 @@ impl CleisApp {
                 let r = std::fs::write(&path, data);
                 this.update(cx, |this, cx| {
                     let msg = match r {
-                        Ok(()) => "vCard saved".to_owned(),
-                        Err(e) => format!("Not saved: {e}"),
+                        Ok(()) => tr("vCard saved").to_owned(),
+                        Err(e) => crate::trf!("Not saved: {}", e),
                     };
                     this.toast(msg, cx);
                 })

@@ -1,6 +1,7 @@
 //! Settings › Import & export (screen 14): CSV import in three steps — file, columns, review.
 
 use crate::app::{CleisApp, Phase, Session, Tab};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::column::{ColumnKind, Table};
@@ -77,7 +78,7 @@ fn steps(t: &Tokens, n: u8) -> Div {
                     .when(k < n, |d| d.child(icon("check", 12., fg)))
                     .when(k >= n, |d| d.child(k.to_string())),
             )
-            .child(label)
+            .child(crate::i18n::tr_owned(label))
     };
     let line = || div().w(px(24.)).h(px(1.)).bg(t.line_strong);
     div()
@@ -102,7 +103,7 @@ fn head(t: &Tokens, n: u8) -> Div {
                 .flex_1()
                 .text_size(TEXT_XL)
                 .font_weight(W_STRONG)
-                .child("Import"),
+                .child(tr("Import")),
         )
         .child(steps(t, n))
 }
@@ -119,7 +120,7 @@ fn select_box(t: &Tokens, label: impl Into<SharedString>, faint: bool) -> Div {
                 .overflow_hidden()
                 .text_ellipsis()
                 .when(faint, |d| d.text_color(t.text_faint))
-                .child(label.into()),
+                .child(crate::i18n::tr_owned(&label.into())),
         )
         .child(icon("chevron", 14., t.text_muted))
 }
@@ -128,7 +129,7 @@ fn spaces(s: &Session) -> Vec<(SpaceId, String)> {
     s.spaces
         .iter()
         .filter(|sp| !sp.for_contacts)
-        .map(|sp| (sp.id, sp.name.clone()))
+        .map(|sp| (sp.id, crate::i18n::space(&sp.name)))
         .collect()
 }
 
@@ -162,7 +163,7 @@ fn targets(s: &Session) -> Vec<(Target, String)> {
             .into_iter()
             .map(|c| (Target::Custom(c.id.clone()), c.name.clone())),
     );
-    v.push((Target::Skip, "Skip".into()));
+    v.push((Target::Skip, tr("Skip").into()));
     v
 }
 
@@ -173,7 +174,7 @@ fn label_of(s: &Session, t: &Target) -> String {
             .iter()
             .find(|c| &c.id == id)
             .map(|c| c.name.clone())
-            .unwrap_or_else(|| "Custom".into()),
+            .unwrap_or_else(|| tr("Custom").into()),
         _ => target_label(t).to_owned(),
     }
 }
@@ -231,24 +232,24 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .id("import-hint")
                         .text_color(t.text_muted)
-                        .child("Drop a CSV file here")
+                        .child(tr("Drop a CSV file here"))
                         .tooltip(tip(
                             "Notion, Excel, Google Sheets, Bitwarden, 1Password, Chrome, Firefox (CSV)",
                         )),
                 )
                 .child(
                     button("import-choose", t, BtnKind::Default, false)
-                        .child("Choose a file")
+                        .child(tr("Choose a file"))
                         .on_click(cx.listener(|this, _, _, cx| this.choose_import_file(cx)))
                         .test_support(),
                 ),
         )
-        .when_some(st.error.clone(), |d, e| {
+        .when_some(st.error.clone().map(|e| crate::i18n::tr_dynamic(&e)), |d, e| {
             d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
         })
         .child(
             section(t)
-                .child(section_title(t, "Export"))
+                .child(section_title(t, tr("Export")))
                 .child(
                     // Audit U-6: the same export as Sync & backups, working here too.
                     row(t, true)
@@ -256,13 +257,13 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             div()
                                 .id("export-label")
                                 .flex_1()
-                                .child("Encrypted export")
-                                .tooltip(tip("A sealed copy of your personal vault, opened with the master password")),
+                                .child(tr("Encrypted export"))
+                                .tooltip(tip(tr("A sealed copy of your personal vault, opened with the master password"))),
                         )
                         .child(
                             button("export", t, BtnKind::Default, true)
                                 .child(icon("download", 14., t.text))
-                                .child("Export")
+                                .child(tr("Export"))
                                 .on_click(cx.listener(|this, _, _, cx| this.export_vault(cx)))
                                 .test_support(),
                         ),
@@ -273,7 +274,9 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -319,7 +322,7 @@ fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>)
                     div()
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
-                        .child(format!(
+                        .child(crate::trf!(
                             "{} rows · {} columns",
                             l.preview.rows.len(),
                             l.preview.headers.len()
@@ -350,7 +353,7 @@ fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>)
         )
         .child(
             button("import-change", t, BtnKind::Ghost, true)
-                .child("Change")
+                .child(tr("Change"))
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(s) = this.session() {
                         s.import = ImportState::default();
@@ -369,10 +372,10 @@ fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>)
             .text_size(TEXT_XS)
             .font_weight(W_MEDIUM)
             .text_color(t.text_muted)
-            .child(cell().child("File column"))
+            .child(cell().child(tr("File column")))
             .child(div().w(px(24.)))
-            .child(cell().child("Cleis column"))
-            .child(cell().child("Sample")),
+            .child(cell().child(tr("Cleis column")))
+            .child(cell().child(tr("Sample"))),
     );
     let all_targets = targets(s);
     for (i, m) in l.mappings.iter().enumerate() {
@@ -487,15 +490,21 @@ fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>)
                     d.child(chip(
                         t,
                         Tone::Auto,
-                        format!(
-                            "{matched} column{} matched",
+                        crate::trf!(
+                            "{} column{} matched",
+                            matched,
                             if matched == 1 { "" } else { "s" }
                         ),
                         false,
                     ))
                 })
                 .when(skipped > 0, |d| {
-                    d.child(chip(t, Tone::Neutral, format!("{skipped} skipped"), false))
+                    d.child(chip(
+                        t,
+                        Tone::Neutral,
+                        crate::trf!("{} skipped", skipped),
+                        false,
+                    ))
                 }),
         )
         .child(
@@ -505,7 +514,7 @@ fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>)
                 .gap(px(8.))
                 .child(
                     button("import-back", t, BtnKind::Ghost, false)
-                        .child("Back")
+                        .child(tr("Back"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(s) = this.session() {
                                 s.import = ImportState::default();
@@ -517,7 +526,7 @@ fn step_columns(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>)
                 .child(
                     button("import-continue", t, BtnKind::Primary, false)
                         .when(!has_name, |d| d.opacity(0.45))
-                        .child("Continue")
+                        .child(tr("Continue"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(s) = this.session()
                                 && has_name
@@ -544,7 +553,7 @@ fn stat(t: &Tokens, label: &str, value: usize, warn: bool) -> Div {
                 .text_size(TEXT_XS)
                 .font_weight(W_MEDIUM)
                 .text_color(t.text_muted)
-                .child(label.to_owned()),
+                .child(crate::i18n::tr_owned(label)),
         )
         .child(
             div()
@@ -578,7 +587,7 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
                     div()
                         .text_size(TEXT_SM)
                         .text_color(t.text_muted)
-                        .child(format!("into {space_name}")),
+                        .child(crate::trf!("into {}", space_name)),
                 ),
         )
         .child(
@@ -592,7 +601,7 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
         .when(existing > 0, |d| {
             d.child(
                 row(t, false)
-                    .child(div().flex_1().child("Skip items already in the vault"))
+                    .child(div().flex_1().child(tr("Skip items already in the vault")))
                     .child(
                         switch("import-skip", t, st.skip_existing)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -605,7 +614,7 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
                     ),
             )
         });
-    let mut warnings = section(t).child(section_title(t, "Warnings"));
+    let mut warnings = section(t).child(section_title(t, tr("Warnings")));
     let mut table = div().flex().flex_col().child(
         div()
             .flex()
@@ -617,8 +626,8 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
             .text_size(TEXT_XS)
             .font_weight(W_MEDIUM)
             .text_color(t.text_muted)
-            .child(div().w(px(64.)).px(px(12.)).child("Row"))
-            .child(div().flex_1().px(px(12.)).child("Message")),
+            .child(div().w(px(64.)).px(px(12.)).child(tr("Row")))
+            .child(div().flex_1().px(px(12.)).child(tr("Message"))),
     );
     for (line, msg) in r.outcome.warnings.iter().take(200) {
         table = table.child(
@@ -644,7 +653,7 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
-                        .child(msg.clone()),
+                        .child(crate::i18n::tr_dynamic(msg)),
                 ),
         );
     }
@@ -663,7 +672,7 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
                 .gap(px(8.))
                 .child(
                     button("import-back", t, BtnKind::Ghost, false)
-                        .child("Back")
+                        .child(tr("Back"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(s) = this.session() {
                                 s.import.step = 2;
@@ -675,7 +684,11 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
                 .child(
                     button("import-run", t, BtnKind::Primary, false)
                         .when(n == 0, |d| d.opacity(0.45))
-                        .child(format!("Import {n} item{}", if n == 1 { "" } else { "s" }))
+                        .child(crate::trf!(
+                            "Import {} item{}",
+                            n,
+                            if n == 1 { "" } else { "s" }
+                        ))
                         .on_click(cx.listener(|this, _, _, cx| this.run_import(cx)))
                         .test_support(),
                 ),
@@ -688,7 +701,7 @@ impl CleisApp {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Import".into()),
+            prompt: Some(tr("Import").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await
@@ -781,12 +794,12 @@ impl CleisApp {
                 s.filter = crate::app::Filter::All;
                 s.refilter();
                 self.toast(
-                    format!("{n} item{} imported", if n == 1 { "" } else { "s" }),
+                    crate::trf!("{} item{} imported", n, if n == 1 { "" } else { "s" }),
                     cx,
                 );
             }
             Err(e) => {
-                s.import.error = Some(format!("Not imported: {e}").into());
+                s.import.error = Some(crate::trf!("Not imported: {}", e).into());
                 cx.notify();
             }
         }

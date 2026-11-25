@@ -10,6 +10,7 @@ pub mod demo;
 pub mod editor;
 pub mod format;
 pub mod host;
+pub mod i18n;
 pub mod kit;
 pub mod oidc;
 pub mod org;

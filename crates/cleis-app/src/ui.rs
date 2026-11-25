@@ -126,7 +126,7 @@ pub fn chip(t: &Tokens, tone: Tone, label: impl Into<SharedString>, dot: bool) -
         .font_weight(W_MEDIUM)
         .whitespace_nowrap()
         .when(dot, |d| d.child(div().size(px(6.)).rounded_full().bg(fg)))
-        .child(label.into())
+        .child(crate::i18n::tr_owned(&label.into()))
 }
 
 /// `.switch`: flat track with a thin handle (charter §6).
@@ -190,7 +190,7 @@ pub fn section_title(t: &Tokens, title: &str) -> Div {
         .text_size(TEXT_LG)
         .font_weight(W_MEDIUM)
         .text_color(t.text)
-        .child(title.to_owned())
+        .child(crate::i18n::tr_owned(title))
 }
 
 /// `.row`: label on the left, controls on the right, divider above (except the first).
@@ -229,7 +229,7 @@ pub fn segmented(id: &str, t: &Tokens, options: &[&str], selected: usize) -> Div
                 .cursor_pointer()
                 .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
                 .when(!on, |d| d.text_color(t.text_muted))
-                .child((*o).to_owned()),
+                .child(crate::i18n::tr_owned(o)),
         );
     }
     d
@@ -247,7 +247,7 @@ pub fn field(t: &Tokens, label: &str, control: impl IntoElement) -> Div {
                 .text_size(TEXT_XS)
                 .text_color(t.text_muted)
                 .font_weight(W_MEDIUM)
-                .child(label.to_owned()),
+                .child(crate::i18n::tr_owned(label)),
         )
         .child(control)
 }
@@ -392,7 +392,7 @@ pub fn menu_item(
         .text_color(fg)
         .hover(|d| d.bg(t.surface_hover))
         .when_some(icon_name, |d, n| d.child(icon(n, 14., fg)))
-        .child(label.into())
+        .child(crate::i18n::tr_owned(&label.into()))
 }
 
 /// Audit U-12: the one dialog of the charter (§ 6): 420 px, raised surface, title then body.
@@ -431,6 +431,7 @@ pub fn hint(id: &str, t: &Tokens, text: impl Into<SharedString>) -> Stateful<Div
         .flex()
         .child(icon("info", 14., t.text_faint))
         .tooltip(move |window, cx| {
-            gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+            gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(&text))
+                .build(window, cx)
         })
 }

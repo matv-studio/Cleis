@@ -73,6 +73,8 @@ fn main() {
     // D-69 captures: a second organization, the vaults in their own tabs.
     let two_orgs = flag("--two-orgs");
     let vault_tab = value("--vault-tab");
+    // U-9 captures: `--lang fr`.
+    let lang = value("--lang");
     let org_welcome = flag("--org-welcome");
     gpui_kit::platform::application()
         .with_assets(cleis_app::assets::Assets)
@@ -80,6 +82,9 @@ fn main() {
             gpui_kit::init(cx);
             cleis_app::assets::load_fonts(cx);
             let mut appearance = cleis_app::app::load_appearance();
+            if let Some(l) = &lang {
+                cleis_app::i18n::set_language(l);
+            }
             if let Some(m) = forced_mode {
                 appearance.mode = m;
             }
@@ -120,6 +125,10 @@ fn main() {
                         if let Some(s) = app.session() {
                             if !no_org {
                                 cleis_app::demo::org(s);
+                            }
+                            if let Some(l) = &lang {
+                                s.prefs.language = l.clone();
+                                cleis_app::i18n::set_language(l);
                             }
                             if two_orgs {
                                 cleis_app::demo::second_org(s);

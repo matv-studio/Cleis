@@ -1,6 +1,7 @@
 //! Screen 04 — Unlock.
 
 use crate::app::{CleisApp, Phase};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
@@ -77,7 +78,7 @@ pub fn render(
                     div()
                         .text_size(TEXT_XL)
                         .font_weight(W_STRONG)
-                        .child("Cleis"),
+                        .child(tr("Cleis")),
                 ),
         )
         .child(
@@ -93,7 +94,7 @@ pub fn render(
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(div().font_weight(W_MEDIUM).child("My vault"))
+                                .child(div().font_weight(W_MEDIUM).child(tr("My vault")))
                                 .child(
                                     div()
                                         .text_size(TEXT_SM)
@@ -107,15 +108,20 @@ pub fn render(
                     "Master password",
                     Input::new(&u.password).id("master-password").mask_toggle(),
                 ))
-                .when_some(u.error.clone(), |d, e| {
-                    d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-                })
+                .when_some(
+                    u.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+                    |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+                )
                 .child(
                     button("unlock", &t, BtnKind::Primary, false)
                         .h(px(32.))
                         .w_full()
                         .when(busy, |b| b.opacity(0.6))
-                        .child(if busy { "Unlocking…" } else { "Unlock" })
+                        .child(if busy {
+                            tr("Unlocking…")
+                        } else {
+                            tr("Unlock")
+                        })
                         .on_click(cx.listener(|this, _, window, cx| this.unlock(window, cx)))
                         .test_support(),
                 ),

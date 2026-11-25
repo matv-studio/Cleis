@@ -1,5 +1,6 @@
 //! Display formatting (English locale for now; French at release).
 
+use crate::i18n::tr;
 use crate::theme::Tokens;
 use crate::ui::{Tone, chip};
 use cleis_core::formula::Num;
@@ -48,21 +49,21 @@ pub fn money(m: &Money, _short: bool) -> String {
 }
 
 pub fn period_suffix(p: Period) -> &'static str {
-    match p {
+    crate::i18n::tr(match p {
         Period::Month => " /mo",
         Period::Quarter => " /qtr",
         Period::Year => " /yr",
         Period::OneTime => "",
-    }
+    })
 }
 
 pub fn period_long(p: Period) -> &'static str {
-    match p {
+    crate::i18n::tr(match p {
         Period::Month => " / month",
         Period::Quarter => " / quarter",
         Period::Year => " / year",
         Period::OneTime => "",
-    }
+    })
 }
 
 pub fn num(n: &Num) -> String {
@@ -81,11 +82,11 @@ pub fn num(n: &Num) -> String {
 pub fn subscription_chip(t: &Tokens, s: Subscription) -> Option<Div> {
     let (tone, label) = match s {
         Subscription::None => return None,
-        Subscription::Active => (Tone::Ok, "Active"),
-        Subscription::Free => (Tone::Neutral, "Free"),
-        Subscription::RenewSoon => (Tone::Warn, "Renew soon"),
-        Subscription::Pending => (Tone::Neutral, "Pending"),
-        Subscription::Off => (Tone::Neutral, "Off"),
+        Subscription::Active => (Tone::Ok, tr("Active")),
+        Subscription::Free => (Tone::Neutral, tr("Free")),
+        Subscription::RenewSoon => (Tone::Warn, tr("Renew soon")),
+        Subscription::Pending => (Tone::Neutral, tr("Pending")),
+        Subscription::Off => (Tone::Neutral, tr("Off")),
     };
     Some(chip(t, tone, label, true))
 }
@@ -114,6 +115,14 @@ mod tests {
 /// `Nov 25, 2026` from a Unix timestamp (seconds, UTC).
 pub fn date(ts: i64) -> String {
     let (y, m, d) = civil(ts.div_euclid(86_400));
+    // French (U-9): `25 nov. 2026`.
+    if crate::i18n::is_french() {
+        const M: [&str; 12] = [
+            "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.",
+            "nov.", "déc.",
+        ];
+        return format!("{d} {} {y}", M[(m - 1) as usize]);
+    }
     const M: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
@@ -164,6 +173,9 @@ pub fn date_time(ts: i64) -> String {
 fn date_time_utc(ts: i64) -> String {
     let secs = ts.rem_euclid(86_400);
     let (h, m) = (secs / 3600, secs % 3600 / 60);
+    if crate::i18n::is_french() {
+        return format!("{}, {h:02}:{m:02}", date(ts));
+    }
     let (h12, ap) = match h {
         0 => (12, "AM"),
         1..=11 => (h, "AM"),
@@ -182,17 +194,17 @@ pub fn when(ts: i64, now: i64) -> String {
         .map(|x| x.1.to_owned())
         .unwrap_or_default();
     match day(now) - day(ts) {
-        0 => format!("Today, {time}"),
-        1 => format!("Yesterday, {time}"),
+        0 => crate::trf!("Today, {}", time),
+        1 => crate::trf!("Yesterday, {}", time),
         _ => full,
     }
 }
 
 /// `Today, 9:12 AM`, `Yesterday, 5:30 PM`, else the date alone.
 pub fn when_short(ts: i64, now: i64) -> String {
-    let w = when(ts, now);
-    if w.starts_with("Today") || w.starts_with("Yesterday") {
-        w
+    let day = |t: i64| (t + local_offset(t)).div_euclid(86_400);
+    if day(now) - day(ts) <= 1 {
+        when(ts, now)
     } else {
         date(ts + local_offset(ts))
     }
@@ -201,9 +213,14 @@ pub fn when_short(ts: i64, now: i64) -> String {
 /// `184 KB`, `2.4 MB`.
 pub fn size(bytes: u64) -> String {
     if bytes < 1024 * 1024 {
-        format!("{} KB", bytes.div_ceil(1024))
+        crate::trf!("{} KB", bytes.div_ceil(1024))
     } else {
-        format!("{:.1} MB", bytes as f64 / (1024. * 1024.))
+        let mb = format!("{:.1}", bytes as f64 / (1024. * 1024.));
+        if crate::i18n::is_french() {
+            format!("{} Mo", mb.replace('.', ","))
+        } else {
+            format!("{mb} MB")
+        }
     }
 }
 

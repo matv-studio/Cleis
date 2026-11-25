@@ -189,7 +189,7 @@ fn autofill_settings_and_quick_access(cx: &mut TestAppContext) {
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Autofill", cx));
-    act(cx, h, |w, cx| w.click("method-Type", cx));
+    act(cx, h, |w, cx| w.click("method-Typing", cx));
     act(cx, h, |w, cx| w.click("speed-Slow", cx));
     act(cx, h, |w, cx| w.click("qa-change", cx));
     act(cx, h, |w, cx| w.press("ctrl-shift-k", cx));

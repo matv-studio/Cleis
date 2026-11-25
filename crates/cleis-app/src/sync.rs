@@ -5,6 +5,7 @@
 //! the folder of a sync place differs from one computer to the next.
 
 use crate::app::{CleisApp, Phase, Session};
+use crate::i18n::tr;
 use gpui_kit::{AppContext, Context, PathPromptOptions};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -216,7 +217,7 @@ impl CleisApp {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some(format!("Sync with {}", provider.name()).into()),
+            prompt: Some(crate::trf!("Sync with {}", provider.name()).into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await
@@ -340,7 +341,7 @@ impl CleisApp {
                         break;
                     }
                     Err(crate::remote::RemoteError::Conflict) => {
-                        outcome = Err("the file kept changing; try again".into());
+                        outcome = Err(tr("the file kept changing; try again").into());
                         continue;
                     }
                     Err(e) => {
@@ -407,15 +408,15 @@ impl CleisApp {
                     s.sync.last_error = Some(e.to_string());
                 }
                 let msg: Option<String> = if r.created {
-                    Some("Copy created in the sync place".into())
+                    Some(tr("Copy created in the sync place").into())
                 } else if r.received > 0 {
-                    Some(format!("Synced · {} received", r.received))
+                    Some(crate::trf!("Synced · {} received", r.received))
                 } else if quiet {
                     None
                 } else if r.sent > 0 {
-                    Some(format!("Synced · {} sent", r.sent))
+                    Some(crate::trf!("Synced · {} sent", r.sent))
                 } else {
-                    Some("Up to date".into())
+                    Some(tr("Up to date").into())
                 };
                 if let Some(m) = msg {
                     s.toast = Some(m.into());
@@ -423,7 +424,7 @@ impl CleisApp {
             }
             Err(e) => {
                 s.sync.last_error = Some(e.to_string());
-                s.toast = Some(format!("Not synced: {e}").into());
+                s.toast = Some(crate::trf!("Not synced: {}", e).into());
             }
         }
         self.save_sync();
@@ -466,10 +467,10 @@ impl CleisApp {
                     let _ = std::fs::remove_file(old);
                 }
                 if !quiet {
-                    s.toast = Some("Backed up".into());
+                    s.toast = Some(tr("Backed up").into());
                 }
             }
-            Err(e) => s.toast = Some(format!("Not backed up: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not backed up: {}", e).into()),
         }
         self.save_sync();
         cx.notify();
@@ -504,9 +505,9 @@ impl CleisApp {
         match r {
             Ok(rep) => {
                 let _ = reload(s);
-                s.toast = Some(format!("{} restored from the backup", rep.received).into());
+                s.toast = Some(crate::trf!("{} restored from the backup", rep.received).into());
             }
-            Err(e) => s.toast = Some(format!("Not restored: {e}").into()),
+            Err(e) => s.toast = Some(crate::trf!("Not restored: {}", e).into()),
         }
         cx.notify();
     }
@@ -516,14 +517,14 @@ impl CleisApp {
         let dir = directories::UserDirs::new()
             .and_then(|d| d.download_dir().map(|p| p.to_owned()))
             .unwrap_or_else(std::env::temp_dir);
-        let name = format!("Cleis export {}.cleis", stamp(cleis_core::now()));
+        let name = crate::trf!("Cleis export {}.cleis", stamp(cleis_core::now()));
         let rx = cx.prompt_for_new_path(&dir, Some(&name));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
                 this.update(cx, |this, cx| {
                     let msg = match this.session().map(|s| s.vault.copy_to(&path)) {
-                        Some(Ok(())) => "Export saved".to_owned(),
-                        Some(Err(e)) => format!("Not exported: {e}"),
+                        Some(Ok(())) => tr("Export saved").to_owned(),
+                        Some(Err(e)) => crate::trf!("Not exported: {}", e),
                         None => return,
                     };
                     this.toast(msg, cx);
@@ -551,14 +552,14 @@ impl CleisApp {
         let dir = directories::UserDirs::new()
             .and_then(|d| d.download_dir().map(|p| p.to_owned()))
             .unwrap_or_else(std::env::temp_dir);
-        let rx = cx.prompt_for_new_path(&dir, Some("Cleis emergency kit.pdf"));
+        let rx = cx.prompt_for_new_path(&dir, Some(tr("Cleis emergency kit.pdf")));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
                 let r = std::fs::write(&path, pdf);
                 this.update(cx, |this, cx| {
                     let msg = match r {
-                        Ok(()) => "Emergency kit saved".to_owned(),
-                        Err(e) => format!("Not saved: {e}"),
+                        Ok(()) => tr("Emergency kit saved").to_owned(),
+                        Err(e) => crate::trf!("Not saved: {}", e),
                     };
                     this.toast(msg, cx);
                 })
@@ -581,7 +582,7 @@ pub fn remote_sync_detached(
     };
     let secret = cfg.secret(&vault);
     let cache = remote_cache(vault_path);
-    let mut result = Err("the file kept changing".to_owned());
+    let mut result = Err(tr("the file kept changing").to_owned());
     for _ in 0..3 {
         let version =
             crate::remote::download(&remote, &secret, &cache).map_err(|e| e.to_string())?;

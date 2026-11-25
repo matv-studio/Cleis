@@ -44,11 +44,16 @@
   points à trancher par l'utilisateur (« En suspens » 10 à 14 de DECISIONS.md). Version 0.2.0
   préparée (pas d'étiquette : pas de version tant que l'audit n'est pas fini).
 
+- D-71 à D-73 : choix de fin d'audit faits (biométrie retirée, sauvegardes du serveur en clair
+  sans restriction, élagage hebdomadaire de la branche GitHub, fonctions non faites retirées) ;
+  interface traduite en français (langue du système au premier lancement, réglable dans
+  Preferences, captures `UI_LANG=fr design/tools/appshots.sh`). L'audit est terminé.
+
 ## Prochaines étapes
-1. Choix de l'utilisateur sur S-9, S-11, L-9, U-9, U-17 ; puis les faire.
-2. Étiquette `v0.2.0` (poussée par l'utilisateur : le proxy de la session refuse les étiquettes).
-3. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients
-   OAuth Google / Microsoft, service Windows installé depuis Program Files.
+1. Étiquette `v0.2.0` (poussée par l'utilisateur : le proxy de la session refuse les étiquettes).
+2. Essais sur machines réelles : e-mail SMTP (codes et invitations), passerelle SMS, clients OAuth
+   Google / Microsoft, service Windows installé depuis Program Files.
+3. Format monétaire régional en français (`69,99 €`, « En suspens » 15).
 
 ## Historique
 

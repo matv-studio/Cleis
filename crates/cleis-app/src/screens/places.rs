@@ -2,6 +2,7 @@
 //! sign-in secret, checked by a first read before they are kept.
 
 use crate::app::{CleisApp, Session};
+use crate::i18n::tr;
 use crate::remote::{RemotePlace, Secret};
 use crate::sync::Provider;
 use crate::theme::*;
@@ -28,7 +29,9 @@ pub struct PlaceDialog {
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 impl CleisApp {
@@ -127,7 +130,7 @@ impl CleisApp {
                             &Some((place, secret)),
                         );
                         s.place = None;
-                        s.toast = Some("Backups will be copied there too".into());
+                        s.toast = Some(tr("Backups will be copied there too").into());
                     }
                     Err(e) => {
                         if let Some(d) = s.place.as_mut() {
@@ -259,7 +262,7 @@ impl CleisApp {
                         Ok(None) => {
                             if let Some(d) = rs.place.as_mut() {
                                 d.busy = false;
-                                d.error = Some("No vault at this place yet".into());
+                                d.error = Some(tr("No vault at this place yet").into());
                             }
                         }
                         Err(e) => {
@@ -332,21 +335,25 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
     let title = match d.kind {
         Provider::GitHub => {
             body = body
-                .child(field(t, "Repository", inp(0, "gh-repo")))
+                .child(field(t, tr("Repository"), inp(0, "gh-repo")))
                 .child(
                     div()
                         .flex()
                         .gap(px(12.))
                         .child(div().flex_1().child(field(
                             t,
-                            if d.org_backups { "Folder" } else { "File" },
+                            if d.org_backups {
+                                tr("Folder")
+                            } else {
+                                tr("File")
+                            },
                             inp(1, "gh-path"),
                         )))
-                        .child(
-                            div()
-                                .w(px(140.))
-                                .child(field(t, "Branch", inp(2, "gh-branch"))),
-                        ),
+                        .child(div().w(px(140.)).child(field(
+                            t,
+                            tr("Branch"),
+                            inp(2, "gh-branch"),
+                        ))),
                 )
                 .child(
                     div()
@@ -364,7 +371,7 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                                 .child(div().flex_1().child(inp(3, "gh-token")))
                                 .child(
                                     button("gh-token-new", t, BtnKind::Ghost, true)
-                                        .child("Create one")
+                                        .child(tr("Create one"))
                                         .on_click(cx.listener(|_, _, _, cx| {
                                             cx.open_url(crate::remote::github_token_page())
                                         })),
@@ -385,17 +392,17 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                     div()
                         .flex()
                         .gap(px(12.))
-                        .child(div().flex_1().child(field(t, "Server", inp(0, "sftp-host"))))
-                        .child(div().w(px(90.)).child(field(t, "Port", inp(1, "sftp-port")))),
+                        .child(div().flex_1().child(field(t, tr("Server"), inp(0, "sftp-host"))))
+                        .child(div().w(px(90.)).child(field(t, tr("Port"), inp(1, "sftp-port")))),
                 )
                 .child(
                     div()
                         .flex()
                         .gap(px(12.))
-                        .child(div().flex_1().child(field(t, "User", inp(2, "sftp-user"))))
+                        .child(div().flex_1().child(field(t, tr("User"), inp(2, "sftp-user"))))
                         .child(div().flex_1().child(field(
                             t,
-                            if d.org_backups { "Folder" } else { "File" },
+                            if d.org_backups { tr("Folder") } else { tr("File") },
                             inp(3, "sftp-path"),
                         ))),
                 )
@@ -405,15 +412,15 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                     super::org::segment(
                         "sftp-auth",
                         t,
-                        &["Password", "Private key"],
+                        &[tr("Password"), tr("Private key")],
                         usize::from(d.with_key),
                         pick,
                         cx,
                     ),
                 ))
                 .when(d.with_key, |b| {
-                    b.child(field(t, "OpenSSH private key", inp(5, "sftp-key")))
-                        .child(field(t, "Passphrase", inp(4, "sftp-pass")))
+                    b.child(field(t, tr("OpenSSH private key"), inp(5, "sftp-key")))
+                        .child(field(t, tr("Passphrase"), inp(4, "sftp-pass")))
                 })
                 .when(!d.with_key, |b| b.child(inp(4, "sftp-pass")))
                 .when_some(d.host_key.clone(), |b, k| {
@@ -426,7 +433,7 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                                     .tooltip(tip(
                                         "Checked at each connection; a change stops the sync. Compare it with the server's.",
                                     ))
-                                    .child("Server key"),
+                                    .child(tr("Server key")),
                             )
                             .child(
                                 div()
@@ -435,18 +442,24 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                                     .text_color(t.text_muted)
                                     .child(short_key(&k)),
                             )
-                            .child(chip(t, Tone::Neutral, "Connect to trust", false)),
+                            .child(chip(t, Tone::Neutral, tr("Connect to trust"), false)),
                     )
                 });
             "SFTP"
         }
     };
     let card = dialog_box(t)
-        .child(div().text_size(TEXT_LG).font_weight(W_MEDIUM).child(title))
+        .child(
+            div()
+                .text_size(TEXT_LG)
+                .font_weight(W_MEDIUM)
+                .child(crate::i18n::tr_owned(title)),
+        )
         .child(body)
-        .when_some(d.error.clone(), |c, e| {
-            c.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-        })
+        .when_some(
+            d.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+            |c, e| c.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+        )
         .child(
             div()
                 .pt(px(8.))
@@ -455,7 +468,7 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                 .gap(px(8.))
                 .child(
                     button("place-cancel", t, BtnKind::Default, false)
-                        .child("Cancel")
+                        .child(tr("Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(slot) = this.place_slot() {
                                 *slot = None;
@@ -467,10 +480,14 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                 .child(
                     button("place-connect", t, BtnKind::Primary, false)
                         .when(d.busy, |b| b.opacity(0.6))
-                        .child(if d.busy { "Connecting…" } else { "Connect" })
+                        .child(if d.busy {
+                            tr("Connecting…")
+                        } else {
+                            tr("Connect")
+                        })
                         .on_click(cx.listener(|this, _, _, cx| {
                             if this.demo {
-                                this.toast("Not in the demo", cx);
+                                this.toast(tr("Not in the demo"), cx);
                             } else {
                                 this.place_connect(cx);
                             }

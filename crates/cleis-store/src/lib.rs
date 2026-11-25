@@ -633,6 +633,10 @@ impl Vault {
     pub fn preferences(&self) -> Result<Preferences> {
         Ok(self.setting("preferences")?.unwrap_or_default())
     }
+    /// The preferences if they were ever saved (a new vault has none).
+    pub fn saved_preferences(&self) -> Result<Option<Preferences>> {
+        self.setting("preferences")
+    }
     pub fn set_preferences(&self, p: &Preferences) -> Result<()> {
         self.set_setting("preferences", p)
     }

@@ -116,7 +116,7 @@ impl CleisApp {
         if let Err(e) = cleis_autofill::set_open_at_login(on, &exe, &["--background"])
             && let Some(s) = self.session()
         {
-            s.toast = Some(format!("Open at login not changed: {e}").into());
+            s.toast = Some(crate::trf!("Open at login not changed: {}", e).into());
         }
     }
 

@@ -3,6 +3,7 @@
 //! new role, re-encryption, verification code asked by the server.
 
 use crate::app::{CleisApp, Session};
+use crate::i18n::tr;
 use crate::org::{OrgSession, initials};
 use crate::theme::*;
 use crate::ui::*;
@@ -156,7 +157,9 @@ fn tip(
     text: impl Into<SharedString>,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
     let text: SharedString = text.into();
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(&text)).build(window, cx)
+    }
 }
 
 pub type Pick = Rc<dyn Fn(&mut CleisApp, usize, &mut Context<CleisApp>)>;
@@ -206,7 +209,7 @@ fn seg(
                 .cursor_pointer()
                 .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
                 .when(!on, |d| d.text_color(t.text_muted))
-                .child((*o).to_owned())
+                .child(crate::i18n::tr_owned(o))
                 .on_click(cx.listener(move |this, _, _, cx| pick(this, i, cx)))
                 .test_support(),
         );
@@ -263,7 +266,7 @@ fn select(
                                 .overflow_hidden()
                                 .text_ellipsis()
                                 .whitespace_nowrap()
-                                .child(label),
+                                .child(crate::i18n::tr_owned(&label)),
                         )
                         .child(icon("chevron", 14., t.text_muted)),
                 )
@@ -310,7 +313,7 @@ fn head(t: &Tokens, title: &str) -> Div {
                 .flex_1()
                 .text_size(TEXT_XL)
                 .font_weight(W_STRONG)
-                .child(title.to_owned()),
+                .child(crate::i18n::tr_owned(title)),
         )
         .text_color(t.text)
 }
@@ -332,7 +335,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return div();
     };
     let Some(st) = o.state.as_ref() else {
-        return head(t, "Members").child(chip(t, Tone::Neutral, "Not reached yet", false));
+        return head(t, tr("Members")).child(chip(t, Tone::Neutral, tr("Not reached yet"), false));
     };
     let q =
         o.ui.search
@@ -342,14 +345,14 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let ql = cleis_core::text::fold(q.trim());
     let mut page = div().flex().flex_col().gap(px(16.));
     page = page.child(
-        head(t, "Members")
+        head(t, tr("Members"))
             .when_some(o.ui.search.as_ref(), |d, i| {
                 d.child(div().w(px(220.)).child(Input::new(i).id("member-search")))
             })
             .child(
                 button("invite", t, BtnKind::Primary, false)
                     .child(icon("plus", 16., t.primary_ink))
-                    .child("Invite")
+                    .child(tr("Invite"))
                     .on_click(cx.listener(|this, _, window, cx| this.open_invite(window, cx)))
                     .test_support(),
             ),
@@ -359,7 +362,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         st.roles
             .iter()
             .find(|r| r.id == id)
-            .map(|r| r.name.clone())
+            .map(|r| crate::i18n::tr_owned(&r.name))
             .unwrap_or_else(|| id.to_owned())
     };
     let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(16.));
@@ -371,18 +374,18 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .text_color(t.text_muted)
             .font_weight(W_MEDIUM)
-            .child(div().w(px(240.)).child("Member"))
-            .child(div().w(px(130.)).child("Role"))
-            .child(div().flex_1().child("Spaces"))
-            .child(div().w(px(80.)).child("2-step"))
+            .child(div().w(px(240.)).child(tr("Member")))
+            .child(div().w(px(130.)).child(tr("Role")))
+            .child(div().flex_1().child(tr("Spaces")))
+            .child(div().w(px(80.)).child(tr("2-step")))
             .child(
                 div()
                     .id("h-export")
                     .w(px(56.))
-                    .child("Export")
-                    .tooltip(tip("Allowed to export the organization's passwords")),
+                    .child(tr("Export"))
+                    .tooltip(tip(tr("Allowed to export the organization's passwords"))),
             )
-            .child(div().w(px(140.)).child("Last sign-in"))
+            .child(div().w(px(140.)).child(tr("Last sign-in")))
             .child(div().w(px(28.))),
     );
     for m in st.members.iter().filter(|m| {
@@ -401,7 +404,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .collect();
         let roles: Vec<(String, bool)> = offered
             .iter()
-            .map(|r| (r.name.clone(), r.id == m.role))
+            .map(|r| (crate::i18n::tr_owned(&r.name), r.id == m.role))
             .collect();
         let role_ids: Vec<String> = offered.iter().map(|r| r.id.clone()).collect();
         let role_sel = select(
@@ -425,7 +428,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         );
         let mut chips = div().flex().flex_wrap().gap(px(4.));
         if admin {
-            chips = chips.child(chip(t, Tone::Neutral, "All", false));
+            chips = chips.child(chip(t, Tone::Neutral, tr("All"), false));
         } else if m.spaces.is_empty() {
             chips = chips.child(div().text_color(t.text_faint).child("—"));
         } else {
@@ -452,7 +455,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(check_box(t, on))
                 .when(locked, |d| {
                     d.opacity(0.45)
-                        .tooltip(tip("Reserved: a Super Admin changes its members"))
+                        .tooltip(tip(tr("Reserved: a Super Admin changes its members")))
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if locked {
@@ -483,7 +486,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 div()
                     .id(SharedString::from(format!("spaces-{id}")))
                     .cursor_pointer()
-                    .when(!admin, |d| d.tooltip(tip("Change the spaces")))
+                    .when(!admin, |d| d.tooltip(tip(tr("Change the spaces"))))
                     .child(chips)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if admin {
@@ -504,14 +507,14 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 d.child(deferred(sm))
             });
         let two_fa = if m.two_fa {
-            chip(t, Tone::Ok, "On", true)
+            chip(t, Tone::Ok, tr("On"), true)
         } else {
-            chip(t, Tone::Warn, "To set up", true)
+            chip(t, Tone::Warn, tr("To set up"), true)
         };
         let export = switch(SharedString::from(format!("export-{id}")), t, m.export)
             .when(admin, |d| {
                 d.opacity(0.5)
-                    .tooltip(tip("Administrators can always export"))
+                    .tooltip(tip(tr("Administrators can always export")))
             })
             .when(!admin, |d| {
                 let on = m.export;
@@ -596,7 +599,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                     "more",
                                     true,
                                 )
-                                .tooltip(tip("More"))
+                                .tooltip(tip(tr("More")))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if let Some(o) = org_mut(this) {
                                         o.ui.menu = if o.ui.menu == Some(OrgMenu::More(id)) {
@@ -643,9 +646,10 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .flex()
                         .flex_col()
                         .child(div().text_color(t.text).child(inv.email.clone()))
-                        .child(div().text_size(TEXT_SM).child(format!(
-                            "Invited {} · expires in {days} day{}",
+                        .child(div().text_size(TEXT_SM).child(crate::trf!(
+                            "Invited {} · expires in {} day{}",
                             crate::format::date(inv.created),
+                            days,
                             if days == 1 { "" } else { "s" }
                         ))),
                 )
@@ -656,8 +660,8 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::Ghost,
                         true,
                     )
-                    .child("Resend")
-                    .tooltip(tip("New code, valid 7 days"))
+                    .child(tr("Resend"))
+                    .tooltip(tip(tr("New code, valid 7 days")))
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.org_invite_action(id, true, cx)),
                     )
@@ -670,7 +674,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::DangerGhost,
                         true,
                     )
-                    .child("Revoke")
+                    .child(tr("Revoke"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.ask_action(crate::app::ConfirmAction::RevokeInvite(id), cx)
                     }))
@@ -700,9 +704,9 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .justify_center()
                     .when(r.id == cleis_core::org::ADMIN, |d| {
                         d.text_color(t.set_text)
-                            .tooltip(tip("Set by a Super Admin"))
+                            .tooltip(tip(tr("Set by a Super Admin")))
                     })
-                    .child(r.name.clone())
+                    .child(crate::i18n::tr_owned(&r.name))
             })),
     );
     for p in Perm::ALL {
@@ -717,7 +721,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .id(SharedString::from(format!("perm-label-{p:?}")))
                     .flex_1()
                     .when_some(perm_tip(p), |d, tx| d.tooltip(tip(tx)))
-                    .child(p.label()),
+                    .child(tr(p.label())),
             );
         for (ri, r) in st.roles.iter().enumerate() {
             let on = r.can(p);
@@ -772,8 +776,8 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         section(t)
             .child(titled(
                 t,
-                "Roles",
-                Some("What each role can do in the spaces it can access."),
+                tr("Roles"),
+                Some(tr("What each role can do in the spaces it can access.")),
             ))
             .child(matrix)
             .when(i_admins, |d| {
@@ -781,7 +785,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div().child(
                         button("new-role", t, BtnKind::Ghost, true)
                             .child(icon("plus", 14., t.text_muted))
-                            .child("New role")
+                            .child(tr("New role"))
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.open_new_role(window, cx)),
                             )
@@ -831,10 +835,10 @@ pub fn member_menu(
                 format!("resetstep-{id}"),
                 t,
                 Some("key"),
-                "Reset two-step verification",
+                tr("Reset two-step verification"),
                 false,
             )
-            .tooltip(tip("Set up again at the next sign-in"))
+            .tooltip(tip(tr("Set up again at the next sign-in")))
             .on_click(ask(A::ResetStep(id), cx))
             .test_support(),
         );
@@ -845,7 +849,7 @@ pub fn member_menu(
                 format!("signout-{id}"),
                 t,
                 Some("logout"),
-                "Sign out everywhere",
+                tr("Sign out everywhere"),
                 false,
             )
             .on_click(ask(A::SignOutMember(id), cx))
@@ -860,7 +864,7 @@ pub fn member_menu(
                     format!("mksuper-{id}"),
                     t,
                     Some("shield"),
-                    "Make Super Admin",
+                    tr("Make Super Admin"),
                     false,
                 )
                 .on_click(ask(A::MakeSuper(id), cx))
@@ -871,19 +875,25 @@ pub fn member_menu(
                     format!("transfer-{id}"),
                     t,
                     Some("refresh"),
-                    "Transfer Super Admin…",
+                    tr("Transfer Super Admin…"),
                     false,
                 )
-                .tooltip(tip("You become Admin"))
+                .tooltip(tip(tr("You become Admin")))
                 .on_click(ask(A::TransferSuper(id), cx))
                 .test_support(),
             );
     }
     if reach {
         menu = menu.child(div().h(px(1.)).my(px(4.)).bg(t.line)).child(
-            menu_item(format!("revoke-{id}"), t, Some("trash"), "Remove…", true)
-                .on_click(ask(A::RemoveMember(id), cx))
-                .test_support(),
+            menu_item(
+                format!("revoke-{id}"),
+                t,
+                Some("trash"),
+                tr("Remove…"),
+                true,
+            )
+            .on_click(ask(A::RemoveMember(id), cx))
+            .test_support(),
         );
     }
     menu
@@ -956,7 +966,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return div();
     };
     let Some(st) = o.state.as_ref() else {
-        return head(t, "Security policy");
+        return head(t, tr("Security policy"));
     };
     let p = &st.policy;
     let rules = o.can(Perm::Rules);
@@ -1005,7 +1015,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             })
             .child(check_box(t, on && ok))
             .child(icon(ico, 16., t.text_muted))
-            .child(m.label())
+            .child(tr(m.label()))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if ok && m != Method::AuthenticatorApp {
                     this.org_set_policy(
@@ -1033,7 +1043,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .h(px(32.))
             .cursor_pointer()
             .child(check_box(t, on))
-            .child(label.to_owned())
+            .child(crate::i18n::tr_owned(label))
             .on_click(cx.listener(move |this, _, _, cx| this.org_set_policy(flip, cx)))
             .test_support()
     };
@@ -1041,12 +1051,12 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let signing = section(t)
         .child(titled(
             t,
-            "Signing in to the server",
-            Some("Applies to every member."),
+            tr("Signing in to the server"),
+            Some(tr("Applies to every member.")),
         ))
         .child(
             row(t, true)
-                .child(div().flex_1().child("Two-step verification"))
+                .child(div().flex_1().child(tr("Two-step verification")))
                 .child(seg(
                     "code-req",
                     t,
@@ -1058,7 +1068,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(
             row(t, false)
-                .child(div().flex_1().child("Remember device"))
+                .child(div().flex_1().child(tr("Remember device")))
                 .child(sel(
                     "remember",
                     160.,
@@ -1072,28 +1082,30 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     cx,
                 )),
         );
-    let methods = section(t).child(titled(t, "Allowed methods", None)).child(
-        div()
-            .flex()
-            .gap(px(24.))
-            .child(
-                div()
-                    .flex_1()
-                    .child(method(Method::AuthenticatorApp, cx))
-                    .child(method(Method::Email, cx))
-                    .child(method(Method::Sms, cx)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .child(method(Method::Google, cx))
-                    .child(method(Method::Microsoft, cx)),
-            ),
-    );
-    let locking = section(t)
-        .child(titled(t, "Locking", None))
+    let methods = section(t)
+        .child(titled(t, tr("Allowed methods"), None))
         .child(
-            row(t, true).child(div().flex_1().child("After inactivity")).child(sel(
+            div()
+                .flex()
+                .gap(px(24.))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(method(Method::AuthenticatorApp, cx))
+                        .child(method(Method::Email, cx))
+                        .child(method(Method::Sms, cx)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .child(method(Method::Google, cx))
+                        .child(method(Method::Microsoft, cx)),
+                ),
+        );
+    let locking = section(t)
+        .child(titled(t, tr("Locking"), None))
+        .child(
+            row(t, true).child(div().flex_1().child(tr("After inactivity"))).child(sel(
                 "pol-lock",
                 160.,
                 LOCK_AFTER.iter().map(|(m, l)| ((*l).into(), *m == p.lock_after_mins)).collect(),
@@ -1107,8 +1119,8 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .id("offline-l")
                         .flex_1()
-                        .child("Offline access")
-                        .tooltip(tip("How long the organization's spaces stay readable without reaching the server")),
+                        .child(tr("Offline access"))
+                        .tooltip(tip(tr("How long the organization's spaces stay readable without reaching the server"))),
                 )
                 .child(sel(
                     "offline",
@@ -1121,18 +1133,18 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let passwords = section(t)
         .child(titled(
             t,
-            "Passwords",
-            Some("Flagged in the health report."),
+            tr("Passwords"),
+            Some(tr("Flagged in the health report.")),
         ))
         .child(
             row(t, true)
-                .child(div().flex_1().child("Flag shorter than"))
+                .child(div().flex_1().child(tr("Flag shorter than")))
                 .child(sel(
                     "min-len",
                     160.,
                     MIN_LEN
                         .iter()
-                        .map(|n| (format!("{n} characters"), *n == p.min_length))
+                        .map(|n| (crate::trf!("{} characters", n), *n == p.min_length))
                         .collect(),
                     Rc::new(|app, i, cx| app.org_set_policy(|p| p.min_length = MIN_LEN[i], cx)),
                     cx,
@@ -1140,7 +1152,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(
             row(t, false)
-                .child(div().flex_1().child("Flag older than"))
+                .child(div().flex_1().child(tr("Flag older than")))
                 .child(sel(
                     "max-age",
                     160.,
@@ -1156,11 +1168,11 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let log = section(t)
         .child(titled(
             t,
-            "Activity log",
-            Some("Written by the server, each event signed and linked to the previous one: an edit or a gap is detected."),
+            tr("Activity log"),
+            Some(tr("Written by the server, each event signed and linked to the previous one: an edit or a gap is detected.")),
         ))
         .child(
-            row(t, true).child(div().flex_1().child("Record activity")).child(
+            row(t, true).child(div().flex_1().child(tr("Record activity"))).child(
                 switch("record", t, p.record_activity)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.org_set_policy(|p| p.record_activity = !p.record_activity, cx)
@@ -1169,7 +1181,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             ),
         )
         .child(
-            row(t, false).child(div().flex_1().child("Detail")).child(seg(
+            row(t, false).child(div().flex_1().child(tr("Detail"))).child(seg(
                 "detail",
                 t,
                 &["Admin actions", "Changes", "Everything"],
@@ -1190,7 +1202,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             )),
         )
         .child(
-            row(t, false).child(div().flex_1().child("Keep")).child(sel(
+            row(t, false).child(div().flex_1().child(tr("Keep"))).child(sel(
                 "keep",
                 160.,
                 KEEP.iter().map(|(d, l)| ((*l).into(), *d == p.keep_days)).collect(),
@@ -1200,20 +1212,20 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(
             row(t, false)
-                .child(div().flex_1().child("Integrity"))
+                .child(div().flex_1().child(tr("Integrity")))
                 .child(match integrity {
                     Some(i) if i.intact => chip(
                         t,
                         Tone::Ok,
-                        format!("Verified {}", crate::format::when(i.at, cleis_core::now())),
+                        crate::trf!("Verified {}", crate::format::when(i.at, cleis_core::now())),
                         false,
                     ),
-                    Some(_) => chip(t, Tone::Danger, "Altered", true),
-                    None => chip(t, Tone::Neutral, "Not verified yet", false),
+                    Some(_) => chip(t, Tone::Danger, tr("Altered"), true),
+                    None => chip(t, Tone::Neutral, tr("Not verified yet"), false),
                 })
                 .child(
                     button("verify-log", t, BtnKind::Default, false)
-                        .child("Verify now")
+                        .child(tr("Verify now"))
                         .on_click(cx.listener(|this, _, _, cx| this.org_verify_log(cx)))
                         .test_support(),
                 ),
@@ -1221,8 +1233,8 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let autofill = section(t)
         .child(titled(
             t,
-            "Autofill",
-            Some("Ways members may fill passwords outside Cleis."),
+            tr("Autofill"),
+            Some(tr("Ways members may fill passwords outside Cleis.")),
         ))
         .child(
             div()
@@ -1258,7 +1270,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head(t, "Security policy"))
+        .child(head(t, tr("Security policy")))
         .child(rules_lock("pol-lock-signing", rules, signing))
         .child(rules_lock("pol-lock-methods", rules, methods))
         .child(locking)
@@ -1282,7 +1294,7 @@ fn rules_lock(id: &'static str, rules: bool, d: Div) -> gpui_kit::AnyElement {
                 .absolute()
                 .inset_0()
                 .occlude()
-                .tooltip(tip("Set by a Super Admin")),
+                .tooltip(tip(tr("Set by a Super Admin"))),
         )
         .into_any_element()
 }
@@ -1294,7 +1306,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return div();
     };
     let Some(st) = o.state.as_ref() else {
-        return head(t, "Encryption");
+        return head(t, tr("Encryption"));
     };
     let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(4.));
     let mut table = div().flex().flex_col().child(
@@ -1305,10 +1317,10 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .text_color(t.text_muted)
             .font_weight(W_MEDIUM)
-            .child(div().flex_1().child("Space"))
-            .child(div().w(px(80.)).flex().justify_end().child("Items"))
-            .child(div().w(px(80.)).flex().justify_end().child("Members"))
-            .child(div().w(px(320.)).child("Mode")),
+            .child(div().flex_1().child(tr("Space")))
+            .child(div().w(px(80.)).flex().justify_end().child(tr("Items")))
+            .child(div().w(px(80.)).flex().justify_end().child(tr("Members")))
+            .child(div().w(px(320.)).child(tr("Mode"))),
     );
     table = table.child(
         cols(div())
@@ -1322,7 +1334,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .items_center()
                     .gap(px(8.))
                     .child(icon("user", 16., t.text_muted))
-                    .child("Personal vaults"),
+                    .child(tr("Personal vaults")),
             )
             .child(
                 div()
@@ -1348,7 +1360,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .tooltip(tip(
                         "Always end-to-end: personal vaults never reach the server",
                     ))
-                    .child(chip(t, Tone::Ok, "End-to-end", false)),
+                    .child(chip(t, Tone::Ok, tr("End-to-end"), false)),
             ),
     );
     for sv in &st.spaces {
@@ -1373,8 +1385,8 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             d.child(
                                 div()
                                     .id(SharedString::from(format!("advise-{id}")))
-                                    .tooltip(tip("Someone who held its key lost access"))
-                                    .child(chip(t, Tone::Warn, "Re-encrypt advised", false)),
+                                    .tooltip(tip(tr("Someone who held its key lost access")))
+                                    .child(chip(t, Tone::Warn, tr("Re-encrypt advised"), false)),
                             )
                         }),
                 )
@@ -1431,7 +1443,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             div().child(
                                 div()
                                     .id(SharedString::from(format!("nokey-{id}")))
-                                    .tooltip(tip("You are not in this space"))
+                                    .tooltip(tip(tr("You are not in this space")))
                                     .child(chip(
                                         t,
                                         Tone::Neutral,
@@ -1444,7 +1456,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             )
                         })
                         .when(pending.is_some(), |d| {
-                            d.child(chip(t, Tone::Set, "Changed", false))
+                            d.child(chip(t, Tone::Set, tr("Changed"), false))
                         }),
                 ),
         );
@@ -1458,8 +1470,8 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let modes = section(t)
         .child(titled(
             t,
-            "Mode per space",
-            Some("Both modes encrypt on the device. Standard: the organization key keeps a copy of the space key, so an admin can restore access. End-to-end: only the members hold the key; the recovery key is essential."),
+            tr("Mode per space"),
+            Some(tr("Both modes encrypt on the device. Standard: the organization key keeps a copy of the space key, so an admin can restore access. End-to-end: only the members hold the key; the recovery key is essential.")),
         ))
         .child(table)
         .child(
@@ -1469,7 +1481,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .gap(px(8.))
                 .child(
                     button("enc-cancel", t, BtnKind::Ghost, false)
-                        .child("Cancel")
+                        .child(tr("Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(o) = org_mut(this) {
                                 o.ui.changes.clear();
@@ -1482,7 +1494,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     button("reencrypt", t, BtnKind::Primary, false)
                         .when(to_rekey.is_none(), |b| b.opacity(0.5))
                         .child(icon("refresh", 16., t.primary_ink))
-                        .child("Re-encrypt")
+                        .child(tr("Re-encrypt"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let (Some((space, to)), Some(o)) = (to_rekey, org_mut(this)) {
                                 o.ui.rekey = Some(RekeyForm {
@@ -1500,11 +1512,11 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let recovery = section(t)
         .child(titled(
             t,
-            "Recovery key",
-            Some("Restores a space when every member holding it lost their master password. Kept outside Cleis."),
+            tr("Recovery key"),
+            Some(tr("Restores a space when every member holding it lost their master password. Kept outside Cleis.")),
         ))
         .child(
-            row(t, true).child(div().flex_1().child("Admin recovery")).child(
+            row(t, true).child(div().flex_1().child(tr("Admin recovery"))).child(
                 switch("recovery", t, recovery_on)
                     .on_click(cx.listener(move |this, _, _, cx| this.org_recovery(!recovery_on, cx)))
                     .test_support(),
@@ -1513,27 +1525,27 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .when(recovery_on, |d| {
             d.child(
                 row(t, false)
-                    .child(div().flex_1().child("Recovery key"))
+                    .child(div().flex_1().child(tr("Recovery key")))
                     .child(chip(
                         t,
                         Tone::Ok,
                         st.org
                             .recovery_saved
-                            .map_or("Saved".into(), |ts| format!("Saved {}", crate::format::date(ts))),
+                            .map_or(tr("Saved").into(), |ts| crate::trf!("Saved {}", crate::format::date(ts))),
                         true,
                     ))
                     .child(
                         button("recovery-new", t, BtnKind::Default, false)
                             .child(icon("download", 14., t.text))
-                            .child("New key")
-                            .tooltip(tip("Makes a new recovery key; the previous one stops working"))
+                            .child(tr("New key"))
+                            .tooltip(tip(tr("Makes a new recovery key; the previous one stops working")))
                             .on_click(cx.listener(|this, _, _, cx| this.org_recovery(true, cx)))
                             .test_support(),
                     )
                     .child(
                         button("recovery-use", t, BtnKind::Default, false)
-                            .child("Use")
-                            .tooltip(tip("Gives the waiting members their spaces back"))
+                            .child(tr("Use"))
+                            .tooltip(tip(tr("Gives the waiting members their spaces back")))
                             .on_click(cx.listener(|this, _, _, cx| this.org_use_recovery(cx)))
                             .test_support(),
                     ),
@@ -1542,32 +1554,32 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let fp = cleis_crypto::fingerprint_of_hash(&st.org.cert);
     let fp_copy = fp.clone();
     let keys = section(t)
-        .child(titled(t, "Server keys", None))
+        .child(titled(t, tr("Server keys"), None))
         .child(
             row(t, true)
-                .child(div().flex_1().child("Fingerprint"))
+                .child(div().flex_1().child(tr("Fingerprint")))
                 .child(div().font_family(FONT_MONO).text_color(t.text_muted).child(fp))
                 .child(
                     icon_button("copy-fp", t, "copy", false)
-                        .tooltip(tip("Copy"))
+                        .tooltip(tip(tr("Copy")))
                         .on_click(cx.listener(move |this, _, _, cx| this.copy(fp_copy.clone(), "Fingerprint", cx))),
                 ),
         )
         .child(
             row(t, false)
-                .child(div().flex_1().child("Rotate server key"))
+                .child(div().flex_1().child(tr("Rotate server key")))
                 .when(st.org.next_cert.is_some(), |d| {
                     d.child(
                         div()
                             .id("rotation")
-                            .tooltip(tip("Used after the server's next restart, 7 days after the announcement"))
-                            .child(chip(t, Tone::Set, "Announced", false)),
+                            .tooltip(tip(tr("Used after the server's next restart, 7 days after the announcement")))
+                            .child(chip(t, Tone::Set, tr("Announced"), false)),
                     )
                 })
                 .child(
                     button("rotate", t, BtnKind::Default, false)
                         .child(icon("refresh", 14., t.text))
-                        .child("Rotate")
+                        .child(tr("Rotate"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.ask_action(crate::app::ConfirmAction::RotateKey, cx)
                         }))
@@ -1580,7 +1592,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head(t, "Encryption"))
+        .child(head(t, tr("Encryption")))
         .child(modes)
         .when(can_keys, |d| d.child(recovery).child(keys))
         .when(!can_keys, |d| {
@@ -1590,10 +1602,15 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .tooltip(tip(
                         "A Super Admin keeps the recovery key and the server key",
                     ))
-                    .child(titled(t, "Recovery and server keys", None))
+                    .child(titled(t, tr("Recovery and server keys"), None))
                     .child(
                         row(t, true)
-                            .child(div().flex_1().text_color(t.text_muted).child("Super Admin"))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_color(t.text_muted)
+                                    .child(tr("Super Admin")),
+                            )
                             .child(icon("lock", 14., t.text_muted)),
                     ),
             )
@@ -1608,23 +1625,23 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return join_page(s, t, cx);
     };
     let status: gpui_kit::AnyElement = if o.busy {
-        chip(t, Tone::Neutral, "Syncing…", false).into_any_element()
+        chip(t, Tone::Neutral, tr("Syncing…"), false).into_any_element()
     } else if let Some(e) = &o.error {
         div()
             .id("srv-err")
-            .tooltip(tip(e.clone()))
-            .child(chip(t, Tone::Warn, "Not reached", true))
+            .tooltip(tip(crate::i18n::tr_dynamic(e)))
+            .child(chip(t, Tone::Warn, tr("Not reached"), true))
             .into_any_element()
     } else if let Some(ts) = o.local.last_ok {
         chip(
             t,
             Tone::Ok,
-            format!("Synced {}", crate::format::when(ts, cleis_core::now())),
+            crate::trf!("Synced {}", crate::format::when(ts, cleis_core::now())),
             true,
         )
         .into_any_element()
     } else {
-        chip(t, Tone::Neutral, "Not reached yet", false).into_any_element()
+        chip(t, Tone::Neutral, tr("Not reached yet"), false).into_any_element()
     };
     let me = o.me();
     let hosted = o.local.host_dir.is_some();
@@ -1634,7 +1651,7 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head(t, "Server"))
+        .child(head(t, tr("Server")))
         .child(
             section(t)
                 .child(titled(t, &o.m.name, None))
@@ -1642,14 +1659,14 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     let copy = addr_text.clone();
                     d.child(
                         row(t, true)
-                            .child(div().flex_1().child("Hosted"))
-                            .child("This computer")
+                            .child(div().flex_1().child(tr("Hosted")))
+                            .child(tr("This computer"))
                             .child(if o.ui.host.is_none() {
-                                chip(t, Tone::Neutral, "Checking…", false)
+                                chip(t, Tone::Neutral, tr("Checking…"), false)
                             } else if running {
-                                chip(t, Tone::Ok, "Running", true)
+                                chip(t, Tone::Ok, tr("Running"), true)
                             } else {
-                                chip(t, Tone::Warn, "Stopped", true)
+                                chip(t, Tone::Warn, tr("Stopped"), true)
                             }),
                     )
                     .child(
@@ -1658,19 +1675,19 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 div()
                                     .id("host-addrs")
                                     .flex_1()
-                                    .tooltip(tip("Give one of these with each invitation code"))
-                                    .child("Addresses for members"),
+                                    .tooltip(tip(tr("Give one of these with each invitation code")))
+                                    .child(tr("Addresses for members")),
                             )
                             .child(div().font_family(FONT_MONO).text_color(t.text_muted).child(
                                 if addr_text.is_empty() {
-                                    "No network".to_owned()
+                                    tr("No network").to_owned()
                                 } else {
                                     addr_text.clone()
                                 },
                             ))
                             .child(
                                 icon_button("copy-host-addrs", t, "copy", false)
-                                    .tooltip(tip("Copy"))
+                                    .tooltip(tip(tr("Copy")))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.copy(copy.clone(), "Addresses", cx)
                                     })),
@@ -1682,16 +1699,16 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 div()
                                     .id("host-service")
                                     .flex_1()
-                                    .tooltip(tip("Otherwise it runs while Cleis runs"))
-                                    .child("Start with the system"),
+                                    .tooltip(tip(tr("Otherwise it runs while Cleis runs")))
+                                    .child(tr("Start with the system")),
                             )
                             .child(
                                 button("host-install", t, BtnKind::Default, false)
-                                    .child("Install")
-                                    .tooltip(tip("Asks for administrator rights"))
+                                    .child(tr("Install"))
+                                    .tooltip(tip(tr("Asks for administrator rights")))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         if this.demo {
-                                            this.toast("Not in the demo", cx);
+                                            this.toast(tr("Not in the demo"), cx);
                                         } else {
                                             this.org_install_host(cx);
                                         }
@@ -1703,7 +1720,7 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .when(!hosted, |d| {
                     d.child(
                         row(t, true)
-                            .child(div().flex_1().child("Address"))
+                            .child(div().flex_1().child(tr("Address")))
                             .child(match &o.ui.address {
                                 Some((input, _)) => div()
                                     .w(px(260.))
@@ -1729,7 +1746,7 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 })
                 .child(
                     row(t, false)
-                        .child(div().flex_1().child("Certificate"))
+                        .child(div().flex_1().child(tr("Certificate")))
                         .child(div().font_family(FONT_MONO).text_color(t.text_muted).child(
                             o.m.pins.first().map_or(String::new(), |p| {
                                 data_encoding::HEXLOWER
@@ -1742,12 +1759,14 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .when_some(me, |d, m| {
                     d.child(
                         row(t, false)
-                            .child(div().flex_1().child("Signed in as"))
+                            .child(div().flex_1().child(tr("Signed in as")))
                             .child(avatar(t, &initials(&m.name), 22.))
                             .child(format!(
                                 "{} · {}",
                                 m.name,
-                                o.role().map(|r| r.name.clone()).unwrap_or_default()
+                                o.role()
+                                    .map(|r| crate::i18n::tr_owned(&r.name))
+                                    .unwrap_or_default()
                             )),
                     )
                 })
@@ -1757,14 +1776,14 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .child(
                             button("org-sync", t, BtnKind::Default, false)
                                 .child(icon("sync", 14., t.text))
-                                .child("Sync now")
+                                .child(tr("Sync now"))
                                 .on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
                                 .test_support(),
                         )
                         .child(
                             button("org-leave", t, BtnKind::DangerGhost, false)
-                                .child("Leave")
-                                .tooltip(tip("Forgets the organization's spaces on this vault"))
+                                .child(tr("Leave"))
+                                .tooltip(tip(tr("Forgets the organization's spaces on this vault")))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.ask_action(crate::app::ConfirmAction::LeaveOrg, cx)
                                 }))
@@ -1781,21 +1800,25 @@ pub fn join_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head(t, "Organization"))
+        .child(head(t, tr("Organization")))
         .child(create_section(&s.join, t, cx))
         .child(
             section(t)
                 .child(titled(
                     t,
-                    "Join an organization",
-                    Some("Shared spaces, on top of your personal vault"),
+                    tr("Join an organization"),
+                    Some(tr("Shared spaces, on top of your personal vault")),
                 ))
                 .child(join_fields(&s.join, t, cx))
                 .child(
                     div().flex().justify_end().child(
                         button("join", t, BtnKind::Default, false)
                             .when(s.join.busy, |b| b.opacity(0.6))
-                            .child(if s.join.busy { "Joining…" } else { "Join" })
+                            .child(if s.join.busy {
+                                tr("Joining…")
+                            } else {
+                                tr("Join")
+                            })
                             .on_click(cx.listener(|this, _, _, cx| this.join_from_settings(cx)))
                             .test_support(),
                     ),
@@ -1817,23 +1840,25 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     });
     let org = name.read(cx).value().trim().to_owned();
     let org = if org.is_empty() {
-        "Example Studio".to_owned()
+        tr("Example Studio").to_owned()
     } else {
         org
     };
     let cmds = [
-        format!("cleis-server init --org \"{org}\""),
+        crate::trf!("cleis-server init --org \"{}\"", org),
         "cleis-server install".to_owned(),
     ];
     let mut d = section(t)
         .child(titled(
             t,
-            "Create an organization",
-            Some("Shared spaces for a team: Cleis runs its server for you."),
+            tr("Create an organization"),
+            Some(tr(
+                "Shared spaces for a team: Cleis runs its server for you.",
+            )),
         ))
-        .child(field(t, "Name", Input::new(name).id("create-name")))
+        .child(field(t, tr("Name"), Input::new(name).id("create-name")))
         .when_some(j.creator.as_ref().filter(|_| !j.elsewhere), |d, c| {
-            d.child(field(t, "Your name", Input::new(c).id("create-me")))
+            d.child(field(t, tr("Your name"), Input::new(c).id("create-me")))
         })
         .child(
             div()
@@ -1849,7 +1874,7 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     segment(
                         "create-where",
                         t,
-                        &["This computer", "Another machine"],
+                        &[tr("This computer"), tr("Another machine")],
                         usize::from(j.elsewhere),
                         pick,
                         cx,
@@ -1864,7 +1889,7 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .child(div().flex_1().font_family(FONT_MONO).child(c))
                     .child(
                         icon_button(SharedString::from(format!("copy-cmd-{n}")), t, "copy", true)
-                            .tooltip(tip("Copy"))
+                            .tooltip(tip(tr("Copy")))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.copy(copy.clone(), "Command", cx)
                             })),
@@ -1881,7 +1906,11 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             div().flex().justify_end().child(
                 button("create-org", t, BtnKind::Primary, false)
                     .when(j.busy, |b| b.opacity(0.6))
-                    .child(if j.busy { "Creating…" } else { "Create" })
+                    .child(if j.busy {
+                        tr("Creating…")
+                    } else {
+                        tr("Create")
+                    })
                     .on_click(cx.listener(|this, _, _, cx| {
                         let Some(name) = this.join_form_mut().and_then(|j| j.org_name.clone())
                         else {
@@ -1894,9 +1923,9 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             .map(|c| c.read(cx).value().trim().to_owned())
                             .unwrap_or_default();
                         let missing = if n.is_empty() {
-                            Some("Name the organization")
+                            Some(tr("Name the organization"))
                         } else if me.is_empty() {
-                            Some("Enter your name")
+                            Some(tr("Enter your name"))
                         } else {
                             None
                         };
@@ -1908,7 +1937,7 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             return;
                         }
                         if this.demo {
-                            this.toast("Not in the demo", cx);
+                            this.toast(tr("Not in the demo"), cx);
                             return;
                         }
                         this.org_create_here(n, me, cx);
@@ -1926,7 +1955,7 @@ pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div 
         return div();
     };
     let chip_el = if j.checking {
-        Some(chip(t, Tone::Neutral, "Checking…", false))
+        Some(chip(t, Tone::Neutral, tr("Checking…"), false))
     } else {
         j.info
             .as_ref()
@@ -1954,18 +1983,23 @@ pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div 
                         .when_some(chip_el, |d, c| d.child(c)),
                 )),
         )
-        .child(field(t, "Invitation code", Input::new(code).id("org-code")))
+        .child(field(
+            t,
+            tr("Invitation code"),
+            Input::new(code).id("org-code"),
+        ))
         .when(need_name, |d| {
             d.when_some(j.name.as_ref(), |d, n| {
-                d.child(field(t, "Your name", Input::new(n).id("org-name")))
+                d.child(field(t, tr("Your name"), Input::new(n).id("org-name")))
             })
             .when_some(j.email.as_ref(), |d, e| {
-                d.child(field(t, "E-mail", Input::new(e).id("org-email")))
+                d.child(field(t, tr("E-mail"), Input::new(e).id("org-email")))
             })
         })
-        .when_some(j.error.clone(), |d, e| {
-            d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-        })
+        .when_some(
+            j.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+            |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+        )
 }
 
 // ---------- Organization backups (13) ----------
@@ -1986,9 +2020,9 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
             .font_weight(W_MEDIUM)
             .border_b_1()
             .border_color(t.line)
-            .child(div().flex_1().child("Date"))
-            .child(div().w(px(140.)).child("Destination"))
-            .child(div().w(px(80.)).flex().justify_end().child("Size"))
+            .child(div().flex_1().child(tr("Date")))
+            .child(div().w(px(140.)).child(tr("Destination")))
+            .child(div().w(px(80.)).flex().justify_end().child(tr("Size")))
             .child(div().w(px(200.))),
     );
     if list.is_empty() {
@@ -1996,7 +2030,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
             div()
                 .py(px(10.))
                 .text_color(t.text_faint)
-                .child("No backup yet"),
+                .child(tr("No backup yet")),
         );
     }
     for (i, (p, size, ts)) in list.into_iter().take(30).enumerate() {
@@ -2019,7 +2053,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                     div()
                         .w(px(140.))
                         .text_color(t.text_muted)
-                        .child("This computer"),
+                        .child(tr("This computer")),
                 )
                 .child(
                     div()
@@ -2042,7 +2076,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                                 BtnKind::Ghost,
                                 true,
                             )
-                            .child("Verify")
+                            .child(tr("Verify"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.org_verify_backup(pv.clone(), cx)
                             }))
@@ -2055,7 +2089,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                                 BtnKind::Default,
                                 true,
                             )
-                            .child("Restore")
+                            .child(tr("Restore"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if let Some(o) = org_mut(this) {
                                     o.ui.restore = Some(pr.clone());
@@ -2074,7 +2108,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
         .gap(px(16.))
         .child(
             section(t)
-                .child(titled(t, "This computer", Some("The server's file, sealed with the backup key, in this computer's backups folder.")))
+                .child(titled(t, tr("This computer"), Some(tr("The server's file, sealed with the backup key, in this computer's backups folder."))))
                 .child(
                     row(t, true)
                         .child(div().flex_1().font_family(FONT_MONO).text_size(TEXT_SM).text_color(t.text_muted).child(
@@ -2091,8 +2125,8 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                 .flatten();
             let sec = section(t).child(titled(
                 t,
-                "Copies elsewhere",
-                Some("Each backup, sealed, also sent to a repository or a server."),
+                tr("Copies elsewhere"),
+                Some(tr("Each backup, sealed, also sent to a repository or a server.")),
             ));
             match copy {
                 Some((place, _)) => sec.child(
@@ -2108,7 +2142,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                         .child(div().flex_1().font_family(FONT_MONO).text_size(TEXT_SM).child(place.label()))
                         .child(
                             button("obk-place-off", t, BtnKind::Ghost, true)
-                                .child("Disconnect")
+                                .child(tr("Disconnect"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if let Some(s) = this.session() {
                                         let _ = s.vault.set_org_setting(
@@ -2123,11 +2157,11 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                 ),
                 None => sec.child(
                     row(t, true)
-                        .child(div().flex_1().text_color(t.text_muted).child("Only on this computer"))
+                        .child(div().flex_1().text_color(t.text_muted).child(tr("Only on this computer")))
                         .child(
                             button("obk-github", t, BtnKind::Default, true)
                                 .child(icon("repo", 14., t.text))
-                                .child("GitHub")
+                                .child(tr("GitHub"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_org_backup_place(crate::sync::Provider::GitHub, window, cx)
                                 }))
@@ -2136,7 +2170,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                         .child(
                             button("obk-sftp", t, BtnKind::Default, true)
                                 .child(icon("server", 14., t.text))
-                                .child("SFTP")
+                                .child(tr("SFTP"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_org_backup_place(crate::sync::Provider::Sftp, window, cx)
                                 }))
@@ -2147,13 +2181,13 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
         })
         .child(
             section(t)
-                .child(titled(t, "Backup key", Some("Without it, no backup can be restored. Keep it outside Cleis.")))
+                .child(titled(t, tr("Backup key"), Some(tr("Without it, no backup can be restored. Keep it outside Cleis."))))
                 .child(
                     row(t, true)
                         .child(match saved {
                             Some(ts) => div()
                                 .flex_1()
-                                .child(chip(t, Tone::Ok, format!("Saved {}", crate::format::date(ts)), true)),
+                                .child(chip(t, Tone::Ok, crate::trf!("Saved {}", crate::format::date(ts)), true)),
                             None => div()
                                 .flex_1()
                                 .flex()
@@ -2161,18 +2195,18 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                                 .gap(px(6.))
                                 .text_color(t.warning_text)
                                 .child(icon("warn", 14., t.warning_text))
-                                .child("Not downloaded yet"),
+                                .child(tr("Not downloaded yet")),
                         })
                         .child(
                             button("bk-key", t, BtnKind::Default, false)
                                 .child(icon("download", 14., t.text))
-                                .child("Download")
+                                .child(tr("Download"))
                                 .on_click(cx.listener(|this, _, _, cx| this.org_download_backup_key(cx)))
                                 .test_support(),
                         ),
                 ),
         )
-        .child(section(t).child(section_title(t, "History")).child(hist))
+        .child(section(t).child(section_title(t, tr("History"))).child(hist))
 }
 
 // ---------- Activity (11) ----------
@@ -2206,7 +2240,7 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .map(|x| (x.m.name.clone(), x.m.key() == o.m.key()))
         .collect();
     let members: Vec<MemberId> = st.members.iter().map(|m| m.id).collect();
-    let mut mopts = vec![("All members".to_owned(), ui.log_member.is_none())];
+    let mut mopts = vec![(tr("All members").to_owned(), ui.log_member.is_none())];
     mopts.extend(
         st.members
             .iter()
@@ -2223,14 +2257,14 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         Action::Exported,
         Action::Revoked,
     ];
-    let mut aopts = vec![("All actions".to_owned(), ui.log_action.is_none())];
+    let mut aopts = vec![(tr("All actions").to_owned(), ui.log_action.is_none())];
     aopts.extend(
         ACTIONS
             .iter()
-            .map(|a| (a.label().to_owned(), ui.log_action == Some(*a))),
+            .map(|a| (tr(a.label()).to_owned(), ui.log_action == Some(*a))),
     );
     let spaces: Vec<SpaceId> = st.spaces.iter().map(|x| x.id).collect();
-    let mut sopts = vec![("All spaces".to_owned(), ui.log_space.is_none())];
+    let mut sopts = vec![(tr("All spaces").to_owned(), ui.log_space.is_none())];
     sopts.extend(
         spaces
             .iter()
@@ -2320,15 +2354,15 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             button("log-verify", t, BtnKind::Ghost, false)
                 .child(icon("chain", 16., t.text_muted))
-                .child("Verify")
-                .tooltip(tip("Check every signature and link"))
+                .child(tr("Verify"))
+                .tooltip(tip(tr("Check every signature and link")))
                 .on_click(cx.listener(|this, _, _, cx| this.org_verify_log(cx)))
                 .test_support(),
         )
         .child(
             button("log-export", t, BtnKind::Default, false)
                 .child(icon("download", 16., t.text))
-                .child("Export")
+                .child(tr("Export"))
                 .on_click(cx.listener(|this, _, _, cx| this.org_export_log(cx)))
                 .test_support(),
         );
@@ -2346,12 +2380,12 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .text_color(t.text_muted)
             .font_weight(W_MEDIUM)
-            .child(div().w(px(170.)).child("Date ↓"))
-            .child(div().w(px(170.)).child("Member"))
-            .child(div().w(px(130.)).child("Action"))
-            .child(div().flex_1().child("Item"))
-            .child(div().w(px(140.)).child("Space"))
-            .child(div().w(px(220.)).child("Device")),
+            .child(div().w(px(170.)).child(tr("Date ↓")))
+            .child(div().w(px(170.)).child(tr("Member")))
+            .child(div().w(px(130.)).child(tr("Action")))
+            .child(div().flex_1().child(tr("Item")))
+            .child(div().w(px(140.)).child(tr("Space")))
+            .child(div().w(px(220.)).child(tr("Device"))),
     );
     let events = ui
         .log
@@ -2363,7 +2397,7 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         let detail = o.open_detail(e);
         let item = match &detail {
             Some(d) if d.field.is_empty() => d.item.clone(),
-            Some(d) => format!("{} · {}", d.item, d.field),
+            Some(d) => format!("{} · {}", d.item, crate::i18n::tr_owned(&d.field)),
             None if !e.note.is_empty() => e.note.clone(),
             None => "—".into(),
         };
@@ -2373,7 +2407,7 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             let hay = cleis_core::text::fold(&format!(
                 "{who} {item} {space} {} {}",
                 e.device,
-                e.action.label()
+                tr(e.action.label())
             ));
             if !hay.contains(&q) {
                 continue;
@@ -2414,7 +2448,7 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .w(px(130.))
                         .flex()
-                        .child(chip(t, tone, e.action.label(), false)),
+                        .child(chip(t, tone, tr(e.action.label()), false)),
                 )
                 .child(
                     div()
@@ -2452,19 +2486,21 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let keep = KEEP
         .iter()
         .find(|k| k.0 == st.policy.keep_days)
-        .map_or(format!("{} days", st.policy.keep_days), |k| k.1.to_owned());
+        .map_or(crate::trf!("{} days", st.policy.keep_days), |k| {
+            crate::i18n::tr_owned(k.1)
+        });
     let integrity = match &st.integrity {
         Some(i) if i.intact => (
             Tone::Ok,
-            format!(
+            crate::trf!(
                 "Signed and chained · verified {}",
                 crate::format::when(i.at, cleis_core::now())
             ),
         ),
-        Some(_) => (Tone::Danger, "Log altered".to_owned()),
+        Some(_) => (Tone::Danger, tr("Log altered").to_owned()),
         None => (
             Tone::Neutral,
-            "Signed and chained · not verified yet".to_owned(),
+            tr("Signed and chained · not verified yet").to_owned(),
         ),
     };
     let status = div()
@@ -2478,8 +2514,9 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .bg(t.surface)
         .text_size(TEXT_SM)
         .text_color(t.text_muted)
-        .child(format!(
-            "{shown} of {} events",
+        .child(crate::trf!(
+            "{} of {} events",
+            shown,
             ui.log.as_ref().map_or(st.events, |p| p.total)
         ))
         .child(div().flex_1())
@@ -2494,13 +2531,13 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     Tone::Danger => t.danger_text,
                     _ => t.text_muted,
                 })
-                .tooltip(tip(
+                .tooltip(tip(tr(
                     "Each event is signed by the server and linked to the previous one",
-                ))
+                )))
                 .child(icon("chain", 14., t.text_muted))
                 .child(integrity.1),
         )
-        .child(format!("Kept {keep}"));
+        .child(crate::trf!("Kept {}", keep));
     div()
         .flex_1()
         .min_h_0()
@@ -2525,7 +2562,7 @@ fn card(t: &Tokens, title: &str) -> Div {
         div()
             .text_size(TEXT_LG)
             .font_weight(W_MEDIUM)
-            .child(title.to_owned()),
+            .child(crate::i18n::tr_owned(title)),
     )
 }
 
@@ -2543,7 +2580,7 @@ fn actions(
         .gap(px(8.))
         .child(
             button("org-cancel", t, BtnKind::Default, false)
-                .child("Cancel")
+                .child(tr("Cancel"))
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(o) = org_mut(this) {
                         o.ui.invite = None;
@@ -2561,7 +2598,7 @@ fn actions(
         )
         .child(
             button(ok_id, t, BtnKind::Primary, false)
-                .child(ok.to_owned())
+                .child(crate::i18n::tr_owned(ok))
                 .on_click(cx.listener(move |this, _, _, cx| on_ok(this, 0, cx)))
                 .test_support(),
         )
@@ -2589,11 +2626,11 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         let title = format!(
             "{} · {}",
             o.m.name,
-            if c.setup {
+            tr(if c.setup {
                 "set up two-step verification"
             } else {
                 "two-step verification"
-            }
+            })
         );
         let mut body = card(t, &title);
         if c.setup && c.methods.len() > 1 {
@@ -2608,32 +2645,30 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             body = body.child(segment("srv-method", t, &labels, at, pick, cx));
         }
         if c.setup && c.methods.is_empty() {
-            body = body.child(
-                div()
-                    .text_color(t.text_muted)
-                    .child("The security policy allows no method this server can carry out."),
-            );
+            body = body.child(div().text_color(t.text_muted).child(tr(
+                "The security policy allows no method this server can carry out.",
+            )));
         }
         let identity = c.method.is_identity() && !c.asked;
         let to_send = c.setup && !c.asked && matches!(c.method, Method::Email | Method::Sms);
         if identity {
-            let label = format!("Continue with {}", method_short(c.method));
+            let label = crate::trf!("Continue with {}", method_short(c.method));
             body = body
                 .child(div().text_color(t.text_muted).child(if c.setup {
-                    format!("Your {} will confirm each sign-in.", c.method.label())
+                    crate::trf!("Your {} will confirm each sign-in.", tr(c.method.label()))
                 } else {
-                    format!("Sign in with your {}.", c.method.label())
+                    crate::trf!("Sign in with your {}.", tr(c.method.label()))
                 }))
                 .child(
                     div().flex().justify_center().py(px(4.)).child(
                         button("srv-identity", t, BtnKind::Primary, false)
                             .when(c.busy, |b| b.opacity(0.6))
                             .child(if c.busy {
-                                "Waiting for the browser…".to_owned()
+                                tr("Waiting for the browser…").to_owned()
                             } else {
                                 label
                             })
-                            .tooltip(tip("Opens the sign-in page in your browser"))
+                            .tooltip(tip(tr("Opens the sign-in page in your browser")))
                             .on_click(cx.listener(|this, _, _, cx| this.org_identity(cx)))
                             .test_support(),
                     ),
@@ -2644,16 +2679,16 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 body = body.child(hint(
                     "hint-email-code",
                     t,
-                    format!("A code goes to {email} at each sign-in."),
+                    crate::trf!("A code goes to {} at each sign-in.", email),
                 ));
             } else if let Some(p) = &c.phone {
-                body = body.child(field(t, "Phone number", Input::new(p).id("srv-phone")));
+                body = body.child(field(t, tr("Phone number"), Input::new(p).id("srv-phone")));
             }
             body = body.child(
                 div().flex().justify_end().child(
                     button("srv-send", t, BtnKind::Default, false)
                         .when(c.busy, |b| b.opacity(0.6))
-                        .child("Send code")
+                        .child(tr("Send code"))
                         .on_click(cx.listener(|this, _, _, cx| this.org_setup_send(cx)))
                         .test_support(),
                 ),
@@ -2697,7 +2732,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                         )
                         .child(
                             icon_button("copy-srv-key", t, "copy", true)
-                                .tooltip(tip("Copy the key"))
+                                .tooltip(tip(tr("Copy the key")))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.copy(copy.clone(), "Key", cx)
                                 })),
@@ -2710,11 +2745,12 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                 d.child(div().text_color(t.text_muted).child(m))
             })
             .when_some(c.input.as_ref().filter(|_| ask), |d, i| {
-                d.child(field(t, "Code", Input::new(i).id("srv-code")))
+                d.child(field(t, tr("Code"), Input::new(i).id("srv-code")))
             })
-            .when_some(c.error.clone(), |d, e| {
-                d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-            })
+            .when_some(
+                c.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+                |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+            )
             .child(
                 div()
                     .pt(px(8.))
@@ -2723,7 +2759,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     .gap(px(8.))
                     .child(
                         button("srv-code-later", t, BtnKind::Default, false)
-                            .child("Later")
+                            .child(tr("Later"))
                             .on_click(cx.listener(|this, _, _, cx| this.org_cancel_code(cx)))
                             .test_support(),
                     )
@@ -2731,7 +2767,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                         d.child(
                             button("srv-code-ok", t, BtnKind::Primary, false)
                                 .when(c.busy, |b| b.opacity(0.6))
-                                .child("Continue")
+                                .child(tr("Continue"))
                                 .on_click(cx.listener(|this, _, _, cx| this.org_submit_code(cx)))
                                 .test_support(),
                         )
@@ -2741,17 +2777,20 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
     }
     if let Some(code) = &o.ui.invite_code {
         let copy = code.clone();
-        let body = card(t, "Invitation")
+        let body = card(t, tr("Invitation"))
             .child(
                 div()
                     .text_color(t.text_muted)
                     .child(match &o.ui.invite_sent {
                         // Audit L-17: the server sent it.
                         Some(to) => {
-                            format!("Sent to {to} with the server address. Valid 7 days, once.")
+                            crate::trf!(
+                                "Sent to {} with the server address. Valid 7 days, once.",
+                                to
+                            )
                         }
                         None => {
-                            "Send this code with the server address. Valid 7 days, once.".into()
+                            tr("Send this code with the server address. Valid 7 days, once.").into()
                         }
                     }),
             )
@@ -2760,7 +2799,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     .child(div().flex_1().font_family(FONT_MONO).child(code.clone()))
                     .child(
                         icon_button("copy-invite", t, "copy", true)
-                            .tooltip(tip("Copy"))
+                            .tooltip(tip(tr("Copy")))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.copy(copy.clone(), "Code", cx)
                             }))
@@ -2770,7 +2809,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             .child(
                 div().flex().justify_end().pt(px(8.)).child(
                     button("invite-done", t, BtnKind::Primary, false)
-                        .child("Done")
+                        .child(tr("Done"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(o) = org_mut(this) {
                                 o.ui.invite_code = None;
@@ -2792,7 +2831,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             .collect();
         let roles: Vec<(String, bool)> = offered
             .iter()
-            .map(|r| (r.name.clone(), r.id == f.role))
+            .map(|r| (crate::i18n::tr_owned(&r.name), r.id == f.role))
             .collect();
         let ids: Vec<String> = offered.iter().map(|r| r.id.clone()).collect();
         let mut spaces = div().flex().flex_wrap().gap(px(6.));
@@ -2820,9 +2859,9 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     .test_support(),
             );
         }
-        let body = card(t, "Invite")
-            .child(field(t, "E-mail", Input::new(&f.email).id("inv-email")))
-            .child(field(t, "Name", Input::new(&f.name).id("inv-name")))
+        let body = card(t, tr("Invite"))
+            .child(field(t, tr("E-mail"), Input::new(&f.email).id("inv-email")))
+            .child(field(t, tr("Name"), Input::new(&f.name).id("inv-name")))
             .child(field(
                 t,
                 "Role",
@@ -2842,10 +2881,11 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     cx,
                 ),
             ))
-            .child(field(t, "Spaces", spaces))
-            .when_some(f.error.clone(), |d, e| {
-                d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-            })
+            .child(field(t, tr("Spaces"), spaces))
+            .when_some(
+                f.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+                |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+            )
             .child(actions(
                 t,
                 "inv-send",
@@ -2858,8 +2898,8 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
     if let Some(f) = &o.ui.new_space {
         let i_super = st.is_some_and(|s| s.me.role == SUPER_ADMIN);
         let reserved = f.reserved;
-        let body = card(t, "New space")
-            .child(field(t, "Name", Input::new(&f.name).id("space-name")))
+        let body = card(t, tr("New space"))
+            .child(field(t, tr("Name"), Input::new(&f.name).id("space-name")))
             .child(field(
                 t,
                 "Encryption",
@@ -2893,7 +2933,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                             "End-to-end; its members are changed by a Super Admin only, other admins do not see it",
                         ))
                         .child(check_box(t, reserved))
-                        .child("Reserved")
+                        .child(tr("Reserved"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(f) = org_mut(this).and_then(|o| o.ui.new_space.as_mut()) {
                                 f.reserved = !f.reserved;
@@ -2913,8 +2953,8 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         return Some(overlay(t, body));
     }
     if let Some(f) = &o.ui.new_role {
-        let body = card(t, "New role")
-            .child(field(t, "Name", Input::new(&f.name).id("role-name")))
+        let body = card(t, tr("New role"))
+            .child(field(t, tr("Name"), Input::new(&f.name).id("role-name")))
             .child(hint(
                 "hint-new-role",
                 t,
@@ -2955,12 +2995,12 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     div()
                         .w(px(110.))
                         .text_color(t.text_muted)
-                        .child(k.to_owned()),
+                        .child(crate::i18n::tr_owned(k)),
                 )
                 .child(v)
         };
         let backup_first = r.backup_first;
-        let body = card(t, &format!("Re-encrypt “{name}”"))
+        let body = card(t, &crate::trf!("Re-encrypt “{}”", name))
             .child(
                 div()
                     .flex()
@@ -2975,9 +3015,9 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             .child(kv(
                 "Recovery key",
                 if st.org.recovery_public.is_some() {
-                    div().text_color(t.success_text).child("Included")
+                    div().text_color(t.success_text).child(tr("Included"))
                 } else {
-                    div().text_color(t.text_muted).child("Not set")
+                    div().text_color(t.text_muted).child(tr("Not set"))
                 },
             ))
             .child(
@@ -2988,7 +3028,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     .gap(px(8.))
                     .cursor_pointer()
                     .child(check_box(t, backup_first))
-                    .child("Back up first")
+                    .child(tr("Back up first"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(r) = org_mut(this).and_then(|o| o.ui.rekey.as_mut()) {
                             r.backup_first = !r.backup_first;
@@ -3007,8 +3047,8 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         return Some(overlay(t, body));
     }
     if let Some((id, input)) = &o.ui.rename {
-        let body = card(t, &format!("Rename “{}”", o.space_name(*id)))
-            .child(field(t, "Name", Input::new(input).id("rename-space")))
+        let body = card(t, &crate::trf!("Rename “{}”", o.space_name(*id)))
+            .child(field(t, tr("Name"), Input::new(input).id("rename-space")))
             .child(actions(
                 t,
                 "rename-go",
@@ -3020,22 +3060,24 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
     }
     if let (Some(id), Some(st)) = (o.ui.delete_space, st) {
         let n = st.spaces.iter().find(|x| x.id == id).map_or(0, |x| x.items);
-        let body = card(t, &format!("Delete “{}”?", o.space_name(id)))
+        let body = card(t, &crate::trf!("Delete “{}”?", o.space_name(id)))
             .child(div().text_color(t.text_muted).child({
                 // Audit L-16: say whether a backup really keeps them.
                 let last = s
                     .vault
                     .path()
                     .and_then(|p| crate::org::org_backups(&p, &o.m).first().map(|b| b.2));
-                format!(
-                    "Its {n} item{} are erased for every member. {}",
+                crate::trf!(
+                    "Its {} item{} are erased for every member. {}",
+                    n,
                     if n == 1 { "" } else { "s" },
                     match last {
-                        Some(ts) => format!(
+                        Some(ts) => crate::trf!(
                             "The last backup of the organization, {}, keeps them.",
                             crate::format::date(ts)
                         ),
-                        None => "No backup of the organization was made on this computer.".into(),
+                        None =>
+                            tr("No backup of the organization was made on this computer.").into(),
                     }
                 )
             }))
@@ -3047,7 +3089,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     .gap(px(8.))
                     .child(
                         button("del-space-cancel", t, BtnKind::Default, false)
-                            .child("Cancel")
+                            .child(tr("Cancel"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(o) = org_mut(this) {
                                     o.ui.delete_space = None;
@@ -3058,7 +3100,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                     )
                     .child(
                         button("del-space-go", t, BtnKind::Danger, false)
-                            .child("Delete")
+                            .child(tr("Delete"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if let Some(o) = org_mut(this) {
                                     o.ui.delete_space = None;
@@ -3072,7 +3114,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
     }
     if let Some(p) = &o.ui.restore {
         let p = p.clone();
-        let body = card(t, "Restore the organization")
+        let body = card(t, tr("Restore the organization"))
             .child(div().text_color(t.text_muted).child(
                 "The server goes back to this backup. Changes made since are lost for every member.",
             ))
@@ -3098,7 +3140,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
 /// A join form with its boxes; changes of the address or code look the invitation up.
 pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, Vec<Subscription>) {
     let make = |ph: &str, window: &mut Window, cx: &mut Context<CleisApp>| {
-        let ph = ph.to_owned();
+        let ph = crate::i18n::tr_owned(ph);
         cx.new(|cx| InputState::new(window, cx).placeholder(ph))
     };
     let address = make("vault.example-studio.lan", window, cx);
@@ -3254,8 +3296,8 @@ impl CleisApp {
         if let Some(o) = s.org.as_ref()
             && (o.ui.search.is_none() || o.ui.log_search.is_none())
         {
-            let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
-            let log_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+            let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search")));
+            let log_search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search")));
             let subs = vec![
                 cx.observe(&search, |_, _, cx| cx.notify()),
                 cx.observe(&log_search, |_, _, cx| cx.notify()),
@@ -3341,7 +3383,7 @@ impl CleisApp {
             .as_ref()
             .is_some_and(|i| i.name.trim().is_empty());
         if need_name && name.trim().is_empty() {
-            s.join.error = Some("Enter your name".into());
+            s.join.error = Some(tr("Enter your name").into());
             cx.notify();
             return;
         }
@@ -3352,7 +3394,7 @@ impl CleisApp {
     }
 
     pub fn open_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let email = cx.new(|cx| InputState::new(window, cx).placeholder("name@example.com"));
+        let email = cx.new(|cx| InputState::new(window, cx).placeholder(tr("name@example.com")));
         let name = cx.new(|cx| InputState::new(window, cx));
         email.update(cx, |i, cx| i.focus(window, cx));
         if let Some(o) = org_mut(self) {
@@ -3374,7 +3416,7 @@ impl CleisApp {
         };
         let email = f.email.read(cx).value().trim().to_string();
         if !email.contains('@') {
-            f.error = Some("Enter an e-mail address".into());
+            f.error = Some(tr("Enter an e-mail address").into());
             cx.notify();
             return;
         }
@@ -3389,7 +3431,7 @@ impl CleisApp {
     }
 
     pub fn open_new_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Design"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Design")));
         name.update(cx, |i, cx| i.focus(window, cx));
         if let Some(o) = org_mut(self) {
             o.ui.new_space = Some(SpaceForm {
@@ -3415,7 +3457,7 @@ impl CleisApp {
     }
 
     pub fn open_new_role(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Contractor"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Contractor")));
         name.update(cx, |i, cx| i.focus(window, cx));
         if let Some(o) = org_mut(self) {
             o.ui.new_role = Some(RoleForm { name });
@@ -3487,7 +3529,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             if m == "place-sftp"
                 && let Some(Some(d)) = app.place_slot()
             {
-                d.host_key = Some("SHA256:pT4bW1x0c9QeRk2v7mZ3yJ5nL8aF6hD4sG1oU9QcE".into());
+                d.host_key = Some(tr("SHA256:pT4bW1x0c9QeRk2v7mZ3yJ5nL8aF6hD4sG1oU9QcE").into());
             }
         }
         "create-elsewhere" => {
@@ -3680,7 +3722,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         "server-email" => {
             if let Some(o) = org_mut(app) {
                 let mut c = crate::org::CodePrompt::new(Method::Email);
-                c.message = Some("Enter the code sent to l•••@example-studio.com.".into());
+                c.message = Some(tr("Enter the code sent to l•••@example-studio.com.").into());
                 o.code = Some(c);
             }
         }
@@ -3700,9 +3742,9 @@ pub fn demo_welcome(app: &mut CleisApp, window: &mut Window, cx: &mut Context<Cl
     if let crate::app::Phase::Welcome(w) = &mut app.phase {
         w.org = true;
         w.join.info = Some(InviteInfo {
-            org: "Example Studio".into(),
-            name: "Lea Martin".into(),
-            email: "lea@example-studio.com".into(),
+            org: tr("Example Studio").into(),
+            name: tr("Lea Martin").into(),
+            email: tr("lea@example-studio.com").into(),
         });
         let (a, c) = (w.join.address.clone(), w.join.code.clone());
         if let Some(a) = a {
@@ -3725,13 +3767,17 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return div();
     };
     let Some(me) = o.me() else {
-        return head(t, "Profile");
+        return head(t, tr("Profile"));
     };
     let role = o.role().map(|r| r.name.clone()).unwrap_or_default();
     let fp = cleis_crypto::fingerprint(&me.verify_key);
     let fp_copy = fp.clone();
     let mut identity = section(t)
-        .child(titled(t, &o.m.name, Some("Shown to the other members.")))
+        .child(titled(
+            t,
+            &o.m.name,
+            Some(tr("Shown to the other members.")),
+        ))
         .child(
             row(t, true)
                 .child(avatar(t, &initials(&me.name), 40.))
@@ -3755,11 +3801,11 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 div()
                     .flex()
                     .gap(px(16.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(field(t, "Name", Input::new(n).id("profile-name"))),
-                    )
+                    .child(div().flex_1().child(field(
+                        t,
+                        tr("Name"),
+                        Input::new(n).id("profile-name"),
+                    )))
                     .child(div().flex_1().child(field(
                         t,
                         "E-mail",
@@ -3769,7 +3815,7 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(
                 div().flex().justify_end().child(
                     button("profile-save", t, BtnKind::Primary, false)
-                        .child("Save")
+                        .child(tr("Save"))
                         .on_click(cx.listener(|this, _, _, cx| this.save_profile(cx)))
                         .test_support(),
                 ),
@@ -3779,18 +3825,18 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head(t, "Profile"))
+        .child(head(t, tr("Profile")))
         .child(identity)
         .child(
             section(t)
                 .child(titled(
                     t,
-                    "Account key",
-                    Some("Signs you in to the server; never leaves your vault."),
+                    tr("Account key"),
+                    Some(tr("Signs you in to the server; never leaves your vault.")),
                 ))
                 .child(
                     row(t, true)
-                        .child(div().flex_1().child("Fingerprint"))
+                        .child(div().flex_1().child(tr("Fingerprint")))
                         .child(
                             div()
                                 .font_family(FONT_MONO)
@@ -3799,7 +3845,7 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         )
                         .child(
                             icon_button("copy-account-fp", t, "copy", false)
-                                .tooltip(tip("Copy"))
+                                .tooltip(tip(tr("Copy")))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.copy(fp_copy.clone(), "Fingerprint", cx)
                                 })),
@@ -3811,25 +3857,25 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             div()
                                 .id("second-step")
                                 .flex_1()
-                                .tooltip(tip("Asked by the server at sign-in; the code on open (Security) is this computer's own"))
-                                .child("Two-step verification"),
+                                .tooltip(tip(tr("Asked by the server at sign-in; the code on open (Security) is this computer's own")))
+                                .child(tr("Two-step verification")),
                         )
                         .child(
                             div().text_color(t.text_muted).child(
                                 me.factor
-                                    .map_or("None".to_owned(), |m| m.label().to_owned()),
+                                    .map_or(tr("None").to_owned(), |m| tr(m.label()).to_owned()),
                             ),
                         )
                         .child(
                             button("second-step-set", t, BtnKind::Default, false)
-                                .child(if me.factor.is_some() {
+                                .child(tr(if me.factor.is_some() {
                                     "Change"
                                 } else {
                                     "Set up"
-                                })
+                                }))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if this.demo {
-                                        this.toast("Not in the demo", cx);
+                                        this.toast(tr("Not in the demo"), cx);
                                     } else {
                                         this.org_setup_prompt(cx);
                                     }
@@ -3853,32 +3899,37 @@ pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .text_color(t.text_muted)
             .font_weight(W_MEDIUM)
-            .child(div().flex_1().child("Device"))
-            .child(div().w(px(200.)).child("Last active"))
-            .child(div().w(px(180.)).child("Two-step verification"))
+            .child(div().flex_1().child(tr("Device")))
+            .child(div().w(px(200.)).child(tr("Last active")))
+            .child(div().w(px(180.)).child(tr("Two-step verification")))
             .child(div().w(px(100.))),
     );
     match &o.ui.devices {
         None => {
-            table = table.child(div().p(px(16.)).text_color(t.text_faint).child("Loading…"));
+            table = table.child(
+                div()
+                    .p(px(16.))
+                    .text_color(t.text_faint)
+                    .child(tr("Loading…")),
+            );
         }
         Some(list) => {
             for (i, d) in list.iter().enumerate() {
                 let name = d.device.clone();
                 let code = if d.current {
-                    chip(t, Tone::Ok, "This device", true)
+                    chip(t, Tone::Ok, tr("This device"), true)
                 } else if let Some(until) = d.remembered_until {
                     div()
-                        .child(chip(t, Tone::Neutral, "Remembered", false))
+                        .child(chip(t, Tone::Neutral, tr("Remembered"), false))
                         .id(SharedString::from(format!("dev-rem-{i}")))
-                        .tooltip(tip(format!(
+                        .tooltip(tip(crate::trf!(
                             "Code not asked until {}",
                             crate::format::date(until)
                         )))
                         .into_any_element()
                         .into_div()
                 } else {
-                    chip(t, Tone::Neutral, "Asked", false)
+                    chip(t, Tone::Neutral, tr("Asked"), false)
                 };
                 table = table.child(
                     cols(div())
@@ -3899,7 +3950,7 @@ pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 .w(px(200.))
                                 .text_color(t.text_muted)
                                 .child(if d.current {
-                                    "Now".to_owned()
+                                    tr("Now").to_owned()
                                 } else if d.last_active == 0 {
                                     "—".to_owned()
                                 } else {
@@ -3920,7 +3971,7 @@ pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                             BtnKind::Ghost,
                                             true,
                                         )
-                                        .child("Sign out")
+                                        .child(tr("Sign out"))
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.org_sign_out(name.clone(), cx)
                                         }))
@@ -3936,7 +3987,7 @@ pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(16.))
-        .child(head(t, "Devices"))
+        .child(head(t, tr("Devices")))
         .child(section(t).p_0().overflow_hidden().child(table))
 }
 
@@ -3954,7 +4005,7 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return div();
     };
     let Some(st) = o.state.as_ref() else {
-        return head(t, "Spaces");
+        return head(t, tr("Spaces"));
     };
     let cols = |d: Div| d.flex().items_center().gap(px(12.)).px(px(16.));
     let mut table = div().flex().flex_col().child(
@@ -3965,15 +4016,15 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .text_color(t.text_muted)
             .font_weight(W_MEDIUM)
-            .child(div().flex_1().child("Space"))
-            .child(div().w(px(80.)).flex().justify_end().child("Items"))
-            .child(div().w(px(200.)).child("Members"))
-            .child(div().w(px(140.)).child("Encryption"))
+            .child(div().flex_1().child(tr("Space")))
+            .child(div().w(px(80.)).flex().justify_end().child(tr("Items")))
+            .child(div().w(px(200.)).child(tr("Members")))
+            .child(div().w(px(140.)).child(tr("Encryption")))
             .child(
                 div()
                     .id("h-reserved")
                     .w(px(80.))
-                    .child("Reserved")
+                    .child(tr("Reserved"))
                     .tooltip(tip(
                         "Members changed by a Super Admin only; other admins do not see it",
                     )),
@@ -4026,8 +4077,8 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 )
                 .child(div().w(px(200.)).child(faces))
                 .child(div().w(px(140.)).flex().child(match sv.mode {
-                    SpaceMode::Standard => chip(t, Tone::Neutral, "Standard", false),
-                    SpaceMode::EndToEnd => chip(t, Tone::Ok, "End-to-end", false),
+                    SpaceMode::Standard => chip(t, Tone::Neutral, tr("Standard"), false),
+                    SpaceMode::EndToEnd => chip(t, Tone::Ok, tr("End-to-end"), false),
                 }))
                 .child(div().w(px(80.)).flex().child(if i_super {
                     div()
@@ -4076,7 +4127,7 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 "trash",
                                 true,
                             )
-                            .tooltip(tip("Delete"))
+                            .tooltip(tip(tr("Delete")))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if let Some(o) = org_mut(this) {
                                     o.ui.delete_space = Some(id);
@@ -4093,10 +4144,10 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex_col()
         .gap(px(16.))
         .child(
-            head(t, "Spaces").child(
+            head(t, tr("Spaces")).child(
                 button("spaces-new", t, BtnKind::Primary, false)
                     .child(icon("plus", 16., t.primary_ink))
-                    .child("New space")
+                    .child(tr("New space"))
                     .on_click(cx.listener(|this, _, window, cx| this.open_new_space(window, cx)))
                     .test_support(),
             ),
@@ -4136,7 +4187,7 @@ impl CleisApp {
             .rsplit_once(':')
             .is_some_and(|(h, p)| !h.is_empty() && !h.contains('/') && p.parse::<u16>().is_ok());
         if !ok {
-            self.toast("host:port, e.g. vault.example-studio.lan:8443", cx);
+            self.toast(tr("host:port, e.g. vault.example-studio.lan:8443"), cx);
             return;
         }
         let Some(s) = self.session() else { return };
@@ -4194,7 +4245,7 @@ impl CleisApp {
             req,
             |app, r, cx| {
                 if r.is_ok() {
-                    app.toast("Saved", cx);
+                    app.toast(tr("Saved"), cx);
                 }
             },
             cx,

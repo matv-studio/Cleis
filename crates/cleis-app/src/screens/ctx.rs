@@ -3,6 +3,7 @@
 //! closes it, and a "▸" row opens its submenu on hover.
 
 use crate::app::{CleisApp, FolderDialog, Session, Tab};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::org::{MemberChange, Perm};
@@ -44,7 +45,9 @@ const WIDTH: f32 = 240.;
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 /// Shortcut as written on this system ("Ctrl+D", "⌘D").
@@ -284,8 +287,8 @@ fn entry_menu(
                 "cx-copy-user",
                 t,
                 "user",
-                "Copy username",
-                Some("Ctrl+C"),
+                tr("Copy username"),
+                Some(tr("Ctrl+C")),
                 false,
             ),
             cx,
@@ -299,8 +302,8 @@ fn entry_menu(
                 "cx-copy-pass",
                 t,
                 "key",
-                "Copy password",
-                Some("Ctrl+Shift+C"),
+                tr("Copy password"),
+                Some(tr("Ctrl+Shift+C")),
                 false,
             ),
             cx,
@@ -313,8 +316,8 @@ fn entry_menu(
                 "cx-copy-totp",
                 t,
                 "totp",
-                "Copy 2FA code",
-                Some("Ctrl+Alt+C"),
+                tr("Copy 2FA code"),
+                Some(tr("Ctrl+Alt+C")),
                 false,
             ),
             cx,
@@ -331,7 +334,7 @@ fn entry_menu(
             format!("https://{url}")
         };
         r.row(act(
-            item("cx-open", t, "external", "Open website", None, false),
+            item("cx-open", t, "external", tr("Open website"), None, false),
             cx,
             move |_, _, cx| cx.open_url(&url),
         ));
@@ -358,8 +361,8 @@ fn entry_menu(
             "cx-duplicate",
             t,
             "copy",
-            "Duplicate",
-            Some("Ctrl+D"),
+            tr("Duplicate"),
+            Some(tr("Ctrl+D")),
             false,
         ),
         cx,
@@ -377,7 +380,14 @@ fn entry_menu(
     ));
     r.sep();
     r.row(act(
-        item("cx-trash", t, "trash", "Move to trash", Some("Del"), true),
+        item(
+            "cx-trash",
+            t,
+            "trash",
+            tr("Move to trash"),
+            Some(tr("Del")),
+            true,
+        ),
         cx,
         move |this, _, cx| this.trash_entry(id, cx),
     ));
@@ -395,7 +405,7 @@ fn entry_menu(
                 format!("cx-move-{to}"),
                 t,
                 Some(if reserved { "lock" } else { "folder" }),
-                sp.name.clone(),
+                crate::i18n::space(&sp.name),
                 false,
             );
             // Audit L-2: an organization's item does not leave the organization.
@@ -403,7 +413,7 @@ fn entry_menu(
             m = m.child(if from_org.is_some() && from_org != to_org {
                 el.opacity(0.45)
                     .cursor_default()
-                    .tooltip(tip("An organization's items stay in the organization"))
+                    .tooltip(tip(tr("An organization's items stay in the organization")))
                     .into_any_element()
             } else {
                 el.on_click(cx.listener(move |this, _, _, cx| {
@@ -422,7 +432,7 @@ fn entry_menu(
 fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div> {
     let sp = s.spaces.iter().find(|x| x.id == id)?;
     let mut r = Rows::new(t);
-    let new_here = item("cx-new-here", t, "plus", "New item here", None, false);
+    let new_here = item("cx-new-here", t, "plus", tr("New item here"), None, false);
     r.row(if s.may(id, Perm::Edit) {
         act(new_here, cx, move |this, window, cx| {
             if let Some(s) = this.session() {
@@ -439,7 +449,7 @@ fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) 
         let manage = s.org.as_ref().is_some_and(|o| o.can(Perm::Manage));
         if manage {
             r.row(act(
-                item("cx-rename", t, "text", "Rename", None, false),
+                item("cx-rename", t, "text", tr("Rename"), None, false),
                 cx,
                 move |this, window, cx| this.open_rename(id, window, cx),
             ));
@@ -453,18 +463,25 @@ fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) 
                 }
             };
             r.row(act(
-                item("cx-members", t, "users", "Members…", None, false),
+                item("cx-members", t, "users", tr("Members…"), None, false),
                 cx,
                 page("Members"),
             ));
             r.row(act(
-                item("cx-encryption", t, "key", "Encryption…", None, false),
+                item("cx-encryption", t, "key", tr("Encryption…"), None, false),
                 cx,
                 page("Encryption"),
             ));
             r.sep();
             r.row(act(
-                item("cx-delete-space", t, "trash", "Delete space", None, true),
+                item(
+                    "cx-delete-space",
+                    t,
+                    "trash",
+                    tr("Delete space"),
+                    None,
+                    true,
+                ),
                 cx,
                 move |this, _, cx| {
                     if let Some(o) = super::org::org_mut(this) {
@@ -476,14 +493,14 @@ fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) 
         }
     } else {
         r.row(act(
-            item("cx-rename", t, "text", "Rename", None, false),
+            item("cx-rename", t, "text", tr("Rename"), None, false),
             cx,
             move |this, window, cx| this.open_folder_rename(id, window, cx),
         ));
         if s.vault.home_space() != id {
             r.sep();
             r.row(act(
-                item("cx-delete-folder", t, "trash", "Delete", None, true),
+                item("cx-delete-folder", t, "trash", tr("Delete"), None, true),
                 cx,
                 move |this, _, cx| {
                     if let Some(s) = this.session() {
@@ -508,14 +525,14 @@ fn contact_menu(
     let mut r = Rows::new(t);
     let email = c.primary_email();
     let phone = c.primary_phone();
-    let mail = item("cx-mail", t, "mail", "Send e-mail", None, false);
+    let mail = item("cx-mail", t, "mail", tr("Send e-mail"), None, false);
     r.row(match email.clone() {
         Some(e) => act(mail, cx, move |_, _, cx| {
             cx.open_url(&format!("mailto:{e}"))
         }),
         None => off(mail, "No e-mail address", cx),
     });
-    let call = item("cx-call", t, "phone", "Call", None, false);
+    let call = item("cx-call", t, "phone", tr("Call"), None, false);
     r.row(match phone.clone() {
         Some(p) => act(call, cx, move |_, _, cx| {
             let n: String = p
@@ -563,7 +580,7 @@ fn contact_menu(
         },
     ));
     r.row(act(
-        item("cx-vcard", t, "download", "Export vCard", None, false),
+        item("cx-vcard", t, "download", tr("Export vCard"), None, false),
         cx,
         move |this, _, cx| this.export_vcard(vec![id], cx),
     ));
@@ -579,7 +596,14 @@ fn contact_menu(
     ));
     r.sep();
     r.row(act(
-        item("cx-delete-contact", t, "trash", "Delete", Some("Del"), true),
+        item(
+            "cx-delete-contact",
+            t,
+            "trash",
+            tr("Delete"),
+            Some(tr("Del")),
+            true,
+        ),
         cx,
         move |this, _, cx| this.ask_delete_contact(id, cx),
     ));
@@ -624,14 +648,16 @@ fn contact_menu(
                     format!("cx-move-{to}"),
                     t,
                     Some("folder"),
-                    sp.name.clone(),
+                    crate::i18n::space(&sp.name),
                     false,
                 );
                 let to_org = s.org_of(to).map(|o| o.m.key());
                 m = m.child(if from_org.is_some() && from_org != to_org {
                     el.opacity(0.45)
                         .cursor_default()
-                        .tooltip(tip("An organization's contacts stay in the organization"))
+                        .tooltip(tip(tr(
+                            "An organization's contacts stay in the organization",
+                        )))
                         .into_any_element()
                 } else {
                     el.on_click(cx.listener(move |this, _, _, cx| {
@@ -753,7 +779,7 @@ fn member_menu(
                 sm = sm.child(if locked {
                     el.opacity(0.45)
                         .cursor_default()
-                        .tooltip(tip("Reserved: a Super Admin changes its members"))
+                        .tooltip(tip(tr("Reserved: a Super Admin changes its members")))
                         .into_any_element()
                 } else {
                     el.on_click(cx.listener(move |this, _, _, cx| {

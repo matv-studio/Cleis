@@ -3,6 +3,7 @@
 use super::unlock::logo;
 use crate::app::{CleisApp, Filter, Phase, Session, Tab};
 use crate::format::{money, subscription_chip};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::column::{ColumnDef, ColumnKind};
@@ -20,6 +21,7 @@ pub fn render(
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement {
     let t = app.tokens(cx).clone();
+    app.refresh_language(window, cx);
     app.ensure_editor(window, cx);
     app.ensure_contact_editor(window, cx);
     app.ensure_org_inputs(window, cx);
@@ -188,18 +190,18 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
             ));
         }
     } else {
-        tabs.push((Tab::Vault, None, "tab-Vault".into(), "Vault".into()));
+        tabs.push((Tab::Vault, None, "tab-Vault".into(), tr("Vault").into()));
     }
     if s.prefs.tabs.contacts {
         tabs.push((
             Tab::Contacts,
             None,
             "tab-Contacts".into(),
-            "Contacts".into(),
+            tr("Contacts").into(),
         ));
     }
     if s.prefs.tabs.health {
-        tabs.push((Tab::Health, None, "tab-Health".into(), "Health".into()));
+        tabs.push((Tab::Health, None, "tab-Health".into(), tr("Health").into()));
     }
     // Activity exists only for an organisation (D-38): a personal vault has no log.
     if s.prefs.tabs.activity && s.all_orgs().any(|o| o.can(cleis_core::org::Perm::Audit)) {
@@ -207,14 +209,14 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
             Tab::Activity,
             None,
             "tab-Activity".into(),
-            "Activity".into(),
+            tr("Activity").into(),
         ));
     }
     tabs.push((
         Tab::Settings,
         None,
         "tab-Settings".into(),
-        "Settings".into(),
+        tr("Settings").into(),
     ));
     let mut nav = div().flex().items_end().h(TOPBAR_H);
     for (tab, scope, id, label) in tabs {
@@ -257,7 +259,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
         } else {
             el.text_color(t.text_muted)
         };
-        nav = nav.child(el.child(label).test_support());
+        nav = nav.child(el.child(crate::i18n::tr_owned(&label)).test_support());
     }
     let primary = match s.tab {
         Tab::Vault => Some(("new-item", "New item")),
@@ -313,7 +315,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                 .child(
                     icon_button("lock", t, "lock", false)
                         .tooltip(|window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new("Lock (Ctrl+L)")
+                            gpui_kit::component::tooltip::Tooltip::new(tr("Lock (Ctrl+L)"))
                                 .build(window, cx)
                         })
                         .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx)))
@@ -323,7 +325,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                     d.child(
                         button(id, t, BtnKind::Primary, false)
                             .child(icon("plus", 16., t.primary_ink))
-                            .child(label)
+                            .child(crate::i18n::tr_owned(label))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 if id == "new-item" {
                                     this.new_entry(window, cx);
@@ -348,31 +350,31 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
     let (dot, label, tip_text): (gpui_kit::Hsla, String, String) = match &s.org {
         None => (
             t.success_text,
-            "On this computer".into(),
-            "Personal vault, on this computer".into(),
+            tr("On this computer").into(),
+            tr("Personal vault, on this computer").into(),
         ),
         Some(o) if o.busy && o.local.last_ok.is_none() => (
             t.text_faint,
-            "Syncing…".into(),
-            format!("Reaching {}", o.m.address),
+            tr("Syncing…").into(),
+            crate::trf!("Reaching {}", o.m.address),
         ),
         Some(o) if o.error.is_some() || o.offline_locked => (
             t.warning_text,
-            "Offline".into(),
-            format!(
+            tr("Offline").into(),
+            crate::trf!(
                 "{} not reached{}",
                 o.m.address,
                 o.error
                     .as_ref()
-                    .map(|e| format!(": {e}"))
+                    .map(|e| format!(": {}", crate::i18n::tr_dynamic(e)))
                     .unwrap_or_default()
             ),
         ),
         Some(o) => (
             t.success_text,
-            "Synced".into(),
+            tr("Synced").into(),
             o.local.last_ok.map_or(String::new(), |ts| {
-                format!(
+                crate::trf!(
                     "Synced with {} · {}",
                     o.m.address,
                     crate::format::when(ts, cleis_core::now())
@@ -393,7 +395,7 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
             gpui_kit::component::tooltip::Tooltip::new(tip_text.clone()).build(window, cx)
         })
         .child(div().size(px(6.)).rounded_full().bg(dot))
-        .child(label)
+        .child(crate::i18n::tr_owned(&label))
         .when(s.org.is_some(), |d| {
             d.on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
         })
@@ -444,7 +446,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()
-                    .child(label),
+                    .child(crate::i18n::tr_owned(&label)),
             )
             .when_some(n, |d, n| {
                 d.child(
@@ -471,7 +473,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .text_color(t.text_muted)
             .font_weight(W_MEDIUM)
-            .child(label.to_owned())
+            .child(crate::i18n::tr_owned(label))
     };
     let mut d = div()
         .w(SIDEBAR_W)
@@ -487,7 +489,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(item(
             "f-all",
             "list",
-            "All items".into(),
+            tr("All items").into(),
             Some(count(&|_| true)),
             Filter::All,
             cx,
@@ -495,7 +497,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(item(
             "f-fav",
             "star",
-            "Favorites".into(),
+            tr("Favorites").into(),
             Some(count(&|e| e.favorite)),
             Filter::Favorites,
             cx,
@@ -503,7 +505,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(item(
             "f-renew",
             "clock",
-            "Renew soon".into(),
+            tr("Renew soon").into(),
             Some(count(&|e| {
                 e.subscription == cleis_core::Subscription::RenewSoon
             })),
@@ -536,7 +538,8 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             div().pt(px(8.)).child(
                 icon_button("new-folder-v", t, "plus", true)
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("New folder").build(window, cx)
+                        gpui_kit::component::tooltip::Tooltip::new(tr("New folder"))
+                            .build(window, cx)
                     })
                     .on_click(cx.listener(|this, _, window, cx| this.open_new_folder(window, cx)))
                     .test_support(),
@@ -562,7 +565,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(item(
                     &format!("sp-{}", sp.id),
                     if sp.id == home { "user" } else { "folder" },
-                    sp.name.clone(),
+                    crate::i18n::space(&sp.name),
                     Some(n),
                     Filter::Space(sp.id),
                     cx,
@@ -598,7 +601,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         let manage = o.can(cleis_core::org::Perm::Manage);
         let key = o.m.key();
         let title = if matches!(s.scope, Scope::Org(_)) {
-            "Spaces".to_owned()
+            tr("Spaces").to_owned()
         } else {
             o.m.name.clone()
         };
@@ -622,7 +625,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 true,
                             )
                             .tooltip(|window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new("New space")
+                                gpui_kit::component::tooltip::Tooltip::new(tr("New space"))
                                     .build(window, cx)
                             })
                             .on_click(cx.listener(move |this, _, window, cx| {
@@ -647,7 +650,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .child(item(
                         &format!("sp-{}", sp.id),
                         if reserved { "lock" } else { "folder" },
-                        sp.name.clone(),
+                        crate::i18n::space(&sp.name),
                         Some(n),
                         Filter::Space(sp.id),
                         cx,
@@ -659,13 +662,13 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     // without its organization): shown together in the single Vault tab.
     let orphans: Vec<_> = org.iter().filter(|sp| s.org_of(sp.id).is_none()).collect();
     if s.scope == Scope::All && !orphans.is_empty() {
-        d = d.child(group("Organization"));
+        d = d.child(group(tr("Organization")));
         for sp in orphans {
             let n = s.entries.iter().filter(|e| e.space == sp.id).count();
             d = d.child(item(
                 &format!("sp-{}", sp.id),
                 "folder",
-                sp.name.clone(),
+                crate::i18n::space(&sp.name),
                 Some(n),
                 Filter::Space(sp.id),
                 cx,
@@ -686,7 +689,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .text_color(t.text_muted)
                 .hover(|d| d.bg(t.surface_hover))
                 .child(icon("upload", 16., t.text_muted))
-                .child("Import")
+                .child(tr("Import"))
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(s) = this.session() {
                         s.tab = Tab::Settings;
@@ -699,7 +702,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(item(
             "f-trash",
             "trash",
-            "Trash".into(),
+            tr("Trash").into(),
             (!s.trash.is_empty()).then_some(s.trash.len()),
             Filter::Trash,
             cx,
@@ -800,7 +803,7 @@ fn row_cell(
                 .child(
                     icon_button(SharedString::from(format!("cu-{id}")), t, "copy", true)
                         .tooltip(|window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new("Copy username")
+                            gpui_kit::component::tooltip::Tooltip::new(tr("Copy username"))
                                 .build(window, cx)
                         })
                         .when(!selected, |d| {
@@ -829,7 +832,7 @@ fn row_cell(
             .child(
                 icon_button(SharedString::from(format!("cp-{id}")), t, "copy", true)
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("Copy password")
+                        gpui_kit::component::tooltip::Tooltip::new(tr("Copy password"))
                             .build(window, cx)
                     })
                     .when(!selected, |d| {
@@ -1059,7 +1062,7 @@ fn filter_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .text_size(TEXT_XS)
             .font_weight(W_MEDIUM)
             .text_color(t.text_muted)
-            .child(label.to_owned())
+            .child(crate::i18n::tr_owned(label))
     };
     let opt = |id: String, label: &str, on: bool, n: usize| {
         menu_item(id, t, None, label.to_owned(), false)
@@ -1129,7 +1132,7 @@ fn filter_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         );
     }
     m.child(div().h(px(1.)).my(px(4.)).bg(t.line)).child(
-        menu_item("vf-clear", t, Some("x"), "Clear filters", false)
+        menu_item("vf-clear", t, Some("x"), tr("Clear filters"), false)
             .on_click(cx.listener(|this, _, _, cx| {
                 if let Some(s) = this.session() {
                     s.vault_filter = Default::default();
@@ -1163,9 +1166,12 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         head = head.child(
             cell_box(c)
                 .when(c.id.0 == "name", |d| {
-                    d.text_color(t.text).child(format!("{} ↑", c.name))
+                    d.text_color(t.text)
+                        .child(format!("{} ↑", crate::i18n::tr_owned(&c.name)))
                 })
-                .when(c.id.0 != "name", |d| d.child(c.name.clone())),
+                .when(c.id.0 != "name", |d| {
+                    d.child(crate::i18n::tr_owned(&c.name))
+                }),
         );
     }
     let count = s.visible.len();
@@ -1280,8 +1286,8 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                                 })
                                 .child(icon("filter", 16., t.text_muted))
                                 .child(match s.vault_filter.count() {
-                                    0 => "Filter".to_owned(),
-                                    n => format!("Filter · {n}"),
+                                    0 => tr("Filter").to_owned(),
+                                    n => crate::trf!("Filter · {}", n),
                                 })
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if let Some(s) = this.session() {
@@ -1303,7 +1309,7 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                             button("columns", t, BtnKind::Ghost, false)
                                 .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
                                 .child(icon("columns", 16., t.text_muted))
-                                .child("Columns")
+                                .child(tr("Columns"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.toggle_columns_menu(cleis_core::column::Table::Vault, cx)
                                 }))
@@ -1330,11 +1336,11 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 .px(px(12.))
                 .text_size(TEXT_SM)
                 .text_color(t.text_muted)
-                .child(
-                    div()
-                        .flex_1()
-                        .child(format!("{count} item{}", if count == 1 { "" } else { "s" })),
-                )
+                .child(div().flex_1().child(crate::trf!(
+                    "{} item{}",
+                    count,
+                    if count == 1 { "" } else { "s" }
+                )))
                 .child(
                     div()
                         .font_weight(W_MEDIUM)
@@ -1408,7 +1414,7 @@ fn statusbar(s: &Session, t: &Tokens) -> Div {
                 .spaces
                 .iter()
                 .find(|sp| sp.id == e.space)
-                .map(|sp| sp.name.clone())
+                .map(|sp| crate::i18n::space(&sp.name))
                 .unwrap_or_default();
             format!("{sp} › {}", e.name)
         })
@@ -1440,14 +1446,14 @@ fn statusbar(s: &Session, t: &Tokens) -> Div {
                     .items_center()
                     .gap(px(6.))
                     .child(icon("shield", 14., t.text_muted))
-                    .child(if standard {
+                    .child(tr(if standard {
                         "Standard encryption"
                     } else {
                         "End-to-end encryption"
-                    }),
+                    })),
             )
         })
-        .child("Saved")
+        .child(tr("Saved"))
 }
 
 impl CleisApp {
@@ -1512,8 +1518,8 @@ impl CleisApp {
         e.touch(None);
         let result = s.vault.put_entry(e);
         s.toast = Some(match result {
-            Ok(()) => "Saved".into(),
-            Err(err) => format!("Not saved: {err}").into(),
+            Ok(()) => tr("Saved").into(),
+            Err(err) => crate::trf!("Not saved: {}", err).into(),
         });
         s.refilter();
         cx.notify();
@@ -1565,20 +1571,20 @@ impl CleisApp {
             return;
         };
         if !s.may(src.space, cleis_core::org::Perm::Edit) {
-            s.toast = Some("Your role does not allow adding here".into());
+            s.toast = Some(tr("Your role does not allow adding here").into());
             cx.notify();
             return;
         }
         let mut e = src.clone();
         e.id = EntryId::new();
-        e.name = format!("{} copy", src.name);
+        e.name = crate::trf!("{} copy", src.name);
         e.password_history.clear();
         e.linked_apps.clear();
         let t = cleis_core::now();
         e.created = t;
         e.updated = t;
         if let Err(err) = s.vault.put_entry(&e) {
-            s.toast = Some(format!("Not saved: {err}").into());
+            s.toast = Some(crate::trf!("Not saved: {}", err).into());
             return;
         }
         s.selected = Some(e.id);
@@ -1598,9 +1604,9 @@ impl CleisApp {
         // it is a new item there and an erasure here, so the members of the space left lose it.
         let org_key = |sp| s.org_of(sp).map(|o| o.m.key());
         let refusal = if s.is_org_space(from) && org_key(from) != org_key(to) {
-            Some("An organization's items stay in the organization")
+            Some(tr("An organization's items stay in the organization"))
         } else if !s.may(to, Perm::Edit) || !s.may(from, Perm::Delete) {
-            Some("Your role does not allow moving it")
+            Some(tr("Your role does not allow moving it"))
         } else {
             None
         };
@@ -1627,9 +1633,9 @@ impl CleisApp {
                     s.selected = Some(copy.id);
                     s.entries.push(copy);
                     s.editor = None;
-                    s.toast = Some("Moved".into());
+                    s.toast = Some(tr("Moved").into());
                 }
-                Err(err) => s.toast = Some(format!("Not moved: {err}").into()),
+                Err(err) => s.toast = Some(crate::trf!("Not moved: {}", err).into()),
             }
             s.refilter();
             cx.notify();
@@ -1642,10 +1648,10 @@ impl CleisApp {
         e.touch(None);
         // Same record, sealed again with the destination space's key.
         match s.vault.put_entry(e) {
-            Ok(()) => s.toast = Some("Moved".into()),
+            Ok(()) => s.toast = Some(tr("Moved").into()),
             Err(err) => {
                 e.space = from;
-                s.toast = Some(format!("Not moved: {err}").into());
+                s.toast = Some(crate::trf!("Not moved: {}", err).into());
             }
         }
         if let Some(ed) = s.editor.as_mut() {
@@ -1663,7 +1669,7 @@ impl CleisApp {
             .find(|e| e.id == id)
             .is_some_and(|e| !s.may(e.space, cleis_core::org::Perm::Delete))
         {
-            s.toast = Some("Your role does not allow deleting here".into());
+            s.toast = Some(tr("Your role does not allow deleting here").into());
             cx.notify();
             return;
         }
@@ -1674,9 +1680,9 @@ impl CleisApp {
                     s.trash.push(e);
                 }
                 s.editor = None;
-                s.toast = Some("Moved to trash".into());
+                s.toast = Some(tr("Moved to trash").into());
             }
-            Err(err) => s.toast = Some(format!("Not deleted: {err}").into()),
+            Err(err) => s.toast = Some(crate::trf!("Not deleted: {}", err).into()),
         }
         s.refilter();
         cx.notify();

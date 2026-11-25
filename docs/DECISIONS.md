@@ -475,6 +475,28 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   une place GitHub vise un dépôt ou une branche qui lui est réservé. Code : `remote::prune`
   (essais `prune_keeps_the_last_versions`, `prune_steps_back_when_the_branch_moved`).
 
+- **D-73 Traduction de l'interface** (25/11/2026, choix U-9) : le code garde l'anglais comme clé ;
+  `crates/cleis-app/i18n/fr.json` donne le français (environ 950 entrées). `i18n::tr` (texte
+  fixe), `trf!` (gabarit à `{}` ou `{N}`, l'ordre peut changer en français), `tr_owned` (texte
+  venu d'une constante), `tr_dynamic` (message fait ailleurs : erreurs du cœur, du coffre, du
+  serveur, avertissements d'import ; le gabarit qui colle le mieux gagne). Les composants
+  (`chip`, `segmented`, `field`, `menu_item`, info-bulles, boutons de confirmation) traduisent
+  eux-mêmes leur libellé. Pluriels : `élément{}` avec le même suffixe « s » qu'en anglais.
+  - Langue : Preferences › Language region, gardée dans le coffre et dans `appearance.json` (écran
+    de déverrouillage). Au premier lancement, la langue du système (`sys-locale`) ; un coffre
+    neuf prend la langue affichée. Un changement s'applique tout de suite : les cases de
+    l'inspecteur sont refaites, les placeholders des recherches changent.
+  - Données non traduites : noms d'espaces et de colonnes choisis par l'utilisateur ; seuls les
+    noms par défaut (« My vault », « My contacts », colonnes et rôles d'origine, types d'adresse
+    Work / Mobile…) le sont, à l'affichage. Le journal d'activité garde les clés anglaises
+    (`password`, `username`) : chaque membre les lit dans sa langue.
+  - Montants : forme `€69.99` conservée en français (le format monétaire régional reste à faire,
+    voir « En suspens » 15) ; la période (« / mois ») est traduite et relue par l'analyseur.
+  - Essai : `tests/lang.rs` (binaire à part, la langue est un réglage du processus) ; vérification
+    que chaque gabarit français garde les champs de l'anglais (`i18n::tests`). Captures :
+    `UI_LANG=fr design/tools/appshots.sh`.
+  - Le kit d'urgence (PDF) et la ligne de commande du serveur restent en anglais.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -488,3 +510,5 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).
 9. ~~Onglets de coffre~~ (D-69). L'essai à deux serveurs réels n'est pas demandé pour l'instant.
 10 à 14. ~~Choix de fin d'audit~~ (D-71).
+15. Format monétaire régional en français (`69,99 €`) : aujourd'hui `€69.99` dans les deux
+    langues (D-73).

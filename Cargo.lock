@@ -1270,6 +1270,7 @@ dependencies = [
  "russh-sftp",
  "serde",
  "serde_json",
+ "sys-locale",
  "tempfile",
  "tokio",
  "tray-icon",

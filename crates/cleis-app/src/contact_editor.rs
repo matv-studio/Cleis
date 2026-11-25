@@ -3,6 +3,7 @@
 //! red border and their message.
 
 use crate::app::{CleisApp, Phase, Tab};
+use crate::i18n::tr;
 use cleis_core::ContactId;
 use cleis_core::contact_edit::{self, Applied, Field, List};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
@@ -60,8 +61,9 @@ impl CleisApp {
             return;
         }
         if s.contacts_ui.search.is_none() {
-            let st =
-                cx.new(|cx| InputState::new(window, cx).placeholder("Search name, company, phone"));
+            let st = cx.new(|cx| {
+                InputState::new(window, cx).placeholder(tr("Search name, company, phone"))
+            });
             let sub = cx.subscribe_in(&st, window, |this, input, ev: &InputEvent, _, cx| {
                 if let (InputEvent::Change, Phase::Main(s)) = (ev, &mut this.phase) {
                     s.contacts_ui.query = input.read(cx).value().to_string();
@@ -121,7 +123,7 @@ impl CleisApp {
         for (f, v) in values {
             let st = cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder(placeholder(f))
+                    .placeholder(tr(placeholder(f)))
                     .default_value(v)
             });
             subs.push(
@@ -138,7 +140,7 @@ impl CleisApp {
         for (col, v) in custom_cols {
             let st = cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder(crate::editor::custom_placeholder(&col.kind))
+                    .placeholder(tr(crate::editor::custom_placeholder(&col.kind)))
                     .default_value(v)
             });
             let cid = col.id.clone();
@@ -154,7 +156,7 @@ impl CleisApp {
         let notes = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
-                .placeholder("Notes")
+                .placeholder(tr("Notes"))
                 .default_value(notes_text)
         });
         subs.push(
@@ -162,7 +164,7 @@ impl CleisApp {
                 this.on_contact_event(Field::Notes, ev, cx);
             }),
         );
-        let label = cx.new(|cx| InputState::new(window, cx).placeholder("New label"));
+        let label = cx.new(|cx| InputState::new(window, cx).placeholder(tr("New label")));
         subs.push(
             cx.subscribe_in(&label, window, |this, input, ev: &InputEvent, _, cx| {
                 if let InputEvent::PressEnter { .. } = ev {
@@ -234,8 +236,8 @@ impl CleisApp {
                 ed.errors.remove(&f);
                 let saved = s.vault.put_contact(c);
                 s.toast = Some(match saved {
-                    Ok(()) => "Saved".into(),
-                    Err(e) => format!("Not saved: {e}").into(),
+                    Ok(()) => tr("Saved").into(),
+                    Err(e) => crate::trf!("Not saved: {}", e).into(),
                 });
                 if r == Applied::Removed {
                     // Rows moved up: rebuild the boxes.
@@ -243,7 +245,8 @@ impl CleisApp {
                 }
             }
             Err(e) => {
-                ed.errors.insert(f, e.to_string().into());
+                ed.errors
+                    .insert(f, crate::i18n::tr_dynamic(&e.to_string()).into());
             }
         }
         cx.notify();
@@ -276,8 +279,8 @@ impl CleisApp {
                     };
                     c.updated = cleis_core::now();
                     s.toast = Some(match s.vault.put_contact(c) {
-                        Ok(()) => "Saved".into(),
-                        Err(e) => format!("Not saved: {e}").into(),
+                        Ok(()) => tr("Saved").into(),
+                        Err(e) => crate::trf!("Not saved: {}", e).into(),
                     });
                 }
             }
@@ -305,7 +308,7 @@ impl CleisApp {
         let focus = f(c);
         c.updated = cleis_core::now();
         if let Err(e) = s.vault.put_contact(c) {
-            s.toast = Some(format!("Not saved: {e}").into());
+            s.toast = Some(crate::trf!("Not saved: {}", e).into());
         }
         s.contacts_ui.editor = None;
         s.contacts_ui.focus_next = focus;

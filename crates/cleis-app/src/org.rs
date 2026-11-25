@@ -8,6 +8,7 @@
 //! applied to the vault on the interface thread ([`CleisApp::org_done`]).
 
 use crate::app::{CleisApp, Phase, Session};
+use crate::i18n::tr;
 use cleis_core::org::*;
 use cleis_core::{Entry, MemberId, SpaceId};
 use cleis_crypto::{KeyPair, PublicKey, SigningKeyPair, SymmetricKey, hex, wrap_key};
@@ -146,7 +147,7 @@ pub fn device_name() -> String {
                 .ok()
                 .map(|s| s.trim().to_owned())
         })
-        .unwrap_or_else(|| "Computer".into());
+        .unwrap_or_else(|| tr("Computer").into());
     let os = match std::env::consts::OS {
         "windows" => "Windows",
         "macos" => "macOS",
@@ -241,7 +242,7 @@ impl Conn {
                     r.status,
                     serde_json::from_slice(&r.body).unwrap_or(ApiError {
                         error: "http".into(),
-                        message: format!("HTTP {}", r.status),
+                        message: crate::trf!("HTTP {}", r.status),
                     }),
                 ))
             }
@@ -362,7 +363,7 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
                 },
             },
             Some("revoked") => Outcome::Revoked,
-            Some("setup_code") => Outcome::Failed("Set up your verification code".into()),
+            Some("setup_code") => Outcome::Failed(tr("Set up your verification code").into()),
             _ => Outcome::Failed(e.to_string()),
         },
     }
@@ -504,14 +505,14 @@ impl OrgSession {
             .as_ref()
             .and_then(|s| s.members.iter().find(|m| m.id == id))
             .map(|m| m.name.clone())
-            .unwrap_or_else(|| "Former member".into())
+            .unwrap_or_else(|| tr("Former member").into())
     }
 
     pub fn space_name(&self, id: SpaceId) -> String {
         self.names
             .get(&id)
             .cloned()
-            .unwrap_or_else(|| "Space".into())
+            .unwrap_or_else(|| tr("Space").into())
     }
 
     /// Opens an activity detail: with the organization key, or the Super Admin key for reserved
@@ -796,8 +797,8 @@ impl CleisApp {
             this.update(cx, |app, cx| {
                 app.toast(
                     match r {
-                        Ok(()) => "The server now starts with the system".to_owned(),
-                        Err(e) => format!("Not installed: {e}"),
+                        Ok(()) => tr("The server now starts with the system").to_owned(),
+                        Err(e) => crate::trf!("Not installed: {}", e),
                     },
                     cx,
                 )
@@ -952,7 +953,7 @@ impl CleisApp {
                     }
                     None => {
                         let mut c = CodePrompt::new(Method::AuthenticatorApp);
-                        c.error = wrong.then(|| "Wrong code".into());
+                        c.error = wrong.then(|| tr("Wrong code").into());
                         c.message = message;
                         o.code = Some(c);
                     }
@@ -989,7 +990,7 @@ impl CleisApp {
                 save_memberships(s);
                 remove_local(&path, &key);
                 let _ = crate::sync::reload(s);
-                s.toast = Some(format!("Removed from {name}").into());
+                s.toast = Some(crate::trf!("Removed from {}", name).into());
             }
             Outcome::Failed(e) => {
                 o.error = Some(e);
@@ -1290,7 +1291,7 @@ impl CleisApp {
                             if method == Method::AuthenticatorApp {
                                 c.secret = Some(setup.secret);
                             } else {
-                                c.message = Some(format!("Code sent to {}", setup.sent_to));
+                                c.message = Some(crate::trf!("Code sent to {}", setup.sent_to));
                             }
                         }
                         Err(e) => c.error = Some(e.into()),
@@ -1310,7 +1311,7 @@ impl CleisApp {
         let email = o.me().map(|m| m.email.clone()).unwrap_or_default();
         let Some(c) = o.code.as_mut() else { return };
         let Some(p) = c.providers.iter().find(|p| p.method == c.method).cloned() else {
-            c.error = Some(format!("{} is not set up on the server", c.method.label()).into());
+            c.error = Some(crate::trf!("{} is not set up on the server", c.method.label()).into());
             cx.notify();
             return;
         };
@@ -1369,7 +1370,7 @@ impl CleisApp {
                             if let Some(o) = app.session().and_then(|s| s.org.as_mut()) {
                                 o.code = None;
                             }
-                            app.toast("Two-step verification set up", cx);
+                            app.toast(tr("Two-step verification set up"), cx);
                             app.org_sync(None, cx);
                         }
                         Err(e) => app.org_identity_failed(e, cx),
@@ -1404,7 +1405,7 @@ impl CleisApp {
         };
         let typed = input.read(cx).value().to_string();
         if typed.chars().filter(char::is_ascii_digit).count() != 6 {
-            c.error = Some("Six digits".into());
+            c.error = Some(tr("Six digits").into());
             cx.notify();
             return;
         }
@@ -1419,12 +1420,12 @@ impl CleisApp {
                             // The session stays: the server lifted its set-up restriction.
                             Ok(_) => {
                                 o.code = None;
-                                app.toast("Two-step verification set up", cx);
+                                app.toast(tr("Two-step verification set up"), cx);
                             }
                             Err(_) => {
                                 if let Some(c) = o.code.as_mut() {
                                     c.busy = false;
-                                    c.error = Some("Wrong code".into());
+                                    c.error = Some(tr("Wrong code").into());
                                 }
                             }
                         }
@@ -1442,7 +1443,7 @@ impl CleisApp {
     pub fn org_cancel_code(&mut self, cx: &mut Context<Self>) {
         if let Some(o) = self.session().and_then(|s| s.org.as_mut()) {
             o.code = None;
-            o.error = Some("Not signed in".into());
+            o.error = Some(tr("Not signed in").into());
         }
         cx.notify();
     }
@@ -1489,7 +1490,7 @@ impl CleisApp {
                 {
                     s.settings_page = "Server";
                 }
-                self.toast(format!("Joined {name}"), cx);
+                self.toast(crate::trf!("Joined {}", name), cx);
             }
             Err(e) => {
                 if let Some(s) = self.session() {
@@ -1516,7 +1517,7 @@ impl CleisApp {
             if s.tab == crate::app::Tab::Settings && s.org.is_none() {
                 s.settings_page = "Organization";
             }
-            s.toast = Some(format!("Left {}", o.m.name).into());
+            s.toast = Some(crate::trf!("Left {}", o.m.name).into());
         }
         cx.notify();
     }
@@ -1550,7 +1551,7 @@ impl CleisApp {
             IdOnly { id: member.0 },
             |app, r, cx| {
                 if r.is_ok() {
-                    app.toast("Super Admin transferred", cx);
+                    app.toast(tr("Super Admin transferred"), cx);
                 }
             },
             cx,
@@ -1636,7 +1637,7 @@ impl CleisApp {
             IdOnly { id: member.0 },
             |app, r, cx| {
                 if r.is_ok() {
-                    app.toast("Removed · re-encrypt its spaces", cx);
+                    app.toast(tr("Removed · re-encrypt its spaces"), cx);
                 }
             },
             cx,
@@ -1650,7 +1651,7 @@ impl CleisApp {
             IdOnly { id: member.0 },
             |app, r, cx| {
                 if r.is_ok() {
-                    app.toast("Two-step verification reset", cx);
+                    app.toast(tr("Two-step verification reset"), cx);
                 }
             },
             cx,
@@ -1664,7 +1665,7 @@ impl CleisApp {
             IdOnly { id: member.0 },
             |app, r, cx| {
                 if r.is_ok() {
-                    app.toast("Signed out everywhere", cx);
+                    app.toast(tr("Signed out everywhere"), cx);
                 }
             },
             cx,
@@ -1810,7 +1811,7 @@ impl CleisApp {
             return;
         };
         let Some(mut info) = s.spaces.iter().find(|x| x.id == space).cloned() else {
-            self.toast("Sync first: this space's key is not here yet", cx);
+            self.toast(tr("Sync first: this space's key is not here yet"), cx);
             return;
         };
         info.mode = match mode {
@@ -1872,7 +1873,7 @@ impl CleisApp {
                         o.ui.rekey = None;
                         o.ui.reserve_after.take()
                     });
-                    s.toast = Some("Re-encrypted".into());
+                    s.toast = Some(tr("Re-encrypted").into());
                     if let Some(id) = reserve {
                         app.org_reserve(id, true, cx);
                     }
@@ -1906,7 +1907,7 @@ impl CleisApp {
         let dir = directories::UserDirs::new()
             .and_then(|u| u.document_dir().map(Path::to_path_buf))
             .unwrap_or_else(std::env::temp_dir);
-        let rx = cx.prompt_for_new_path(&dir, Some(&format!("{name} recovery key.txt")));
+        let rx = cx.prompt_for_new_path(&dir, Some(&crate::trf!("{} recovery key.txt", name)));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
                 this.update(cx, |app, cx| app.org_recovery_to(&path, cx))
@@ -1927,7 +1928,7 @@ impl CleisApp {
             recovery_text(&kp)
         );
         if let Err(e) = std::fs::write(path, text) {
-            s.toast = Some(format!("Not saved: {e}").into());
+            s.toast = Some(crate::trf!("Not saved: {}", e).into());
             cx.notify();
             return;
         }
@@ -1951,7 +1952,7 @@ impl CleisApp {
             },
             |app, r, cx| {
                 if r.is_ok() {
-                    app.toast("Recovery key saved", cx);
+                    app.toast(tr("Recovery key saved"), cx);
                 }
             },
             cx,
@@ -1965,7 +1966,7 @@ impl CleisApp {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Use recovery key".into()),
+            prompt: Some(tr("Use recovery key").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await
@@ -1983,7 +1984,7 @@ impl CleisApp {
             .ok()
             .and_then(|t| parse_recovery(&t))
         else {
-            self.toast("Not a Cleis recovery key", cx);
+            self.toast(tr("Not a Cleis recovery key"), cx);
             return;
         };
         let Some(s) = self.session() else { return };
@@ -2011,7 +2012,7 @@ impl CleisApp {
         }
         let n = wraps.len();
         if n == 0 {
-            self.toast("Nobody is waiting for a space this key opens", cx);
+            self.toast(tr("Nobody is waiting for a space this key opens"), cx);
             return;
         }
         self.org_request::<_, PushReply>(
@@ -2019,7 +2020,7 @@ impl CleisApp {
             Grants { wraps },
             move |app, r, cx| {
                 if r.is_ok() {
-                    app.toast(format!("Access restored · {n}"), cx);
+                    app.toast(crate::trf!("Access restored · {}", n), cx);
                 }
             },
             cx,
@@ -2033,7 +2034,7 @@ impl CleisApp {
             |app, r, cx| {
                 if let Ok(info) = r {
                     app.org_trust_next(&info);
-                    app.toast("New server key announced", cx);
+                    app.toast(tr("New server key announced"), cx);
                 }
             },
             cx,
@@ -2204,10 +2205,10 @@ impl CleisApp {
                         st.integrity = Some(i.clone());
                     }
                     if i.intact {
-                        app.toast(format!("Log intact · {} events", i.checked), cx);
+                        app.toast(crate::trf!("Log intact · {} events", i.checked), cx);
                     } else {
                         app.toast_for(
-                            format!("Log altered: {}", i.problem.unwrap_or_default()),
+                            crate::trf!("Log altered: {}", i.problem.unwrap_or_default()),
                             8,
                             cx,
                         );
@@ -2241,7 +2242,7 @@ impl CleisApp {
                     if d.field.is_empty() {
                         d.item
                     } else {
-                        format!("{} · {}", d.item, d.field)
+                        format!("{} · {}", d.item, crate::i18n::tr_owned(&d.field))
                     }
                 })
                 .unwrap_or_else(|| e.note.clone());
@@ -2263,7 +2264,7 @@ impl CleisApp {
         let dir = directories::UserDirs::new()
             .and_then(|u| u.document_dir().map(Path::to_path_buf))
             .unwrap_or_else(std::env::temp_dir);
-        let name = format!("{} activity.csv", o.m.name);
+        let name = crate::trf!("{} activity.csv", o.m.name);
         let rx = cx.prompt_for_new_path(&dir, Some(&name));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
@@ -2271,8 +2272,8 @@ impl CleisApp {
                 this.update(cx, |app, cx| {
                     app.toast(
                         match r {
-                            Ok(_) => "Exported".to_owned(),
-                            Err(e) => format!("Not exported: {e}"),
+                            Ok(_) => tr("Exported").to_owned(),
+                            Err(e) => crate::trf!("Not exported: {}", e),
                         },
                         cx,
                     )
@@ -2324,7 +2325,7 @@ impl CleisApp {
             // A copy at the place chosen (GitHub, SFTP): sealed, like the local one.
             if let Some((place, secret)) = copy {
                 crate::remote::upload(&place.file(&name), &secret, &file, None)
-                    .map_err(|e| format!("kept here, not copied ({e})"))?;
+                    .map_err(|e| crate::trf!("kept here, not copied ({})", e))?;
             }
             Ok::<usize, String>(bytes.len())
         });
@@ -2334,9 +2335,12 @@ impl CleisApp {
                 app.toast(
                     match r {
                         Ok(n) => {
-                            format!("Organization backed up · {}", crate::format::size(n as u64))
+                            crate::trf!(
+                                "Organization backed up · {}",
+                                crate::format::size(n as u64)
+                            )
                         }
-                        Err(e) => format!("Not backed up: {e}"),
+                        Err(e) => crate::trf!("Not backed up: {}", e),
                     },
                     cx,
                 );
@@ -2353,8 +2357,8 @@ impl CleisApp {
             .and_then(|k| open_backup(&k, &path))
             .map(|b| b.len());
         let msg = match r {
-            Ok(n) => format!("Backup readable · {}", crate::format::size(n as u64)),
-            Err(e) => format!("Backup unreadable: {e}"),
+            Ok(n) => crate::trf!("Backup readable · {}", crate::format::size(n as u64)),
+            Err(e) => crate::trf!("Backup unreadable: {}", e),
         };
         self.toast(msg, cx);
     }
@@ -2364,7 +2368,7 @@ impl CleisApp {
         let bytes = match backup_key(&s.vault).and_then(|k| open_backup(&k, &path)) {
             Ok(b) => b,
             Err(e) => {
-                s.toast = Some(format!("Backup unreadable: {e}").into());
+                s.toast = Some(crate::trf!("Backup unreadable: {}", e).into());
                 cx.notify();
                 return;
             }
@@ -2386,8 +2390,8 @@ impl CleisApp {
                 }
                 app.toast(
                     match r {
-                        Ok(_) => "Organization restored".to_owned(),
-                        Err(e) => format!("Not restored: {e}"),
+                        Ok(_) => tr("Organization restored").to_owned(),
+                        Err(e) => crate::trf!("Not restored: {}", e),
                     },
                     cx,
                 );
@@ -2415,7 +2419,7 @@ impl CleisApp {
         let dir = directories::UserDirs::new()
             .and_then(|u| u.document_dir().map(Path::to_path_buf))
             .unwrap_or_else(std::env::temp_dir);
-        let rx = cx.prompt_for_new_path(&dir, Some(&format!("{name} backup key.txt")));
+        let rx = cx.prompt_for_new_path(&dir, Some(&crate::trf!("{} backup key.txt", name)));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
                 let r = std::fs::write(&path, text);
@@ -2464,9 +2468,9 @@ fn backup_key(vault: &cleis_store::Vault) -> Result<SymmetricKey, String> {
 fn open_backup(key: &SymmetricKey, path: &Path) -> Result<Vec<u8>, String> {
     let sealed = std::fs::read(path).map_err(|e| e.to_string())?;
     let bytes = cleis_crypto::open(key, BACKUP_CONTEXT, &sealed)
-        .map_err(|_| "wrong backup key".to_owned())?;
+        .map_err(|_| tr("wrong backup key").to_owned())?;
     if !bytes.starts_with(b"SQLite format 3") {
-        return Err("not a server file".into());
+        return Err(tr("not a server file").into());
     }
     Ok(bytes)
 }

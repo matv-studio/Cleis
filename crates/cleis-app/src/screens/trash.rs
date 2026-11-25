@@ -2,6 +2,7 @@
 //! file erases them for real (`secure_delete`).
 
 use crate::app::{CleisApp, Confirm, ConfirmAction, Session};
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
@@ -42,7 +43,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::Default,
                         true,
                     )
-                    .child("Restore")
+                    .child(tr("Restore"))
                     .on_click(cx.listener(move |this, _, _, cx| this.restore_entry(id, cx)))
                     .test_support(),
                 )
@@ -53,14 +54,14 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         BtnKind::DangerGhost,
                         true,
                     )
-                    .child("Delete")
+                    .child(tr("Delete"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.ask(
                             Confirm {
-                                title: format!("Delete “{name}” for good?").into(),
+                                title: crate::trf!("Delete “{}” for good?", name).into(),
                                 body: "It is erased from this computer and cannot be restored."
                                     .into(),
-                                button: "Delete".into(),
+                                button: tr("Delete").into(),
                                 action: ConfirmAction::PurgeEntry(id),
                             },
                             cx,
@@ -86,22 +87,23 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .gap(px(8.))
                 .border_b_1()
                 .border_color(t.line)
-                .child(div().flex_1().font_weight(W_MEDIUM).child("Trash"))
+                .child(div().flex_1().font_weight(W_MEDIUM).child(tr("Trash")))
                 .when(n > 0, |d| {
                     d.child(
                         button("empty-trash", t, BtnKind::DangerGhost, true)
-                            .child("Empty trash")
+                            .child(tr("Empty trash"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.ask(
                                     Confirm {
-                                        title: format!(
-                                            "Delete {n} item{} for good?",
+                                        title: crate::trf!(
+                                            "Delete {} item{} for good?",
+                                            n,
                                             if n == 1 { "" } else { "s" }
                                         )
                                         .into(),
                                         body: "They are erased from this computer and cannot be restored."
                                             .into(),
-                                        button: "Empty trash".into(),
+                                        button: tr("Empty trash").into(),
                                         action: ConfirmAction::EmptyTrash,
                                     },
                                     cx,
@@ -122,7 +124,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         div()
                             .p(px(24.))
                             .text_color(t.text_muted)
-                            .child("The trash is empty"),
+                            .child(tr("The trash is empty")),
                     )
                 }),
         )
@@ -144,9 +146,13 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .text_size(TEXT_LG)
                         .font_weight(W_MEDIUM)
-                        .child(c.title.clone()),
+                        .child(crate::i18n::tr_dynamic(&c.title)),
                 )
-                .child(div().text_color(t.text_muted).child(c.body.clone()))
+                .child(
+                    div()
+                        .text_color(t.text_muted)
+                        .child(crate::i18n::tr_dynamic(&c.body)),
+                )
                 .child(
                     div()
                         .pt(px(8.))
@@ -158,7 +164,7 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             button("confirm-cancel", t, BtnKind::Default, false)
                                 .border_2()
                                 .border_color(t.focus)
-                                .child("Cancel")
+                                .child(tr("Cancel"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if let Some(s) = this.session() {
                                         s.confirm = None;
@@ -169,7 +175,7 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         )
                         .child(
                             button("confirm-ok", t, BtnKind::Danger, false)
-                                .child(c.button.clone())
+                                .child(crate::i18n::tr_dynamic(&c.button))
                                 .on_click(cx.listener(|this, _, _, cx| this.confirmed(cx)))
                                 .test_support(),
                         ),
@@ -200,33 +206,33 @@ impl CleisApp {
         let org = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
         let (title, body, button) = match action {
             A::RemoveMember(id) => (
-                format!("Remove {}?", member(id)),
+                crate::trf!("Remove {}?", member(id)),
                 "Their access ends on every device. Re-encrypt the spaces they could open."
                     .to_owned(),
                 "Remove",
             ),
             A::TransferSuper(id) => (
-                format!("Transfer Super Admin to {}?", member(id)),
-                "You become Admin.".to_owned(),
+                crate::trf!("Transfer Super Admin to {}?", member(id)),
+                tr("You become Admin.").to_owned(),
                 "Transfer",
             ),
             A::MakeSuper(id) => (
-                format!("Make {} Super Admin?", member(id)),
-                "They can do everything, including taking this role from you.".to_owned(),
+                crate::trf!("Make {} Super Admin?", member(id)),
+                tr("They can do everything, including taking this role from you.").to_owned(),
                 "Make Super Admin",
             ),
             A::ResetStep(id) => (
-                format!("Reset two-step verification for {}?", member(id)),
-                "They are signed out and set it up again at their next sign-in.".to_owned(),
+                crate::trf!("Reset two-step verification for {}?", member(id)),
+                tr("They are signed out and set it up again at their next sign-in.").to_owned(),
                 "Reset",
             ),
             A::SignOutMember(id) => (
-                format!("Sign {} out everywhere?", member(id)),
-                "Every device asks them to sign in again.".to_owned(),
+                crate::trf!("Sign {} out everywhere?", member(id)),
+                tr("Every device asks them to sign in again.").to_owned(),
                 "Sign out",
             ),
             A::RevokeInvite(id) => (
-                format!(
+                crate::trf!(
                     "Revoke the invitation to {}?",
                     s.org
                         .as_ref()
@@ -235,23 +241,24 @@ impl CleisApp {
                         .map(|i| i.email.clone())
                         .unwrap_or_default()
                 ),
-                "Its code stops working.".to_owned(),
+                tr("Its code stops working.").to_owned(),
                 "Revoke",
             ),
             A::LeaveOrg => (
-                format!("Leave {org}?"),
+                crate::trf!("Leave {}?", org),
                 "Its spaces are removed from this vault. Joining again needs a new invitation."
                     .to_owned(),
                 "Leave",
             ),
             A::RotateKey => (
-                "Rotate the server key?".to_owned(),
-                "The new key is used after the server's next restart, 7 days from now.".to_owned(),
+                tr("Rotate the server key?").to_owned(),
+                tr("The new key is used after the server's next restart, 7 days from now.")
+                    .to_owned(),
                 "Rotate",
             ),
             A::DisconnectPlace => (
-                format!("Disconnect {}?", s.sync.provider.name()),
-                "This device stops syncing there. The copy already there is kept.".to_owned(),
+                crate::trf!("Disconnect {}?", s.sync.provider.name()),
+                tr("This device stops syncing there. The copy already there is kept.").to_owned(),
                 "Disconnect",
             ),
             _ => return,
@@ -280,7 +287,7 @@ impl CleisApp {
             ConfirmAction::PurgeEntry(id) => {
                 if s.vault.purge_entry(id).is_ok() {
                     s.trash.retain(|e| e.id != id);
-                    s.toast = Some("Deleted".into());
+                    s.toast = Some(tr("Deleted").into());
                 }
             }
             ConfirmAction::DeleteContact(id) => {
@@ -312,9 +319,9 @@ impl CleisApp {
                     }
                 }
                 s.toast = Some(if failed == 0 {
-                    "Trash emptied".into()
+                    tr("Trash emptied").into()
                 } else {
-                    format!("{failed} item(s) could not be deleted").into()
+                    crate::trf!("{} item(s) could not be deleted", failed).into()
                 });
             }
         }
@@ -331,9 +338,9 @@ impl CleisApp {
                     s.entries.push(e);
                     s.refilter();
                 }
-                s.toast = Some("Restored".into());
+                s.toast = Some(tr("Restored").into());
             }
-            Err(err) => s.toast = Some(format!("Not restored: {err}").into()),
+            Err(err) => s.toast = Some(crate::trf!("Not restored: {}", err).into()),
         }
         cx.notify();
     }

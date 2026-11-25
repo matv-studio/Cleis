@@ -4,6 +4,7 @@
 use crate::app::{CleisApp, Session};
 use crate::editor::{EntryEditor, Menu};
 use crate::format::subscription_chip;
+use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::column::ColumnKind;
@@ -19,7 +20,9 @@ use gpui_kit::{AnyElement, Context, Div, Hsla, SharedString, div, px};
 fn tip(
     text: &'static str,
 ) -> impl Fn(&mut gpui_kit::Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
-    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+    move |window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text)).build(window, cx)
+    }
 }
 
 /// Strength bars under the password (charter: four bars).
@@ -80,11 +83,11 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
         .spaces
         .iter()
         .find(|sp| sp.id == e.space)
-        .map(|sp| sp.name.clone())
+        .map(|sp| crate::i18n::space(&sp.name))
         .unwrap_or_default();
     let copy = |key: &str, value: String, what: &'static str, cx: &mut Context<CleisApp>| {
         icon_button(SharedString::from(format!("{key}-{id}")), t, "copy", true)
-            .tooltip(tip("Copy"))
+            .tooltip(tip(tr("Copy")))
             .on_click(cx.listener(move |this, _, _, cx| this.copy_of(id, value.clone(), what, cx)))
     };
     let input = |f: Field| ed.inputs.get(&f).cloned();
@@ -102,7 +105,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
         .top(px(30.))
         .right_0()
         .child(
-            menu_item("menu-duplicate", t, Some("copy"), "Duplicate", false)
+            menu_item("menu-duplicate", t, Some("copy"), tr("Duplicate"), false)
                 .on_click(cx.listener(move |this, _, _, cx| this.duplicate_entry(id, cx)))
                 .test_support(),
         )
@@ -121,7 +124,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                         format!("menu-move-{}", sp.id),
                         t,
                         Some("folder"),
-                        format!("Move to {}", sp.name),
+                        crate::trf!("Move to {}", sp.name),
                         false,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.move_entry(id, to, cx)))
@@ -130,7 +133,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
         )
         .child(div().h(px(1.)).my(px(4.)).bg(t.line))
         .child(
-            menu_item("menu-trash", t, Some("trash"), "Move to trash", true)
+            menu_item("menu-trash", t, Some("trash"), tr("Move to trash"), true)
                 .on_click(cx.listener(move |this, _, _, cx| this.trash_entry(id, cx)))
                 .test_support(),
         );
@@ -157,7 +160,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
         )
         .child(
             icon_button("fav", t, "star", false)
-                .tooltip(tip("Favorite"))
+                .tooltip(tip(tr("Favorite")))
                 .when(e.favorite, |d| d.text_color(t.warning_text))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.update_entry(id, |e| e.favorite = !e.favorite, cx)
@@ -169,7 +172,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                 .relative()
                 .child(
                     icon_button("more", t, "more", false)
-                        .tooltip(tip("More"))
+                        .tooltip(tip(tr("More")))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_menu(Menu::More, cx)))
                         .test_support(),
                 )
@@ -191,7 +194,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                     .text_color(t.accent_text)
             })
             .when(!on, |d| d.text_color(t.text_muted))
-            .child(label)
+            .child(crate::i18n::tr_owned(label))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(s) = this.session() {
                     s.history_tab = label == "History";
@@ -266,11 +269,11 @@ fn details(
         let inp = Input::new(&st).id("edit-website").when_some(url, |i, url| {
             i.suffix(
                 icon_button("open", t, "external", true)
-                    .tooltip(tip("Open website"))
+                    .tooltip(tip(tr("Open website")))
                     .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
             )
         });
-        d = d.child(field(t, "Website", boxed(t, ed, Field::Website, inp)));
+        d = d.child(field(t, tr("Website"), boxed(t, ed, Field::Website, inp)));
     }
     if let Some(st) = input(Field::Username) {
         let inp = Input::new(&st).id("edit-username").suffix(copy(
@@ -279,14 +282,14 @@ fn details(
             "Username",
             cx,
         ));
-        d = d.child(field(t, "Username", boxed(t, ed, Field::Username, inp)));
+        d = d.child(field(t, tr("Username"), boxed(t, ed, Field::Username, inp)));
     }
     if let Some(st) = input(Field::Password) {
         let actions = div()
             .flex()
             .child(
                 icon_button("reveal", t, "eye", true)
-                    .tooltip(tip("Show"))
+                    .tooltip(tip(tr("Show")))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let r = this.session().map(|s| !s.reveal).unwrap_or(false);
                         this.set_reveal(r, window, cx);
@@ -296,7 +299,7 @@ fn details(
             .child(copy("ip", e.password.clone(), "Password", cx))
             .child(
                 icon_button("gen", t, "refresh", true)
-                    .tooltip(tip("Generate a password"))
+                    .tooltip(tip(tr("Generate a password")))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.generate_password(id, window, cx)
                     }))
@@ -304,7 +307,7 @@ fn details(
             );
         let inp = Input::new(&st).id("edit-password").suffix(actions);
         d = d.child(
-            field(t, "Password", boxed(t, ed, Field::Password, inp))
+            field(t, tr("Password"), boxed(t, ed, Field::Password, inp))
                 .child(strength(t, &e.password)),
         );
     }
@@ -323,7 +326,7 @@ fn details(
                     .child(copy("it", code, "Code", cx))
                     .child(
                         icon_button("edit-totp-key", t, "key", true)
-                            .tooltip(tip("Change the 2FA key"))
+                            .tooltip(tip(tr("Change the 2FA key")))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(s) = this.session()
                                     && let Some(ed) = s.editor.as_mut()
@@ -336,10 +339,10 @@ fn details(
                     ),
             )
         }
-        _ => field(t, "2FA key", boxed(t, ed, Field::Totp, totp_key)),
+        _ => field(t, tr("2FA key"), boxed(t, ed, Field::Totp, totp_key)),
     });
 
-    d = d.child(field(t, "Notes", Textarea::new(&ed.notes)));
+    d = d.child(field(t, tr("Notes"), Textarea::new(&ed.notes)));
 
     // Subscription: state, price, licenses, yearly cost, renewal.
     let yearly = cleis_core::column::default_vault_columns(&s.prefs.currency)
@@ -351,7 +354,7 @@ fn details(
         });
     let sub_open = ed.menu == Some(Menu::Subscription);
     let chip_el = subscription_chip(t, e.subscription)
-        .unwrap_or_else(|| chip(t, Tone::Neutral, "None", false));
+        .unwrap_or_else(|| chip(t, Tone::Neutral, tr("None"), false));
     let sub_menu = menu_box(t)
         .top(px(26.))
         .right_0()
@@ -383,9 +386,9 @@ fn details(
                 .text_size(TEXT_SM)
                 .child(
                     div()
-                        .w(px(72.))
+                        .w(px(96.))
                         .text_color(t.text_muted)
-                        .child(label.to_owned()),
+                        .child(crate::i18n::tr_owned(label)),
                 )
                 .child(
                     div().flex_1().child(boxed(
@@ -420,7 +423,7 @@ fn details(
                         .text_size(TEXT_SM)
                         .font_weight(W_MEDIUM)
                         .text_color(t.text_muted)
-                        .child("Subscription"),
+                        .child(tr("Subscription")),
                 )
                 .child(
                     div()
@@ -447,9 +450,9 @@ fn details(
                     .text_size(TEXT_SM)
                     .child(
                         div()
-                            .w(px(72.))
+                            .w(px(96.))
                             .text_color(t.text_muted)
-                            .child("Yearly cost"),
+                            .child(tr("Yearly cost")),
                     )
                     .child(
                         div()
@@ -487,7 +490,7 @@ fn details(
         div()
             .text_size(TEXT_SM)
             .text_color(t.text_faint)
-            .child(format!("Edited {}", crate::format::date(e.updated))),
+            .child(crate::trf!("Edited {}", crate::format::date(e.updated))),
     )
 }
 
@@ -508,7 +511,11 @@ fn totp_view(t: &Tokens, totp: &Totp, now: i64) -> Div {
 fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let mut d = div().flex().flex_col().gap(px(8.));
     if e.password_history.is_empty() {
-        d = d.child(div().text_color(t.text_muted).child("No earlier password"));
+        d = d.child(
+            div()
+                .text_color(t.text_muted)
+                .child(tr("No earlier password")),
+        );
     }
     let id = e.id;
     for (i, h) in e.password_history.iter().rev().enumerate() {
@@ -542,7 +549,7 @@ fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
                         "copy",
                         true,
                     )
-                    .tooltip(tip("Copy"))
+                    .tooltip(tip(tr("Copy")))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.copy_of(id, pw.clone(), "Password", cx)
                     })),
@@ -557,12 +564,12 @@ fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
             .gap(px(4.))
             .text_size(TEXT_SM)
             .text_color(t.text_muted)
-            .child(format!("Created {}", crate::format::date(e.created)))
-            .child(format!(
+            .child(crate::trf!("Created {}", crate::format::date(e.created)))
+            .child(crate::trf!(
                 "Password changed {}",
                 crate::format::date(e.password_changed)
             ))
-            .child(format!("Edited {}", crate::format::date(e.updated))),
+            .child(crate::trf!("Edited {}", crate::format::date(e.updated))),
     )
 }
 
