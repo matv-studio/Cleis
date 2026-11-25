@@ -197,13 +197,67 @@ fn guess(header: &str) -> Option<Target> {
     None
 }
 
+/// Bytes of a file as text: UTF-8 (with or without BOM), UTF-16 with BOM (Excel "Unicode
+/// text"), otherwise Windows-1252 (Excel "CSV" on a French or Western Windows).
+pub fn decode(bytes: &[u8]) -> String {
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(rest).into_owned();
+    }
+    let utf16 = |rest: &[u8], le: bool| {
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|c| {
+                if le {
+                    u16::from_le_bytes([c[0], c[1]])
+                } else {
+                    u16::from_be_bytes([c[0], c[1]])
+                }
+            })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(rest, true);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16(rest, false);
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_owned(),
+        Err(_) => bytes.iter().map(|&b| cp1252(b)).collect(),
+    }
+}
+
+/// Windows-1252: Latin-1 plus typographic characters in 0x80–0x9F.
+pub(crate) fn cp1252(b: u8) -> char {
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž',
+        '\u{8f}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}',
+        'ž', 'Ÿ',
+    ];
+    match b {
+        0x80..=0x9F => HIGH[usize::from(b - 0x80)],
+        _ => char::from(b),
+    }
+}
+
+/// Picks the separator that occurs most in the header row, ignoring quoted text (a header
+/// such as `"Service, app"` must not turn a `;` file into a `,` one).
 fn sniff_delimiter(sample: &str) -> u8 {
-    let first = sample.lines().next().unwrap_or("");
-    b",;\t"
-        .iter()
-        .copied()
-        .max_by_key(|d| first.matches(*d as char).count())
-        .unwrap_or(b',')
+    let mut counts = [0usize; 3];
+    let mut quoted = false;
+    for c in sample.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            '\n' | '\r' if !quoted => break,
+            ',' if !quoted => counts[0] += 1,
+            ';' if !quoted => counts[1] += 1,
+            '\t' if !quoted => counts[2] += 1,
+            _ => {}
+        }
+    }
+    let i = (0..3).max_by_key(|&i| (counts[i], 3 - i)).unwrap_or(0);
+    b",;\t"[i]
 }
 
 /// Reads the file and proposes a mapping. Each target is used once; later duplicates
@@ -305,10 +359,70 @@ fn subscription(v: &str) -> Subscription {
     }
 }
 
-/// ISO date from `2026-12-03`, `03/12/2026` (day first) or `12/3/2026` when unambiguous.
+/// Month number from an English or French name or abbreviation (`December`, `déc.`, `Feb`).
+fn month(word: &str) -> Option<u32> {
+    let w = fold(word.trim_end_matches('.'));
+    const NAMES: [(&str, &str); 12] = [
+        ("jan", "janv"),
+        ("feb", "fev"),
+        ("mar", "mars"),
+        ("apr", "avr"),
+        ("may", "mai"),
+        ("jun", "juin"),
+        ("jul", "juil"),
+        ("aug", "aout"),
+        ("sep", "sept"),
+        ("oct", "oct"),
+        ("nov", "nov"),
+        ("dec", "dec"),
+    ];
+    if w.len() < 3 {
+        return None;
+    }
+    NAMES
+        .iter()
+        .position(|(en, fr)| w.starts_with(en) || w.starts_with(fr))
+        .map(|i| i as u32 + 1)
+}
+
+/// ISO date from `2026-12-03`, `03/12/2026` (day first), `12/3/2026` when unambiguous, and
+/// the display formats of Notion and spreadsheets: `December 3, 2026`, `3 décembre 2026`,
+/// `Dec 3, 2026 10:00 AM`. A range (`A → B`) gives its start.
 pub fn parse_date(v: &str) -> Option<String> {
-    let v = v.trim();
-    let parts: Vec<&str> = v.split(['-', '/', '.']).collect();
+    let v = v.split('→').next().unwrap_or(v).trim();
+    let ok = |y: u32, m: u32, d: u32| {
+        let y = if y < 100 { 2000 + y } else { y };
+        ((1..=12).contains(&m) && (1..=31).contains(&d) && (1900..=2200).contains(&y))
+            .then(|| format!("{y:04}-{m:02}-{d:02}"))
+    };
+    // Words: "December 3, 2026 10:00 AM" / "3 décembre 2026" / "1er janv. 2027".
+    let words: Vec<&str> = v
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|w| !w.is_empty())
+        .collect();
+    if let Some(mi) = words.iter().position(|w| month(w).is_some()) {
+        let m = month(words[mi])?;
+        let num = |w: &str| -> Option<u32> {
+            w.trim_end_matches("er")
+                .trim_end_matches(['s', 't', 'n', 'd', 'h', 'r'])
+                .parse()
+                .ok()
+        };
+        let nums: Vec<u32> = words
+            .iter()
+            .enumerate()
+            .filter(|(i, w)| *i != mi && !w.contains(':'))
+            .filter_map(|(_, w)| num(w))
+            .collect();
+        let (d, y) = match nums.as_slice() {
+            [a, b, ..] if *a <= 31 => (*a, *b),
+            [a, b, ..] => (*b, *a),
+            _ => return None,
+        };
+        return ok(y, m, d);
+    }
+    let date = v.split([' ', 'T']).next().unwrap_or(v);
+    let parts: Vec<&str> = date.split(['-', '/', '.']).collect();
     if parts.len() != 3 {
         return None;
     }
@@ -323,8 +437,7 @@ pub fn parse_date(v: &str) -> Option<String> {
     } else {
         (n[2], n[1], n[0])
     };
-    let y = if y < 100 { 2000 + y } else { y };
-    ((1..=12).contains(&m) && (1..=31).contains(&d)).then(|| format!("{y:04}-{m:02}-{d:02}"))
+    ok(y, m, d)
 }
 
 #[derive(Debug, Default)]

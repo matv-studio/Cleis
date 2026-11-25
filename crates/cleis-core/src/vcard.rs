@@ -33,6 +33,16 @@ impl Prop {
         self.types().iter().any(|t| t == "pref")
             || self.params.iter().any(|(k, v)| k == "PREF" && v == "1")
     }
+    /// Single-byte Western charsets named by Outlook and old phones.
+    fn charset_latin(&self) -> bool {
+        self.params.iter().any(|(k, v)| {
+            k == "CHARSET"
+                && matches!(
+                    v.to_ascii_lowercase().as_str(),
+                    "windows-1252" | "cp1252" | "iso-8859-1" | "iso-8859-15" | "latin1"
+                )
+        })
+    }
     fn charset_qp(&self) -> bool {
         self.params.iter().any(|(k, v)| {
             (k == "ENCODING" && v.eq_ignore_ascii_case("QUOTED-PRINTABLE"))
@@ -137,7 +147,9 @@ fn split_components(s: &str, sep: char) -> Vec<String> {
     out
 }
 
-fn decode_qp(s: &str) -> String {
+/// Quoted-printable bytes as text: in the charset the property names, else UTF-8 when the bytes
+/// are valid UTF-8, else Windows-1252 (Outlook "Save as vCard").
+fn decode_qp(s: &str, latin: bool) -> String {
     let b = s.as_bytes();
     let mut out = vec![];
     let mut i = 0;
@@ -153,7 +165,11 @@ fn decode_qp(s: &str) -> String {
         out.push(b[i]);
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    if latin {
+        out.iter().map(|&b| crate::import_csv::cp1252(b)).collect()
+    } else {
+        crate::import_csv::decode(&out)
+    }
 }
 
 fn label_from(types: &[String], fallback: &str) -> String {
@@ -193,7 +209,7 @@ pub fn parse(src: &str, space: SpaceId) -> Vec<Contact> {
             continue;
         };
         if p.charset_qp() {
-            p.value = decode_qp(&p.value);
+            p.value = decode_qp(&p.value, p.charset_latin());
         }
         match p.name.as_str() {
             "BEGIN" if p.value.eq_ignore_ascii_case("VCARD") => {

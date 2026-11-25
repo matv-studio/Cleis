@@ -38,6 +38,10 @@ pub enum StoreError {
     NotAVault,
     #[error("this vault was created by a newer version of Cleis")]
     TooNew,
+    #[error("a file already exists there")]
+    Exists,
+    #[error("file error: {0}")]
+    Io(String),
     #[error("unknown space")]
     UnknownSpace,
     #[error("the vault is damaged: {0}")]
@@ -78,7 +82,7 @@ pub struct SpaceInfo {
     pub for_contacts: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 struct AccountSecrets {
     x25519: [u8; 32],
     ed25519: [u8; 32],
@@ -147,7 +151,51 @@ fn aad(kind: &str, id: &str, space: &SpaceId) -> Vec<u8> {
 
 impl Vault {
     /// Creates a new vault file with one personal space for passwords and one for contacts.
+    ///
+    /// The file is built under a temporary name next to `path` and renamed once complete, so
+    /// an interruption (crash, power loss, full disk) never leaves a half-made vault behind that
+    /// the next launch would take for a real one. An existing file at `path` is never replaced.
     pub fn create(path: &Path, password: &str, kdf: KdfParams) -> Result<Self> {
+        if path.exists() {
+            return Err(StoreError::Exists);
+        }
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(format!(".creating-{}", std::process::id()));
+        let tmp = std::path::PathBuf::from(tmp);
+        let cleanup = |p: &Path| {
+            for suffix in ["", "-wal", "-shm", "-journal"] {
+                let mut f = p.as_os_str().to_owned();
+                f.push(suffix);
+                let _ = std::fs::remove_file(std::path::PathBuf::from(f));
+            }
+        };
+        cleanup(&tmp);
+        let built = Self::build(&tmp, password, kdf);
+        let mut v = match built {
+            Ok(v) => v,
+            Err(e) => {
+                cleanup(&tmp);
+                return Err(e);
+            }
+        };
+        // Close (checkpoints the WAL into the main file), rename, reopen with the same keys.
+        let conn = std::mem::replace(&mut v.conn, Connection::open_in_memory()?);
+        if let Err((_, e)) = conn.close() {
+            cleanup(&tmp);
+            return Err(e.into());
+        }
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            cleanup(&tmp);
+            return Err(StoreError::Io(e.to_string()));
+        }
+        cleanup(&tmp);
+        let conn = Connection::open(path)?;
+        configure(&conn)?;
+        v.conn = conn;
+        Ok(v)
+    }
+
+    fn build(path: &Path, password: &str, kdf: KdfParams) -> Result<Self> {
         let conn = Connection::open(path)?;
         configure(&conn)?;
         conn.execute_batch(SCHEMA)?;
@@ -192,6 +240,7 @@ impl Vault {
             ed25519: *self.signing.secret_bytes(),
         };
         let plain = Zeroizing::new(serde_json::to_vec(&secrets)?);
+        drop(secrets);
         let sealed = seal(&mk.encryption, b"cleis/account", &plain)?;
         meta_set(&self.conn, "account", &sealed)?;
         meta_set(&self.conn, "account_public", &self.account.public().0)?;
@@ -539,6 +588,27 @@ mod tests {
         )
         .unwrap();
         (dir, path, v)
+    }
+
+    #[test]
+    fn create_is_atomic_and_never_overwrites() {
+        let (dir, path, v) = fresh();
+        drop(v);
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.contains("creating"))
+            .collect();
+        assert!(names.is_empty(), "temporary files left: {names:?}");
+        assert!(matches!(
+            Vault::create(&path, "another password", KdfParams::insecure_for_tests()),
+            Err(StoreError::Exists)
+        ));
+        // The original is intact and still opens with its own password.
+        LockedVault::open(&path)
+            .unwrap()
+            .unlock("correct horse battery")
+            .unwrap();
     }
 
     #[test]
