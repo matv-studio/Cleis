@@ -68,10 +68,14 @@ fn main() {
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let opts = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // Cleis draws its title bar (gpui-component `TitleBar`): the top bar of the
+                // charter, with the system window buttons.
                 titlebar: Some(TitlebarOptions {
                     title: Some("Cleis".into()),
-                    ..Default::default()
+                    traffic_light_position: Some(gpui_kit::point(px(14.), px(16.))),
+                    ..gpui_kit::component::TitleBar::title_bar_options()
                 }),
+                app_owns_titlebar_drag: true,
                 window_min_size: Some(size(px(960.), px(600.))),
                 ..Default::default()
             };

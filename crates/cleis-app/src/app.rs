@@ -457,13 +457,31 @@ impl CleisApp {
 
 impl Render for CleisApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match &self.phase {
+        let screen = match &self.phase {
             Phase::Welcome(_) => {
                 crate::screens::welcome::render(self, window, cx).into_any_element()
             }
             Phase::Unlock(_) => crate::screens::unlock::render(self, window, cx).into_any_element(),
-            Phase::Main(_) => crate::screens::main::render(self, window, cx).into_any_element(),
-        }
+            Phase::Main(_) => {
+                return crate::screens::main::render(self, window, cx).into_any_element();
+            }
+        };
+        // First launch and unlock: an empty title bar in the frame colour, so the window still
+        // moves and keeps its system buttons.
+        let t = self.tokens(cx).clone();
+        gpui_kit::div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(t.chrome)
+            .child(
+                gpui_kit::component::TitleBar::new()
+                    .h(crate::theme::TOPBAR_H)
+                    .bg(t.chrome)
+                    .border_b_0(),
+            )
+            .child(gpui_kit::div().flex_1().min_h_0().child(screen))
+            .into_any_element()
     }
 }
 

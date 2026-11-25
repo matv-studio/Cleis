@@ -9,6 +9,7 @@ use cleis_core::column::{ColumnDef, ColumnKind};
 use cleis_core::totp::Totp;
 use cleis_core::{Entry, EntryId};
 use gpui_kit::TestSupportExt;
+use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Div, Hsla, SharedString, Window, div, px, uniform_list};
@@ -112,7 +113,7 @@ pub fn render(
         .child(topbar(s, &t, cx))
 }
 
-fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
     let mut tabs = vec![(Tab::Vault, "Vault")];
     if s.prefs.tabs.contacts {
         tabs.push((Tab::Contacts, "Contacts"));
@@ -173,13 +174,14 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         Tab::Contacts => Some(("new-contact", "New contact")),
         _ => None,
     };
-    div()
-        .h(TOPBAR_H)
-        .flex_none()
+    // The top bar is the window's title bar (charter §5: the frame is the top bar): it moves the
+    // window and carries the system's window buttons (Windows, Linux) or leaves room for the
+    // traffic lights (macOS).
+    let bar = div()
+        .flex_1()
+        .h_full()
         .flex()
         .items_end()
-        .pl(px(12.))
-        .pr(px(8.))
         .child(
             div()
                 .flex_1()
@@ -238,7 +240,13 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             .test_support(),
                     )
                 }),
-        )
+        );
+    TitleBar::new()
+        .h(TOPBAR_H)
+        .bg(t.chrome)
+        .border_b_0()
+        .pr(px(8.))
+        .child(bar)
 }
 
 fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
