@@ -28,9 +28,13 @@
 - D-65 : places GitHub (jeton) et SFTP, restauration depuis elles, copies des sauvegardes de
   l'organisation.
 
+- D-66 : déverrouillage par Windows Hello / Touch ID.
+
 ## Prochaines étapes
-1. Windows Hello / Touch ID (déverrouillage).
-2. Audit complet demandé par l'utilisateur.
+1. Audit complet demandé par l'utilisateur.
+2. Essais sur machines réelles : Windows Hello, Touch ID, e-mail SMTP, passerelle SMS, clients
+   OAuth Google / Microsoft, serveur hébergé et service installé.
+
 
 ## 25/11/2026 (suite, branche `feat/full-app`)
 - Essais Windows en pilotage d'écran (builds `651fe04` → `3558b4d`) : Quick Access sur le bon écran et

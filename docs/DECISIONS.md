@@ -368,6 +368,20 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Maquettes 23b, 23c. Essais : `sync_github_place` (faux GitHub local), `openssh_round_trip`
     (vrai serveur OpenSSH quand il est installé).
 
+- **D-66 Déverrouillage par Windows Hello / Touch ID** (25/11/2026, même demande) :
+  - Sur cet appareil seulement (Settings › Security › Unlock with …) : une clé aléatoire scelle
+    les secrets du compte dans `<coffre>.bio` ; le système la garde pour l'utilisateur (Windows :
+    DPAPI ; macOS : trousseau de session) et Cleis ne la lit qu'après sa vérification (Windows :
+    `UserConsentVerifier`, au-dessus de la fenêtre sous Windows 11 ; macOS : LocalAuthentication,
+    Touch ID ou mot de passe du Mac). Linux : pas de méthode, l'option est grisée.
+  - Le mot de passe maître reste la voie d'entrée (autres appareils, après désactivation) ; le
+    changer ne casse pas la clé (mêmes secrets de compte).
+  - Organisation : la politique « Biometrics » (désactivée par défaut) l'autorise ; désactivée,
+    la clé de l'appareil est retirée à la synchronisation suivante.
+  - Code système dans `cleis-autofill::biometric` (seul crate où `unsafe` est permis, D-52),
+    vérifié par clippy pour Windows et macOS ; essai `biometric_unlock` avec une doublure
+    (`test-support`). Reste à essayer sur un vrai Windows Hello et un vrai Touch ID.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -376,5 +390,6 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
    Drive sans appli de bureau (D-50, D-58) ; GitHub n'en a plus besoin (D-65).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
+8. Essai de Windows Hello et Touch ID sur de vraies machines (D-66).
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).

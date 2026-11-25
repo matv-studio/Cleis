@@ -61,6 +61,7 @@ pub fn render(
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
     let busy = u.busy;
+    let bio = u.bio;
     let card = div()
         .w(px(360.))
         .flex()
@@ -119,14 +120,19 @@ pub fn render(
                         .on_click(cx.listener(|this, _, window, cx| this.unlock(window, cx)))
                         .test_support(),
                 )
-                .child(
-                    div().flex().justify_center().gap(px(8.)).child(
-                        button("bio", &t, BtnKind::Ghost, true)
-                            .opacity(0.45)
-                            .child(icon("fingerprint", 16., t.text_muted))
-                            .child("Biometrics"),
-                    ),
-                ),
+                .when(bio, |d| {
+                    d.child(
+                        div().flex().justify_center().gap(px(8.)).child(
+                            button("bio", &t, BtnKind::Ghost, true)
+                                .child(icon("fingerprint", 16., t.text_muted))
+                                .child(crate::bio::name())
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.unlock_bio(window, cx)),
+                                )
+                                .test_support(),
+                        ),
+                    )
+                }),
         );
     stage(&t, card)
 }

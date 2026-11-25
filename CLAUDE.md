@@ -45,7 +45,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `import_csv`, `vcard`, `health`, `dedupe`, `journal`, `generator`, `settings`, `text`, `autofill`
   (correspondance fenêtre ↔ éléments, séquences de remplissage), `edit` / `contact_edit` (saisie dans
   les inspecteurs), `open_code` (code à l'ouverture).
-- `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), fenêtre au premier plan, adresse
+- `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), `biometric/` (Windows Hello,
+  Touch ID, DPAPI / trousseau ; doublure `test-support`), fenêtre au premier plan, adresse
   de l'onglet (UIA), remplissage (`run` + `Driver`), `platform/{windows,macos,other}.rs` (seul `unsafe`).
 - `crates/cleis-store` — fichier coffre SQLite ; tout le sensible est scellé, AAD = `type/id/espace` ;
   `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique ;
@@ -60,7 +61,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
-  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google / Microsoft par le
+  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `bio.rs` (déverrouillage biométrique), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google / Microsoft par le
   navigateur), `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
   `tests/org.rs` (deux fenêtres contre un vrai serveur).
@@ -76,6 +77,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Argon2 non optimisé est très lent : `opt-level = 3` pour argon2/blake2/aes/sha2 en profil dev.
 - Disque du conteneur : `target/` dépasse 20 Go en debug complet. Exporter `CARGO_INCREMENTAL=0
   CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only`.
+- `cleis-crypto` n'emploie `ring` (RS256) qu'avec la fonction `rs256` (serveur) : sans elle,
+  la vérification croisée de `cleis-autofill` reste possible (ring demande les en-têtes MSVC).
 - Vérifier la compilation Windows/macOS de `cleis-autofill` sans machine :
   `cargo clippy -p cleis-autofill --target x86_64-pc-windows-msvc` (et `aarch64-apple-darwin`) ;
   l'appli entière ne se vérifie que sur la CI (SQLite demande le compilateur MSVC).

@@ -995,10 +995,15 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             row(t, false)
                 .id("pol-bio")
-                .opacity(0.45)
-                .tooltip(tip("Planned: Windows Hello, Touch ID"))
+                .tooltip(tip("Windows Hello, Touch ID: unlock without the master password on a member's own device"))
                 .child(div().flex_1().child("Biometrics"))
-                .child(switch("bio", t, false)),
+                .child(
+                    switch("pol-bio-switch", t, p.biometrics)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.org_set_policy(|p| p.biometrics = !p.biometrics, cx)
+                        }))
+                        .test_support(),
+                ),
         )
         .child(
             row(t, false)

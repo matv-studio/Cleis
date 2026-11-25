@@ -1322,3 +1322,46 @@ fn sync_github_place(cx: &mut TestAppContext) {
     assert!(names.contains(&"Example Wiki".to_owned()));
     assert!(names.contains(&"Example Notes".to_owned()));
 }
+
+/// Scenario (mockups 04, 06; D-66): turn on biometric unlock, lock, unlock without the master
+/// password; a refused check leaves the vault locked; turning it off removes the device key.
+/// The system check is a stand-in here (Linux has none).
+#[gpui_kit::test]
+fn biometric_unlock(cx: &mut TestAppContext) {
+    use cleis_autofill::biometric::FAKE;
+    *FAKE.lock().unwrap() = Some(true);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("bio", cx));
+    assert!(cleis_app::bio::enabled(&path));
+    act(cx, h, |w, cx| w.click("lock", cx));
+    act(cx, h, |w, cx| w.click("bio", cx));
+    app.read_with(cx, |a, _| {
+        assert!(matches!(a.phase, Phase::Main(_)), "opened")
+    });
+    // A refused check.
+    *FAKE.lock().unwrap() = Some(false);
+    act(cx, h, |w, cx| w.click("lock", cx));
+    act(cx, h, |w, cx| w.click("bio", cx));
+    app.read_with(cx, |a, _| match &a.phase {
+        Phase::Unlock(u) => assert!(u.error.is_some()),
+        _ => panic!("still locked"),
+    });
+    *FAKE.lock().unwrap() = Some(true);
+    act(cx, h, |w, cx| w.click("bio", cx));
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("bio", cx));
+    assert!(!cleis_app::bio::enabled(&path));
+    *FAKE.lock().unwrap() = None;
+}

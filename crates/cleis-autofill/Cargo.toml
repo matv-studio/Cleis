@@ -23,7 +23,13 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
+    # Biometric unlock (D-66): Windows Hello, DPAPI.
+    "Foundation",
+    "Security_Credentials_UI",
+    "Win32_Security_Cryptography",
+    "Win32_System_WinRT",
 ] }
+windows-future = "0.3"
 # Open at login: value under HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
 windows-registry = "0.6"
 
@@ -31,6 +37,14 @@ windows-registry = "0.6"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+# Biometric unlock (D-66): Touch ID, login keychain.
+objc2-local-authentication = { version = "0.3", features = ["LAContext", "block2"] }
+block2 = "0.6"
+security-framework = "3"
+
+[features]
+# A stand-in for Windows Hello / Touch ID in end-to-end tests.
+test-support = []
 
 [lints]
 workspace = true

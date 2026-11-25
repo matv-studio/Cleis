@@ -17,6 +17,7 @@ mod aead;
 mod error;
 mod kdf;
 mod keys;
+#[cfg(feature = "rs256")]
 mod rsa;
 mod sign;
 mod wrap;
@@ -25,6 +26,7 @@ pub use aead::{open, seal};
 pub use error::CryptoError;
 pub use kdf::{KdfParams, MasterKey, derive_master_key};
 pub use keys::{SymmetricKey, random_bytes};
+#[cfg(feature = "rs256")]
 pub use rsa::verify_rs256;
 pub use sign::{SigningKeyPair, VerifyingKey, verify};
 pub use wrap::{KeyPair, PublicKey, open_from, seal_to, unwrap_key, wrap_key};

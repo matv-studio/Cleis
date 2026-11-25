@@ -5,6 +5,7 @@
 pub mod app;
 pub mod assets;
 pub mod autofill;
+pub mod bio;
 pub mod contact_editor;
 pub mod demo;
 pub mod editor;

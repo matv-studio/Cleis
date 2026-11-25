@@ -174,18 +174,43 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         }),
                 ),
         )
-        .child(
+        .child({
+            // D-66: on this device only; an organization's policy may turn it off.
+            let sys = crate::bio::name();
+            let org_off = s
+                .org
+                .as_ref()
+                .and_then(|o| o.state.as_ref())
+                .is_some_and(|st| !st.policy.biometrics);
+            let on = s.vault.path().is_some_and(|p| crate::bio::enabled(&p));
+            let usable = !sys.is_empty() && (!org_off || on);
             row(t, false)
-                .opacity(0.45)
+                .when(!usable, |r| r.opacity(0.45))
                 .child(
                     div()
                         .id("bio-row")
                         .flex_1()
-                        .child("Biometrics (Windows Hello, Touch ID)")
-                        .tooltip(tip("Planned")),
+                        .child(if sys.is_empty() {
+                            "Biometrics (Windows Hello, Touch ID)".to_owned()
+                        } else {
+                            format!("Unlock with {sys}")
+                        })
+                        .tooltip(tip(if sys.is_empty() {
+                            "Not on this system"
+                        } else if org_off {
+                            "Turned off by your organization"
+                        } else {
+                            "On this device; the master password still opens the vault"
+                        })),
                 )
-                .child(switch("bio", t, false)),
-        );
+                .child(
+                    switch("bio", t, on)
+                        .when(usable, |sw| {
+                            sw.on_click(cx.listener(move |this, _, _, cx| this.toggle_bio(!on, cx)))
+                        })
+                        .test_support(),
+                )
+        });
     let secs = p.clipboard_clear_secs;
     let clip_menu = {
         let mut m = menu_box(t).top(px(32.)).right_0().w(px(120.));
@@ -769,5 +794,37 @@ impl CleisApp {
                 self.toast_for(format!("Recovery code used · {left} left"), 8, cx);
             }
         }
+    }
+}
+
+impl CleisApp {
+    /// Turns biometric unlock on (after the system checked the user) or off (D-66).
+    pub fn toggle_bio(&mut self, on: bool, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        if !on {
+            crate::bio::disable(&path);
+            self.toast("Biometric unlock off", cx);
+            return;
+        }
+        let hwnd = self.main_hwnd;
+        let task = cx.background_spawn(async move { crate::bio::verify(hwnd) });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                let r = r.and_then(|()| {
+                    let s = app.session().ok_or("locked")?;
+                    crate::bio::enable(&path, &s.vault)
+                });
+                match r {
+                    Ok(()) => app.toast(
+                        format!("{} unlocks this vault here", crate::bio::name()),
+                        cx,
+                    ),
+                    Err(e) => app.toast(format!("Not turned on: {e}"), cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 }

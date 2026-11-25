@@ -51,7 +51,7 @@ tray-icon = "0.26"
 [dev-dependencies]
 gpui-kit = { version = "=0.11.0", features = ["test-support"] }
 tempfile = "3"
-cleis-autofill.workspace = true
+cleis-autofill = { workspace = true, features = ["test-support"] }
 cleis-server = { path = "../cleis-server" }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync"] }
 

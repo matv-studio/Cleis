@@ -71,6 +71,8 @@ pub struct Unlock {
     pub password: Entity<InputState>,
     pub error: Option<SharedString>,
     pub busy: bool,
+    /// Windows Hello / Touch ID turned on for this vault on this device (D-66).
+    pub bio: bool,
 }
 
 pub struct Session {
@@ -293,6 +295,7 @@ impl CleisApp {
                 password: password_input(window, cx, ""),
                 error: None,
                 busy: false,
+                bio: false,
             }),
             forced_mode,
             main_window: Some(window.window_handle()),
@@ -363,6 +366,7 @@ impl CleisApp {
             password,
             error: None,
             busy: false,
+            bio: crate::bio::enabled(&self.path),
         });
         cx.notify();
     }
@@ -521,6 +525,43 @@ impl CleisApp {
         .detach();
     }
 
+    /// Windows Hello / Touch ID (D-66): the system checks the user, then opens the vault with
+    /// the key it keeps.
+    pub fn unlock_bio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Phase::Unlock(u) = &mut self.phase else {
+            return;
+        };
+        if u.busy {
+            return;
+        }
+        u.busy = true;
+        u.error = None;
+        cx.notify();
+        let path = self.path.clone();
+        let hwnd = self.main_hwnd;
+        cx.spawn_in(window, async move |this, cx| {
+            let res = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::bio::verify(hwnd)?;
+                    crate::bio::unlock(&path)
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| match res {
+                Ok(v) => this.enter(v, window, cx),
+                Err(e) => {
+                    if let Phase::Unlock(u) = &mut this.phase {
+                        u.busy = false;
+                        u.error = Some(e.into());
+                    }
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Opens the main window on an unlocked vault.
     pub fn enter(&mut self, vault: Vault, window: &mut Window, cx: &mut Context<Self>) {
         let load = || -> cleis_store::Result<_> {
@@ -544,6 +585,7 @@ impl CleisApp {
                     password: password_input(window, cx, ""),
                     error: Some(e.to_string().into()),
                     busy: false,
+                    bio: false,
                 });
                 cx.notify();
                 return;

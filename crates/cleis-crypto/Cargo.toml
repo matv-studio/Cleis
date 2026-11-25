@@ -21,7 +21,11 @@ serde.workspace = true
 thiserror.workspace = true
 data-encoding.workspace = true
 unicode-normalization.workspace = true
-ring = "0.17"
+ring = { version = "0.17", optional = true }
+
+[features]
+# RS256 checks of identity-provider tokens (organization server, D-64).
+rs256 = ["dep:ring"]
 
 [dev-dependencies]
 serde_json.workspace = true
