@@ -368,7 +368,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Maquettes 23b, 23c. Essais : `sync_github_place` (faux GitHub local), `openssh_round_trip`
     (vrai serveur OpenSSH quand il est installé).
 
-- **D-66 Déverrouillage par Windows Hello / Touch ID** (25/11/2026, même demande) :
+- **D-66 Déverrouillage par Windows Hello / Touch ID** *(Retiré par D-71.)* (25/11/2026, même demande) :
   - Sur cet appareil seulement (Settings › Security › Unlock with …) : une clé aléatoire scelle
     les secrets du compte dans `<coffre>.bio` ; le système la garde pour l'utilisateur (Windows :
     DPAPI ; macOS : trousseau de session) et Cleis ne la lit qu'après sa vérification (Windows :
@@ -454,6 +454,19 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     contrôle de santé qui joint le serveur, scripts de captures qui échouent quand une vue échoue.
   - Restent à décider (voir « En suspens » 10 à 14).
 
+- **D-71 Choix de fin d'audit** (25/11/2026, réponses de l'utilisateur) :
+  - S-9 : le déverrouillage par Windows Hello / Touch ID est retiré (appli, politique, module
+    système, fonctions du coffre) : la clé gardée par DPAPI ou le trousseau restait lisible par
+    tout programme de la session. Le fichier `<coffre>.bio` d'une version précédente est effacé à
+    l'ouverture. Le mot de passe maître (et le code à l'ouverture) restent les seules entrées.
+  - S-11 : les sauvegardes automatiques du serveur restent en clair, dans le dossier choisi dans
+    `cleis-server.toml`, sans restriction ; le guide dit ce qu'elles contiennent.
+  - L-9 : la branche GitHub est élaguée chaque semaine aux dernières versions (voir D-72).
+  - U-9 : interface traduite en français (fichiers de traduction EN + FR, langue choisie dans
+    Preferences) ; D-18 est remplacée sur ce point.
+  - U-17 : les fonctions prévues mais non faites (fuites de mots de passe, extension de
+    navigateur) sont retirées de l'interface et des maquettes jusqu'à leur arrivée.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -462,16 +475,8 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
    Drive sans appli de bureau (D-50, D-58) ; GitHub n'en a plus besoin (D-65).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
-8. Essai de Windows Hello et Touch ID sur de vraies machines (D-66).
+8. ~~Essai de Windows Hello et Touch ID~~ (retirés, D-71).
 7. ~~Méthodes de connexion par e-mail, SMS, Google, Microsoft~~ (D-64 ; restent à essayer avec
    un vrai compte SMTP, une passerelle SMS et des clients OAuth de l'organisation).
 9. ~~Onglets de coffre~~ (D-69). L'essai à deux serveurs réels n'est pas demandé pour l'instant.
-10. S-9 : biométrie liée au matériel (Windows Hello `KeyCredentialManager`, Secure Enclave) au lieu
-    de DPAPI / trousseau — plus fort contre un logiciel sous la session, plus long à faire.
-11. S-11 : sauvegardes automatiques du serveur chiffrées (avec la clé de récupération ? une clé à
-    part ?) — la restauration demanderait alors cette clé.
-12. L-9 : historique GitHub qui grossit à chaque synchronisation (branche dédiée réécrite, ou garder).
-13. U-9 : langue de l'interface (anglais seul selon D-18, ou fichiers de traduction FR selon la
-    charte).
-14. U-17 : fonctions prévues affichées grisées (fuites de mots de passe, extension de navigateur) :
-    les retirer de l'écran jusqu'à leur arrivée, ou les garder.
+10 à 14. ~~Choix de fin d'audit~~ (D-71).

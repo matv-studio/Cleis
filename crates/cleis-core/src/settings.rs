@@ -188,7 +188,6 @@ pub struct Policy {
     pub remember_device_days: u32,
     /// `None` = never lock on inactivity (default, D-02).
     pub lock_after_minutes: Option<u32>,
-    pub biometrics: bool,
     pub offline_days: u32,
     pub min_password_length: usize,
     pub password_max_age_days: u32,
@@ -207,7 +206,6 @@ impl Default for Policy {
             require_verification_code: true,
             remember_device_days: 30,
             lock_after_minutes: None,
-            biometrics: false,
             offline_days: 14,
             min_password_length: 12,
             password_max_age_days: 365,

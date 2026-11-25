@@ -316,7 +316,6 @@ pub struct Policy {
     pub methods: BTreeSet<Method>,
     /// Lock after this many minutes without activity (None: never). Members cannot set longer.
     pub lock_after_mins: Option<u32>,
-    pub biometrics: bool,
     /// How long the organization's spaces stay readable without reaching the server.
     pub offline_days: u32,
     /// Health report: flag passwords shorter than this.
@@ -350,8 +349,6 @@ impl Default for Policy {
             remember_days: 30,
             methods: [Method::AuthenticatorApp].into_iter().collect(),
             lock_after_mins: None,
-            // Audit L-12: on by default, so joining does not take Windows Hello away.
-            biometrics: true,
             offline_days: 14,
             min_length: 12,
             max_age_days: 365,

@@ -345,7 +345,13 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                         .flex()
                         .items_center()
                         .gap(px(12.))
-                        .child(div().flex_1().text_size(TEXT_XL).font_weight(W_STRONG).child("Health report"))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(TEXT_XL)
+                                .font_weight(W_STRONG)
+                                .child("Health report"),
+                        )
                         .children(vault_select)
                         .child(
                             div()
@@ -357,7 +363,13 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                                             value_box(t)
                                                 .w(px(170.))
                                                 .cursor_pointer()
-                                                .child(div().flex_1().overflow_hidden().text_ellipsis().child(label))
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .overflow_hidden()
+                                                        .text_ellipsis()
+                                                        .child(label),
+                                                )
                                                 .child(icon("chevron", 14., t.text_muted)),
                                         )
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -386,30 +398,48 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                     div()
                         .flex()
                         .gap(px(12.))
-                        .child(stat("st-weak", sum.weak, "Weak", t.danger_text, IssueKind::Weak, cx))
-                        .child(stat("st-reused", sum.reused, "Reused", t.warning_text, IssueKind::Reused, cx))
-                        .child(stat("st-old", sum.old, "Over a year old", t.warning_text, IssueKind::Old, cx))
-                        .child(stat("st-2fa", sum.no_two_factor, "No 2FA", t.text, IssueKind::NoTwoFactor, cx))
-                        .child(stat("st-ok", sum.ok, "No issue", t.success_text, IssueKind::Any, cx)),
+                        .child(stat(
+                            "st-weak",
+                            sum.weak,
+                            "Weak",
+                            t.danger_text,
+                            IssueKind::Weak,
+                            cx,
+                        ))
+                        .child(stat(
+                            "st-reused",
+                            sum.reused,
+                            "Reused",
+                            t.warning_text,
+                            IssueKind::Reused,
+                            cx,
+                        ))
+                        .child(stat(
+                            "st-old",
+                            sum.old,
+                            "Over a year old",
+                            t.warning_text,
+                            IssueKind::Old,
+                            cx,
+                        ))
+                        .child(stat(
+                            "st-2fa",
+                            sum.no_two_factor,
+                            "No 2FA",
+                            t.text,
+                            IssueKind::NoTwoFactor,
+                            cx,
+                        ))
+                        .child(stat(
+                            "st-ok",
+                            sum.ok,
+                            "No issue",
+                            t.success_text,
+                            IssueKind::Any,
+                            cx,
+                        )),
                 )
-                .child(section(t).p_0().overflow_hidden().child(table))
-                .child(
-                    section(t).opacity(0.45).child(
-                        row(t, true)
-                            .child(
-                                div()
-                                    .id("breaches")
-                                    .flex_1()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .child(icon("globe", 16., t.text))
-                                    .child("Passwords found in breaches")
-                                    .tooltip(tip("Planned: check against known breaches (external service, off by default)")),
-                            )
-                            .child(switch("breaches-switch", t, false)),
-                    ),
-                ),
+                .child(section(t).p_0().overflow_hidden().child(table)),
         )
 }
 

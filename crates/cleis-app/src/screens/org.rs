@@ -1024,7 +1024,6 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                on: bool,
                id: &'static str,
                flip: fn(&mut Policy),
-               planned: Option<&'static str>,
                cx: &mut Context<CleisApp>| {
         div()
             .id(id)
@@ -1033,14 +1032,9 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .gap(px(10.))
             .h(px(32.))
             .cursor_pointer()
-            .when_some(planned, |d, why| d.opacity(0.45).tooltip(tip(why)))
-            .child(check_box(t, on && planned.is_none()))
+            .child(check_box(t, on))
             .child(label.to_owned())
-            .on_click(cx.listener(move |this, _, _, cx| {
-                if planned.is_none() {
-                    this.org_set_policy(flip, cx);
-                }
-            }))
+            .on_click(cx.listener(move |this, _, _, cx| this.org_set_policy(flip, cx)))
             .test_support()
     };
 
@@ -1106,19 +1100,6 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 Rc::new(|app, i, cx| app.org_set_policy(|p| p.lock_after_mins = LOCK_AFTER[i].0, cx)),
                 cx,
             )),
-        )
-        .child(
-            row(t, false)
-                .id("pol-bio")
-                .tooltip(tip("Windows Hello, Touch ID: unlock without the master password on a member's own device"))
-                .child(div().flex_1().child("Biometrics"))
-                .child(
-                    switch("pol-bio-switch", t, p.biometrics)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.org_set_policy(|p| p.biometrics = !p.biometrics, cx)
-                        }))
-                        .test_support(),
-                ),
         )
         .child(
             row(t, false)
@@ -1255,7 +1236,6 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             p.fill_fields,
                             "pol-fill",
                             |p| p.fill_fields = !p.fill_fields,
-                            None,
                             cx,
                         ))
                         .child(opt(
@@ -1263,30 +1243,16 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             p.type_keys,
                             "pol-type",
                             |p| p.type_keys = !p.type_keys,
-                            None,
                             cx,
                         )),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .child(opt(
-                            "Browser extension",
-                            false,
-                            "pol-ext",
-                            |_| {},
-                            Some("Paused for now"),
-                            cx,
-                        ))
-                        .child(opt(
-                            "Read browser addresses",
-                            p.read_addresses,
-                            "pol-addr",
-                            |p| p.read_addresses = !p.read_addresses,
-                            None,
-                            cx,
-                        )),
-                ),
+                .child(div().flex_1().child(opt(
+                    "Read browser addresses",
+                    p.read_addresses,
+                    "pol-addr",
+                    |p| p.read_addresses = !p.read_addresses,
+                    cx,
+                ))),
         );
     div()
         .flex()

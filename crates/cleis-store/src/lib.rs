@@ -89,10 +89,6 @@ pub struct SpaceInfo {
     pub for_contacts: bool,
 }
 
-fn device_aad(home: &SpaceId) -> Vec<u8> {
-    format!("cleis/account-device/{home}").into_bytes()
-}
-
 #[derive(Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 struct AccountSecrets {
     x25519: [u8; 32],
@@ -321,18 +317,6 @@ impl Vault {
         meta_set(&self.conn, "account", &sealed)?;
         meta_set(&self.conn, "account_public", &self.account.public().0)?;
         Ok(())
-    }
-
-    /// The account secrets sealed with a key this device keeps (biometric unlock, D-66). Opened
-    /// by `LockedVault::unlock_with_device`; bound to this vault (its home space).
-    pub fn seal_account_for_device(&self, key: &SymmetricKey) -> Result<Vec<u8>> {
-        let secrets = AccountSecrets {
-            x25519: *self.account.secret_bytes(),
-            ed25519: *self.signing.secret_bytes(),
-        };
-        let plain = Zeroizing::new(serde_json::to_vec(&secrets)?);
-        drop(secrets);
-        Ok(seal(key, &device_aad(&self.home), &plain)?)
     }
 
     /// Whether `password` opens this vault (asked again before changing it). Takes as long as
@@ -696,15 +680,6 @@ impl LockedVault {
         self.unlock_with_secrets(&plain)
     }
 
-    /// Unlocks with the account secrets this device keeps (biometric unlock, D-66).
-    pub fn unlock_with_device(self, key: &SymmetricKey, sealed: &[u8]) -> Result<Vault> {
-        let home = self.home()?;
-        let plain = Zeroizing::new(
-            open(key, &device_aad(&home), sealed).map_err(|_| StoreError::WrongPassword)?,
-        );
-        self.unlock_with_secrets(&plain)
-    }
-
     fn home(&self) -> Result<SpaceId> {
         let home_bytes = meta_get(&self.conn, "home")?.ok_or(StoreError::Corrupt("home"))?;
         Ok(SpaceId(
@@ -977,34 +952,5 @@ mod tests {
             .execute_batch("CREATE TABLE x(a)")
             .unwrap();
         assert!(matches!(LockedVault::open(&p), Err(StoreError::NotAVault)));
-    }
-
-    #[test]
-    fn device_unlock() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("v.cleis");
-        let v = Vault::create(
-            &path,
-            "correct horse battery staple",
-            KdfParams::insecure_for_tests(),
-        )
-        .unwrap();
-        let key = SymmetricKey::generate().unwrap();
-        let sealed = v.seal_account_for_device(&key).unwrap();
-        let home = v.home_space();
-        drop(v);
-        let v = LockedVault::open(&path)
-            .unwrap()
-            .unlock_with_device(&key, &sealed)
-            .unwrap();
-        assert_eq!(v.home_space(), home);
-        drop(v);
-        let other = SymmetricKey::generate().unwrap();
-        assert!(matches!(
-            LockedVault::open(&path)
-                .unwrap()
-                .unlock_with_device(&other, &sealed),
-            Err(StoreError::WrongPassword)
-        ));
     }
 }

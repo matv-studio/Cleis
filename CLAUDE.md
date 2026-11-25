@@ -48,10 +48,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `import_csv`, `vcard`, `health`, `dedupe`, `journal`, `generator`, `settings`, `text`, `autofill`
   (correspondance fenêtre ↔ éléments, séquences de remplissage), `edit` / `contact_edit` (saisie dans
   les inspecteurs), `open_code` (code à l'ouverture).
-- `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), `biometric/` (Windows Hello,
-  Touch ID, DPAPI / trousseau ; doublure `test-support`), fenêtre au premier plan, adresse
+- `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), fenêtre au premier plan, adresse
   de l'onglet (UIA), remplissage (`run` + `Driver`) ; `unsafe` seulement dans
-  `platform/{windows,macos,other}.rs` et `biometric/`.
+  `platform/{windows,macos,other}.rs`.
 - `crates/cleis-store` — fichier coffre SQLite ; tout le sensible est scellé, AAD = `type/id/espace` ;
   `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique ;
   `org.rs` : espaces d'organisation (`spaces.org`, `key_gen`, `records.pushed`), rechiffrement.
@@ -66,8 +65,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   liens appris), `editor.rs` / `contact_editor.rs` (cases des inspecteurs), `sync.rs` (place,
   sauvegardes, export), `kit.rs` (PDF du kit d'urgence), `tray.rs` (zone de notification, ouverture à la
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
-  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `bio.rs` (déverrouillage
-  biométrique), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google /
+  sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google /
   Microsoft par le navigateur), `screens/ctx.rs` (menus du clic droit, raccourcis d'un élément),
   `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,

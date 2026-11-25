@@ -50,8 +50,8 @@ stop the server, `cleis-server restore --data DATA FILE`, start it again. Admins
 and restore from the app (Settings › Sync & backups › the organization).
 
 Items are sealed by the apps: the server and its copies never hold a key that opens them. The
-server file itself holds the server's key and the members' authenticator keys: keep `backups`
-where only the server's account reads it. From the app, a restore is refused when the copy's
+server file and its copies hold the server's key and the members' authenticator keys, in clear:
+the backups folder can be set anywhere in `cleis-server.toml`, so choose who can read it. From the app, a restore is refused when the copy's
 activity log does not verify, and members removed since the copy stay removed.
 
 ## 5. Second sign-in step

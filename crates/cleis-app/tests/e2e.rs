@@ -1329,16 +1329,15 @@ fn sync_github_place(cx: &mut TestAppContext) {
     assert!(names.contains(&"Example Notes".to_owned()));
 }
 
-/// Scenario (mockups 04, 06; D-66): turn on biometric unlock, lock, unlock without the master
-/// password; a refused check leaves the vault locked; turning it off removes the device key.
-/// The system check is a stand-in here (Linux has none).
+/// Audit S-9: biometric unlock is gone; a device key left by an earlier build is erased when
+/// the vault opens.
 #[gpui_kit::test]
-fn biometric_unlock(cx: &mut TestAppContext) {
-    use cleis_autofill::biometric::FAKE;
-    *FAKE.lock().unwrap() = Some(true);
+fn biometric_key_left_is_erased(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("demo.cleis");
     cleis_app::demo::create(&path).unwrap();
+    let bio = dir.path().join("demo.cleis.bio");
+    std::fs::write(&bio, b"{}").unwrap();
     let (h, app) = open(cx, &path);
     cx.run_until_parked();
     act(cx, h, |w, cx| {
@@ -1346,47 +1345,8 @@ fn biometric_unlock(cx: &mut TestAppContext) {
         w.input(cleis_app::demo::PASSWORD, cx);
         w.press("enter", cx);
     });
-    act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
-    act(cx, h, |w, cx| w.click("bio", cx));
-    assert!(cleis_app::bio::enabled(&path));
-    act(cx, h, |w, cx| w.click("lock", cx));
-    act(cx, h, |w, cx| w.click("bio", cx));
-    app.read_with(cx, |a, _| {
-        assert!(matches!(a.phase, Phase::Main(_)), "opened")
-    });
-    // A refused check.
-    *FAKE.lock().unwrap() = Some(false);
-    act(cx, h, |w, cx| w.click("lock", cx));
-    act(cx, h, |w, cx| w.click("bio", cx));
-    app.read_with(cx, |a, _| match &a.phase {
-        Phase::Unlock(u) => assert!(u.error.is_some()),
-        _ => panic!("still locked"),
-    });
-    *FAKE.lock().unwrap() = Some(true);
-    act(cx, h, |w, cx| w.click("bio", cx));
-    // Audit L-19: a new master password offers to turn the device key off.
-    act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
-    act(cx, h, |w, cx| w.click("chpw", cx));
-    act(cx, h, |w, cx| {
-        w.input(cleis_app::demo::PASSWORD, cx);
-        w.click("pw-new", cx);
-        w.input("A-new long pass 2026", cx);
-        w.click("pw-confirm", cx);
-        w.input("A-new long pass 2026", cx);
-        w.click("chpw-ok", cx);
-    });
-    cx.executor()
-        .advance_clock(std::time::Duration::from_millis(50));
-    cx.run_until_parked();
-    app.read_with(cx, |a, _| {
-        let Phase::Main(s) = &a.phase else { panic!() };
-        assert!(s.confirm.is_some(), "turn the device key off?");
-    });
-    act(cx, h, |w, cx| w.click("confirm-ok", cx));
-    assert!(!cleis_app::bio::enabled(&path));
-    *FAKE.lock().unwrap() = None;
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+    assert!(!bio.exists());
 }
 
 /// Scenario (mockups 33, 34): right-click an item, Escape closes the menu, Duplicate from the

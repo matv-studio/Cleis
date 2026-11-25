@@ -1187,27 +1187,7 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
                 .when(!empty_links, |d| d.child(table)),
         )
         // Paused (D-38): shown greyed, as in the mockup (screen 19).
-        .child({
-            let br = |name: &str, first: bool| {
-                row(t, first)
-                    .child(div().flex_1().child(name.to_owned()))
-                    .child(chip(t, Tone::Neutral, "Not installed", false))
-            };
-            div()
-                .id("ext-section")
-                .opacity(0.45)
-                .tooltip(|window, cx| {
-                    gpui_kit::component::tooltip::Tooltip::new("Paused for now").build(window, cx)
-                })
-                .child(
-                    section(t)
-                        .child(section_title(t, "Browser extension"))
-                        .child(br("Chrome", true))
-                        .child(br("Edge", false))
-                        .child(br("Firefox", false))
-                        .child(br("Safari", false)),
-                )
-        })
+
         .when(cfg!(target_os = "macos"), |d| {
             let allowed = cleis_autofill::accessibility_allowed();
             d.child(

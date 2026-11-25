@@ -11,7 +11,6 @@
 //! Safety rule enforced by [`run`]: before every step the window in front must still be the
 //! one the user asked to fill, so a secret is never typed into another window.
 
-pub mod biometric;
 pub mod hotkeys;
 mod platform;
 

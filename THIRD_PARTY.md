@@ -38,8 +38,5 @@ archive carries `THIRD_PARTY_LICENSES.txt` (the licence files of each crate buil
 | `lettre` | verification codes by e-mail (server) | MIT |
 | `ureq` | HTTPS calls to identity providers, SMS gateways, GitHub | MIT OR Apache-2.0 |
 | `russh`, `russh-sftp` | SFTP sync place | Apache-2.0 |
-| `windows-future` (Windows) | Windows Hello prompt | MIT OR Apache-2.0 |
-| `objc2-local-authentication`, `block2` (macOS) | Touch ID prompt | Zlib OR Apache-2.0 OR MIT / MIT |
-| `security-framework` (macOS) | login keychain (biometric unlock key) | MIT OR Apache-2.0 |
 | `ring` (in `cleis-crypto`) | RS256 check of identity-provider tokens | ISC-style + OpenSSL notices |
 | Mullvad `windows-service` (Windows) | server as a Windows service | MIT OR Apache-2.0 |

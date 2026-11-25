@@ -243,9 +243,6 @@ function deverrouiller() {
         <div class="field"><span class="label">Master password</span>
           <div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act"><button class="icon-btn icon-btn--sm" aria-label="Show" title="Show">${i('eye')}</button></span></div></div>
         <button class="btn btn--primary" style="justify-content:center;height:32px">Unlock</button>
-        <div style="display:flex;gap:var(--s-2);justify-content:center">
-          <button class="btn btn--ghost btn--sm" title="Windows Hello / Touch ID — turned off by your organization" disabled>${i('fingerprint')}Biometrics</button>
-        </div>
       </div>
       <div style="display:flex;justify-content:center"><button class="btn btn--ghost btn--sm">Forgot password</button></div>
     </div></div></main></div>`;
@@ -304,7 +301,6 @@ function securite() {
     </div>
     <div class="section">${sectionTitle('Locking')}
       <div class="row"><span class="row-label" style="color:var(--inherit-text)" title="Set by your organization">After inactivity</span>${inherited('Never')}</div>
-      <div class="row planned" title="Turned off by your organization"><span class="row-label">Biometrics (Windows Hello, Touch ID)</span><span class="switch"></span></div>
     </div>
     <div class="section">${sectionTitle('Clipboard')}
       <div class="row"><span class="row-label">Clear after copying</span><div class="input select" style="width:120px"><span class="grow">30 s</span></div><span class="switch on"></span></div>
@@ -397,7 +393,6 @@ function politique(scroll = 0) {
     </div>
     <div class="section">${sectionTitle('Locking')}
       <div class="row"><span class="row-label">After inactivity</span><div class="input select" style="width:160px"><span class="grow">Never</span></div></div>
-      <div class="row"><span class="row-label">Biometrics</span><span class="switch"></span></div>
       <div class="row"><span class="row-label" title="How long the vault stays readable without a connection">Offline access</span><div class="input select" style="width:160px"><span class="grow">14 days</span></div></div>
     </div>
     <div class="section">${sectionTitle('Passwords')}
@@ -413,7 +408,7 @@ function politique(scroll = 0) {
     <div class="section">${sectionTitle('Autofill', 'Ways members may fill passwords outside Cleis.')}
       <div class="grid-2" style="gap:0 var(--s-6)">
         <div>${meth('fill', 'Fill fields in apps', 1)}${meth('keyboard', 'Type keys', 1)}</div>
-        <div><div class="planned" title="Paused for now">${meth('globe', 'Browser extension', 0)}</div>${meth('window', 'Read browser addresses', 1)}</div>
+        <div>${meth('window', 'Read browser addresses', 1)}</div>
       </div>
     </div>`, '', scroll);
 }
@@ -516,7 +511,6 @@ function sante() {
           ${r('W', 'Webflow', pb('No 2FA', ''), 'Design', 'Today')}
         </tbody></table>
       </div>
-      <div class="section planned" title="Planned: check against known breaches (external service, off by default)"><div class="row" style="padding:0"><span class="row-label">${i('globe')}Passwords found in breaches</span><span class="switch"></span></div></div>
     </div></div>`, { primary: null });
 }
 
@@ -642,12 +636,6 @@ function remplissage(scroll = 0) {
         ${lk('G', 'GitHub Desktop', 'GitHubDesktop.exe', 'GitHub', 'Dev')}
         ${lk('R', 'Remote Desktop', 'mstsc.exe', 'Office router', 'General')}
       </tbody></table>
-    </div>
-    <div class="section planned" title="Paused for now">${sectionTitle('Browser extension')}
-      ${br('Chrome', '<span class="chip chip--ok"><span class="dot"></span>Active</span>')}
-      ${br('Edge', '<span class="chip">Not installed</span>', '<button class="btn btn--sm">Install</button>')}
-      ${br('Firefox', '<span class="chip chip--ok"><span class="dot"></span>Active</span>')}
-      ${br('Safari', '<span class="chip chip--warn" title="Unsigned extension: Safari turns “Allow unsigned extensions” off when it quits">Turn on after each launch</span>', '<button class="btn btn--sm">Turn on</button>')}
     </div>
     <div class="section">${sectionTitle('System permissions')}
       <div class="row"><span class="row-label" title="macOS · System Settings › Privacy & Security › Accessibility. Not needed on Windows.">Accessibility</span><span class="chip chip--ok"><span class="dot"></span>Allowed</span></div>

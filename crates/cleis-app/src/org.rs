@@ -2539,14 +2539,6 @@ fn hide_org_entries(s: &mut Session) {
 
 /// Applies a sync: keys of the spaces given or taken away, rows, the organization key.
 fn apply_state(s: &mut Session, st: State, changes: &Changes) {
-    // The policy turned biometric unlock off (D-66): the key this device kept goes.
-    if !st.policy.biometrics
-        && let Some(p) = s.vault.path()
-        && crate::bio::enabled(&p)
-    {
-        crate::bio::disable(&p);
-        s.toast = Some("Biometric unlock turned off by your organization".into());
-    }
     let Some(o) = s.org.as_mut() else { return };
     let key = o.m.key();
     let mut changed = false;
