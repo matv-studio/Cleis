@@ -15,6 +15,9 @@ pub fn stage(t: &Tokens, card: impl IntoElement) -> Div {
         .size_full()
         .bg(t.chrome)
         .font_family(FONT)
+        // Whole-pixel line boxes (26/11/2026): a label is exactly centred in its control at any
+        // scale (GPUI's default, 1.618 × 13 px, left half pixels to round).
+        .line_height(px(18.))
         .text_size(TEXT_MD)
         .text_color(t.text)
         .p(px(6.))
@@ -211,6 +214,7 @@ pub fn render(
                 .child(
                     div()
                         .text_size(TEXT_XL)
+                        .line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Cleis")),
                 ),

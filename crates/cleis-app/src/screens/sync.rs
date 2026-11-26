@@ -93,6 +93,7 @@ pub fn page_with(
             div()
                 .flex_1()
                 .text_size(TEXT_XL)
+                .line_height(px(26.))
                 .font_weight(W_STRONG)
                 .child(tr("Sync & backups")),
         )

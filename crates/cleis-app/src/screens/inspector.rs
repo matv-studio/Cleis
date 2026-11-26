@@ -100,6 +100,7 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
             .id("edit-name")
             .appearance(false)
             .text_size(TEXT_LG)
+            .line_height(px(20.))
             .font_weight(W_MEDIUM)
     });
     let more_open = ed.menu == Some(Menu::More);
@@ -547,6 +548,7 @@ fn totp_view(t: &Tokens, totp: &Totp, now: i64) -> Div {
         .gap(px(6.))
         .font_family(FONT_MONO)
         .text_size(TEXT_LG)
+        .line_height(px(20.))
         .child(totp_ring(t, frac))
         .child(code)
 }

@@ -53,6 +53,9 @@ pub fn render(
         .flex_col_reverse()
         .bg(t.chrome)
         .font_family(FONT)
+        // Whole-pixel line boxes (26/11/2026): a label is exactly centred in its control at any
+        // scale (GPUI's default, 1.618 × 13 px, left half pixels to round).
+        .line_height(px(18.))
         .text_size(TEXT_MD)
         .text_color(t.text)
         .track_focus(&s.main_focus)
@@ -485,7 +488,7 @@ fn totp_view(t: &Tokens, totp: &Totp, now: i64, big: bool) -> Div {
         .items_center()
         .gap(px(6.))
         .font_family(FONT_MONO)
-        .when(big, |d| d.text_size(TEXT_LG))
+        .when(big, |d| d.text_size(TEXT_LG).line_height(px(20.)))
         .child(totp_ring(t, frac))
         .child(code)
 }

@@ -106,6 +106,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
             .child(
                 div()
                     .text_size(TEXT_XL)
+                    .line_height(px(26.))
                     .font_weight(W_STRONG)
                     .text_color(color)
                     .child(n.to_string()),
@@ -364,6 +365,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                             div()
                                 .flex_1()
                                 .text_size(TEXT_XL)
+                                .line_height(px(26.))
                                 .font_weight(W_STRONG)
                                 .child(tr("Health report")),
                         )

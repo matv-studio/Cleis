@@ -982,6 +982,7 @@ fn inspector(
                     d.child(
                         div()
                             .text_size(TEXT_LG)
+                            .line_height(px(20.))
                             .font_weight(W_MEDIUM)
                             .child(Input::new(&st).id("contact-name").appearance(false)),
                     )
@@ -1685,6 +1686,7 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .flex_1()
                         .text_size(TEXT_XL)
+                        .line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Merge & fix")),
                 )

@@ -102,6 +102,7 @@ fn head(t: &Tokens, n: u8) -> Div {
             div()
                 .flex_1()
                 .text_size(TEXT_XL)
+                .line_height(px(26.))
                 .font_weight(W_STRONG)
                 .child(tr("Import")),
         )
@@ -558,6 +559,7 @@ fn stat(t: &Tokens, label: &str, value: usize, warn: bool) -> Div {
         .child(
             div()
                 .text_size(TEXT_XL)
+                .line_height(px(26.))
                 .font_weight(W_STRONG)
                 .when(warn && value > 0, |d| d.text_color(t.warning_text))
                 .child(value.to_string()),

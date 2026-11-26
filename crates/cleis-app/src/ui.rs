@@ -201,6 +201,7 @@ pub fn section(t: &Tokens) -> Div {
 pub fn section_title(t: &Tokens, title: &str) -> Div {
     div()
         .text_size(TEXT_LG)
+        .line_height(px(20.))
         .font_weight(W_MEDIUM)
         .text_color(t.text)
         .child(crate::i18n::tr_owned(title))

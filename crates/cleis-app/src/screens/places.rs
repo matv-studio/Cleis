@@ -452,6 +452,7 @@ pub fn place_dialog(d: &PlaceDialog, t: &Tokens, cx: &mut Context<CleisApp>) -> 
         .child(
             div()
                 .text_size(TEXT_LG)
+                .line_height(px(20.))
                 .font_weight(W_MEDIUM)
                 .child(crate::i18n::tr_owned(title)),
         )

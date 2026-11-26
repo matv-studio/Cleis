@@ -160,6 +160,7 @@ pub fn dialog(app: &CleisApp, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<
                 .child(
                     div()
                         .text_size(TEXT_LG)
+                        .line_height(px(20.))
                         .font_weight(W_MEDIUM)
                         .child(crate::trf!("Install Cleis {} and restart?", r.version)),
                 )

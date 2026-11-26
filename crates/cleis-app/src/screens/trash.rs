@@ -145,6 +145,7 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(
                     div()
                         .text_size(TEXT_LG)
+                        .line_height(px(20.))
                         .font_weight(W_MEDIUM)
                         .child(crate::i18n::tr_dynamic(&c.title)),
                 )

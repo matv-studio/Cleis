@@ -245,6 +245,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             div()
                 .text_size(TEXT_XL)
+                .line_height(px(26.))
                 .font_weight(W_STRONG)
                 .child(tr("Security")),
         )
@@ -461,6 +462,7 @@ fn card(t: &Tokens, title: &str) -> Div {
     dialog_box(t).child(
         div()
             .text_size(TEXT_LG)
+            .line_height(px(20.))
             .font_weight(W_MEDIUM)
             .child(crate::i18n::tr_owned(title)),
     )
@@ -622,7 +624,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                         .gap(px(8.))
                         .child(
                             div()
-                                .text_size(TEXT_LG)
+                                .text_size(TEXT_LG).line_height(px(20.))
                                 .font_weight(W_MEDIUM)
                                 .child(tr("Recovery key")),
                         )
@@ -757,6 +759,7 @@ pub fn gate(g: &Gate, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .child(
                             div()
                                 .text_size(TEXT_XL)
+                                .line_height(px(26.))
                                 .font_weight(W_STRONG)
                                 .child(tr("Verification code")),
                         )

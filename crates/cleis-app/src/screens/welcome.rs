@@ -163,7 +163,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(logo(t, 40.))
                 .child(
                     div()
-                        .text_size(TEXT_XL)
+                        .text_size(TEXT_XL).line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Restore my vault")),
                 ),
@@ -377,6 +377,7 @@ pub fn render(
                 .child(
                     div()
                         .text_size(TEXT_XL)
+                        .line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Welcome to Cleis")),
                 ),

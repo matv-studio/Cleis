@@ -183,6 +183,7 @@ pub fn page(
                 .child(
                     div()
                         .text_size(TEXT_XL)
+                        .line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Sync & backups")),
                 )
@@ -478,6 +479,7 @@ fn preferences(
         .child(
             div()
                 .text_size(TEXT_XL)
+                .line_height(px(26.))
                 .font_weight(W_STRONG)
                 .child(tr("Preferences")),
         )
@@ -744,9 +746,11 @@ fn swatches(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         if fill.is_none() {
             sw = sw.child(icon("x", 12., t.text_muted));
         }
-        // Ring = 2 px gap in the page colour, then 1.5 px in muted text (`.swatch.on`).
+        // Ring = 2.5 px gap in the page colour, then 1.5 px in muted text (`.swatch.on`). The ring
+        // and the swatch differ by an even number of pixels, so the swatch sits at a whole-pixel
+        // offset in it: exactly centred at any scale (26/11/2026).
         let ring = div()
-            .size(px(29.))
+            .size(px(30.))
             .flex()
             .items_center()
             .justify_center()
@@ -1177,7 +1181,7 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
                 .child(
                     div()
                         .flex_1()
-                        .text_size(TEXT_XL)
+                        .text_size(TEXT_XL).line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Autofill")),
                 )

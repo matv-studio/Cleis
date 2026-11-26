@@ -383,6 +383,9 @@ impl Render for QuickAccess {
             .text_color(t.text)
             .text_size(TEXT_MD)
             .font_family(FONT)
+            // Whole-pixel line boxes (26/11/2026): a label is exactly centred in its control at any
+            // scale (GPUI's default, 1.618 × 13 px, left half pixels to round).
+            .line_height(px(18.))
             .capture_key_down(cx.listener(Self::on_key))
             .child(
                 div()
