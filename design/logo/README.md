@@ -1,6 +1,6 @@
 # Cleis logo
 
-Supplied 26/11/2026: `cleis-light.svg` (light theme) and `cleis-dark.svg` (dark theme).
+Supplied 26/11/2026 (v6 the same day): `cleis-light.svg` (light theme) and `cleis-dark.svg` (dark theme).
 `design/tools/logo.sh` regenerates from them:
 
 - `crates/cleis-app/assets/logo-{light,dark}.png` (128 px): the logo inside the app, by theme;

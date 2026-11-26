@@ -390,18 +390,30 @@ fn folder_row(
     let menu_open = personal && s.folder_menu == Some(id);
     let editing = s.customize;
     let label = crate::i18n::space(&sp.name);
+    // A personal folder's "⋯" takes the place of its count on hover (26/11/2026).
+    let own_count = personal && !editing;
     let inner = row(
         s,
         t,
         &format!("sp-{id}"),
         if reserved { "lock" } else { "folder" },
         label,
-        (!editing).then_some(n),
+        (!editing && !personal).then_some(n),
         Filter::Space(id),
         16.,
         cx,
     )
-    .when(editing, |r| r.pl(px(4.)));
+    .when(editing, |r| r.pl(px(4.)))
+    .when(own_count, |r| {
+        r.child(
+            div()
+                .text_size(TEXT_SM)
+                .text_color(t.text_faint)
+                .when(menu_open, |d| d.invisible())
+                .group_hover(gname.clone(), |d| d.invisible())
+                .child(n.to_string()),
+        )
+    });
     let inner = if editing {
         // Customize: a handle to drag, a cross to delete (personal folders).
         inner
