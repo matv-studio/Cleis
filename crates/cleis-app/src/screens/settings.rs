@@ -295,6 +295,7 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
                     cx,
                 )),
         )
+        .child(shortcut_rows(s, p, t, cx))
         .child(
             row(t, false)
                 .child(div().flex_1().child(tr("Personal vault name")))
@@ -306,6 +307,89 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
                         }),
                 ),
         )
+}
+
+/// Mockup 35j: All items, Favorites and Renew soon shown or hidden, per vault or everywhere.
+fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let per_vault = p.vault_tabs && !p.shortcuts.same;
+    let mut vaults: Vec<(String, &'static str, String)> = Vec::new();
+    if per_vault {
+        vaults.push(("personal".into(), "user", s.personal_name()));
+        for (k, name) in s.org_tabs() {
+            vaults.push((k, "users", name));
+        }
+    } else {
+        vaults.push(("all".into(), "list", tr("Every vault").to_owned()));
+    }
+    let mut d = div().flex().flex_col().child(
+        row(t, true)
+            .child(
+                div()
+                    .id("shortcuts-label")
+                    .flex_1()
+                    .tooltip(tip(tr(
+                        "All items, Favorites and Renew soon at the top of the sidebar",
+                    )))
+                    .child(tr("Shortcuts")),
+            )
+            .when(p.vault_tabs, |r| {
+                r.child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_muted)
+                        .child(tr("Same for every vault")),
+                )
+                .child(toggle(
+                    "shortcuts-same",
+                    t,
+                    p.shortcuts.same,
+                    |p| p.shortcuts.same = !p.shortcuts.same,
+                    cx,
+                ))
+            }),
+    );
+    for (key, ico, name) in vaults {
+        let shown = p.shortcuts.of(&key);
+        let mut r = row(t, true).child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .pl(px(16.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(icon(ico, 16., t.text_muted))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(name),
+                ),
+        );
+        for (ix, label) in ["All items", "Favorites", "Renew soon"]
+            .into_iter()
+            .enumerate()
+        {
+            let k = key.clone();
+            r = r.child(
+                tag_toggle(
+                    SharedString::from(format!("sc-{key}-{ix}")),
+                    t,
+                    label,
+                    shown[ix],
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let k = k.clone();
+                    this.update_prefs(|p| p.shortcuts.toggle(&k, ix), cx)
+                }))
+                .test_support(),
+            );
+        }
+        d = d.child(r.gap(px(6.)));
+    }
+    d
 }
 
 fn preferences(

@@ -11,6 +11,7 @@ pub mod places;
 pub mod quick_access;
 pub mod security;
 pub mod settings;
+pub mod sidebar;
 pub mod sync;
 pub mod trash;
 pub mod unlock;

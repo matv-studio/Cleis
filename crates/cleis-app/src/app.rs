@@ -39,7 +39,17 @@ pub enum Filter {
     Space(cleis_core::SpaceId),
     /// "My vault": the whole personal vault, its folders included (a section, not a folder).
     Personal,
+    /// An organization's section: all its spaces (`org_hash` of its key).
+    Org(u64),
     Trash,
+}
+
+/// A stable number for an organization key, so that `Filter` stays `Copy`.
+pub fn org_hash(key: &str) -> u64 {
+    // FNV-1a: stable across runs (the filter is not saved, but tests compare it).
+    key.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// A question asked before an action that cannot be undone.
@@ -156,6 +166,8 @@ pub struct Session {
     /// Sync & backups: GitHub / SFTP place being set up (D-65).
     pub place: Option<crate::screens::places::PlaceDialog>,
     pub folder_menu: Option<cleis_core::SpaceId>,
+    /// Customize mode (mockup 35f): handles to reorder, crosses to delete, shortcuts shown or hidden.
+    pub customize: bool,
     /// Menu opened by a right-click (mockups 33 to 33d).
     pub ctx: Option<crate::screens::ctx::CtxMenu>,
     /// Settings › Organization: joining one from an open vault.
@@ -198,6 +210,9 @@ impl Session {
                 Filter::RenewSoon => e.subscription == cleis_core::Subscription::RenewSoon,
                 Filter::Space(s) => e.space == s,
                 Filter::Personal => self.scope_has(&Scope::Personal, e.space),
+                Filter::Org(h) => self
+                    .org_of(e.space)
+                    .is_some_and(|o| org_hash(&o.m.key()) == h),
                 Filter::Trash => false,
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
@@ -453,6 +468,15 @@ impl CleisApp {
             s.reveal = false;
             cx.notify();
         }
+    }
+
+    /// Customize mode on or off (the button beside Trash, the banner's Done, Escape).
+    pub fn toggle_customize(&mut self, cx: &mut Context<Self>) {
+        if let Some(s) = self.session() {
+            s.customize = !s.customize;
+            s.folder_menu = None;
+        }
+        cx.notify();
     }
 
     pub fn tokens<'a>(&self, cx: &'a App) -> &'a Tokens {
@@ -770,6 +794,7 @@ impl CleisApp {
             folder: None,
             place: None,
             folder_menu: None,
+            customize: false,
             ctx: None,
             orgs_idle: vec![],
             vault_name: None,

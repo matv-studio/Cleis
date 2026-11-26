@@ -1765,3 +1765,74 @@ fn deselect_close_and_personal_section(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(read(cx).2, None);
 }
+
+/// Sidebar in sections (mockups 35, 35f, 35j): an organization's name lists all of it; the
+/// shortcuts are chosen per vault, or the same everywhere; customize shows the hidden ones.
+#[gpui_kit::test]
+fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+        cleis_app::demo::second_org(s);
+    });
+    cx.run_until_parked();
+    let (studio, acme) = read_keys(cx, &app);
+    // The organization's section: every item of its spaces, none of the other.
+    act(cx, h, |w, cx| w.click(format!("org-{acme}"), cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(matches!(s.filter, cleis_app::app::Filter::Org(_)));
+        let names: Vec<&str> = s
+            .visible
+            .iter()
+            .map(|i| s.entries[*i].name.as_str())
+            .collect();
+        assert_eq!(names, ["Acme portal", "Jira", "Shared drive"]);
+    });
+
+    // Vault tabs on: Renew soon hidden in the personal vault only.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("vault-tabs", cx));
+    act(cx, h, |w, cx| w.click("sc-personal-2", cx));
+    act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
+    let has = |cx: &mut TestAppContext, id: &str| {
+        let id = gpui_kit::SharedString::from(id.to_owned());
+        cx.update_window(h.into(), move |_, w, _| w.try_find(id).is_some())
+            .unwrap()
+    };
+    assert!(has(cx, "f-all"));
+    assert!(!has(cx, "f-renew"));
+    act(cx, h, |w, cx| w.click(format!("tab-vault-{studio}"), cx));
+    assert!(has(cx, "f-renew"));
+
+    // Customize: the hidden shortcut comes back with its eye; shown again from there.
+    act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
+    act(cx, h, |w, cx| w.click("customize", cx));
+    assert!(has(cx, "f-renew"));
+    act(cx, h, |w, cx| w.click("f-renew-eye", cx));
+    act(cx, h, |w, cx| w.click("customize", cx));
+    assert!(has(cx, "f-renew"));
+
+    // The same everywhere: one choice for every vault.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("shortcuts-same", cx));
+    act(cx, h, |w, cx| w.click("sc-all-1", cx));
+    act(cx, h, |w, cx| w.click(format!("tab-vault-{acme}"), cx));
+    assert!(!has(cx, "f-fav"));
+    act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
+    assert!(!has(cx, "f-fav"));
+}

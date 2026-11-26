@@ -424,6 +424,38 @@ pub fn scrim(t: &Tokens) -> Div {
 
 pub const DIALOG_W: gpui_kit::Pixels = px(420.);
 
+/// A pill that is on or off (mockup 35j: the shortcuts of a vault).
+pub fn tag_toggle(id: impl Into<ElementId>, t: &Tokens, label: &str, on: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.))
+        .h(px(24.))
+        .px(px(8.))
+        .rounded_full()
+        .text_size(TEXT_SM)
+        .cursor_pointer()
+        .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
+        .when(!on, |d| {
+            d.border_1()
+                .border_color(t.line_strong)
+                .text_color(t.text_muted)
+                .hover(|d| d.bg(t.surface_hover))
+        })
+        .when(on, |d| d.child(icon("check", 12., t.accent_text)))
+        .child(crate::i18n::tr_owned(label))
+}
+
+/// A tooltip with a text already translated (`.tooltip(tip(tr("…")))`).
+pub fn tip(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut gpui_kit::Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
+    let text: SharedString = text.into();
+    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+}
+
 /// Audit U-14: an explanation kept out of sight: an info mark whose tooltip holds the sentence.
 pub fn hint(id: &str, t: &Tokens, text: impl Into<SharedString>) -> Stateful<Div> {
     let text: SharedString = text.into();

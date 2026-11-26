@@ -53,6 +53,42 @@ impl Default for Tabs {
     }
 }
 
+/// The sidebar's shortcuts (All items, Favorites, Renew soon) of each vault: `"personal"`, an
+/// organization's key, or `"all"` (the single Vault tab, or every vault when `same`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SidebarShortcuts {
+    pub same: bool,
+    pub sets: std::collections::BTreeMap<String, [bool; 3]>,
+}
+
+impl SidebarShortcuts {
+    /// The shortcuts shown for `vault` (all three until changed).
+    pub fn of(&self, vault: &str) -> [bool; 3] {
+        let key = if self.same { "all" } else { vault };
+        self.sets.get(key).copied().unwrap_or([true; 3])
+    }
+
+    pub fn toggle(&mut self, vault: &str, which: usize) {
+        let key = if self.same { "all" } else { vault }.to_owned();
+        let mut v = self.of(&key);
+        v[which] = !v[which];
+        self.sets.insert(key, v);
+    }
+}
+
+/// How the vault list is sorted (26/11/2026); `Manual` follows `Preferences::item_order`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortBy {
+    #[default]
+    Name,
+    Edited,
+    Price,
+    Renewal,
+    Manual,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Shortcut {
     pub enabled: bool,
@@ -148,6 +184,13 @@ pub struct Preferences {
     pub vault_tabs: bool,
     /// Updates (D-74): pre-releases offered too (every 0.x version is one).
     pub update_prereleases: bool,
+    /// Sidebar shortcuts per vault (26/11/2026).
+    pub shortcuts: SidebarShortcuts,
+    /// Order of the folders and spaces in the sidebar (dragged); the others follow by name.
+    pub space_order: Vec<crate::SpaceId>,
+    pub sort_by: SortBy,
+    /// "My order" of the items (dragged).
+    pub item_order: Vec<crate::EntryId>,
 }
 
 impl Default for Preferences {
@@ -170,6 +213,10 @@ impl Default for Preferences {
             org_backup_key_saved: None,
             vault_tabs: false,
             update_prereleases: true,
+            shortcuts: SidebarShortcuts::default(),
+            space_order: Vec::new(),
+            sort_by: SortBy::Name,
+            item_order: Vec::new(),
         }
     }
 }

@@ -962,5 +962,11 @@
   "{}: date “{}” not understood": "{} : date « {} » non comprise",
   "{}: price “{}” not understood": "{} : prix « {} » non compris",
   "{}: “{}” is not a number": "{} : « {} » n'est pas un nombre",
-  "€15 / month": "15 € / mois"
+  "€15 / month": "15 € / mois",
+  "Hide": "Masquer",
+  "Customize: reorder and delete": "Personnaliser : réordonner et supprimer",
+  "Delete folder": "Supprimer le dossier",
+  "Every vault": "Tous les coffres",
+  "Same for every vault": "Les mêmes pour tous les coffres",
+  "All items, Favorites and Renew soon at the top of the sidebar": "Tous les éléments, Favoris et À renouveler en haut de la barre latérale"
 }
