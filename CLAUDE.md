@@ -33,6 +33,11 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   dans l'historique (D-41). Messages en anglais, à l'impératif, préfixés par la zone :
   `crypto: …`, `core: …`, `store: …`, `app: …`, `server: …`, `docs: …`, `ci: …`. Terminer par les
   lignes `Co-Authored-By` et `Claude-Session`.
+- Version : la session ne peut ni pousser une étiquette (proxy) ni créer ou modifier une version (API).
+  Vérifier d'abord le build Windows en poussant sur `build/full-app`, puis préparer pour l'utilisateur
+  un script dans `C:\MATV_LOCAL\_Interne\Cleis\` (modèle : `etiquette-v0.2.0.ps1`, auteur de
+  l'étiquette `Claude`) et les notes EN + FR ; `release.yml` construit le brouillon sur l'étiquette,
+  l'utilisateur colle les notes et publie. Dépôt local de l'utilisateur : `...\Cleis\cleis`.
 - Branches : `feat/<sujet>`, `fix/<sujet>`. Les choix validés sont poussés directement sur la
   branche de travail (`feat/full-app`), sans PR (demande de l'utilisateur). `main` reste vert.
 - Langue : anglais pour l'interface et le code ; anglais + français à la sortie des versions.

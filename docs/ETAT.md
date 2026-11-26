@@ -50,7 +50,10 @@
   Preferences, captures `UI_LANG=fr design/tools/appshots.sh`). L'audit est terminé.
 
 ## Prochaines étapes
-1. Étiquette `v0.2.0` (poussée par l'utilisateur : le proxy de la session refuse les étiquettes).
+1. Version `v0.2.0` : étiquette posée par l'utilisateur sur `6a9c726` (script
+   `C:\MATV_LOCAL\_Interne\Cleis\etiquette-v0.2.0.bat`), brouillon construit (zip Windows, serveur
+   Linux, sommes `.sha256`). Reste à l'utilisateur : coller les notes (`notes-v0.2.0.md`, même dossier)
+   et publier. La session ne peut ni poser d'étiquette ni modifier une version.
 2. Essais sur machines réelles : e-mail SMTP (codes et invitations), passerelle SMS, clients OAuth
    Google / Microsoft, service Windows installé depuis Program Files.
 3. Format monétaire régional en français (`69,99 €`, « En suspens » 15).
