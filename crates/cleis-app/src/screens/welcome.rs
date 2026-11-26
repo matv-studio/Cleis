@@ -402,6 +402,51 @@ pub fn render(
                 }))
                 .test_support(),
         )
+        // Mockup 36d: the vault from another computer, through an account (D-80).
+        .child({
+            let acc = |id: &'static str,
+                       ico: &str,
+                       label: &str,
+                       planned: Option<&'static str>,
+                       cx: &mut Context<CleisApp>| {
+                button(id, &t, BtnKind::Default, true)
+                    .child(icon(ico, 14., t.text))
+                    .child(crate::i18n::tr_owned(label))
+                    .when_some(planned, |b, why| b.opacity(0.45).tooltip(tip(tr(why))))
+                    .when(planned.is_none(), |b| {
+                        b.on_click(cx.listener(|this, _, window, cx| {
+                            this.sign_in_elsewhere(Provider::GitHub, window, cx)
+                        }))
+                    })
+                    .test_support()
+            };
+            let buttons = div()
+                .flex()
+                .gap(px(8.))
+                .child(acc(
+                    "signin-microsoft",
+                    "window",
+                    "Microsoft",
+                    Some("Available once Cleis is registered with Microsoft"),
+                    cx,
+                ))
+                .child(acc(
+                    "signin-google",
+                    "globe",
+                    "Google",
+                    Some("Available once Cleis is registered with Google"),
+                    cx,
+                ))
+                .child(acc("signin-github", "repo", "GitHub", None, cx));
+            div().id("sign-in").child(choice_with(
+                &t,
+                false,
+                tr("Sign in"),
+                "My vault from my other computers",
+                "user",
+                Some(buttons),
+            ))
+        })
         .child(
             div()
                 .id("org-server")

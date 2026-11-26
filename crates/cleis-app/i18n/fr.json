@@ -1134,5 +1134,22 @@
   "App Center did not install Cleis Server": "L'App Center n'a pas installé Cleis Server",
   "Enter the server and the user": "Saisissez le serveur et l'utilisateur",
   "SFTP password": "Mot de passe SFTP",
-  "Enter the SFTP password": "Saisissez le mot de passe SFTP"
+  "Enter the SFTP password": "Saisissez le mot de passe SFTP",
+  "Account": "Compte",
+  "Sign in": "Se connecter",
+  "Your vault, settings, backups and organizations follow you to your other computers. Everything is encrypted on this computer before it leaves: the provider sees only sealed files.": "Votre coffre, vos réglages, sauvegardes et organisations vous suivent sur vos autres ordinateurs. Tout est chiffré sur cet ordinateur avant de partir : le fournisseur ne voit que des fichiers scellés.",
+  "Local": "Local",
+  "Personal, work or school account · OneDrive": "Compte personnel, professionnel ou scolaire · OneDrive",
+  "Available once Cleis is registered with Microsoft": "Disponible quand Cleis sera enregistré auprès de Microsoft",
+  "Available once Cleis is registered with Google": "Disponible quand Cleis sera enregistré auprès de Google",
+  "A private repository": "Un dépôt privé",
+  "With GitHub: a private repository and a token": "Avec GitHub : un dépôt privé et un jeton",
+  "This computer stops following; the copy there stays sealed": "Cet ordinateur cesse de suivre ; la copie là-bas reste scellée",
+  "What follows you": "Ce qui vous suit",
+  "Items, folders, contacts": "Éléments, dossiers, contacts",
+  "Preferences, columns, shortcuts": "Préférences, colonnes, raccourcis",
+  "Each sync is a version in the repository": "Chaque synchronisation est une version dans le dépôt",
+  "Organizations": "Organisations",
+  "Your memberships; each server still asks for your PIN": "Vos adhésions ; chaque serveur demande toujours votre code PIN",
+  "My vault from my other computers": "Mon coffre depuis mes autres ordinateurs"
 }

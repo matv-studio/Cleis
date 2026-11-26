@@ -1,3 +1,4 @@
+pub mod account;
 pub mod calendar;
 pub mod columns;
 pub mod contacts;

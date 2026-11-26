@@ -214,6 +214,7 @@ fn main() {
                             } else if let Some(p) = page.as_deref() {
                                 s.settings_page = match p {
                                     "autofill" => "Autofill",
+                                    "account" => "Account",
                                     "sync" | "org-backups" => "Sync & backups",
                                     "security" => "Security",
                                     "import" => "Import & export",

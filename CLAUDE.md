@@ -12,7 +12,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    `python3 design/tools/shots.py all dark` (Playwright Chromium) → `target/captures/`.
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
-   [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
+   [--page account|autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
    profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|

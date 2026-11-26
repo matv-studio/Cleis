@@ -2331,3 +2331,46 @@ fn contact_photo(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("cm-photo-remove", cx));
     assert_eq!(photo(cx), None);
 }
+
+/// Scenario (mockups 36b, 36d, D-80): Settings › Account, GitHub: the GitHub place opens to sign
+/// in; Microsoft and Google wait (not clickable). A new computer: "Sign in" › GitHub opens the
+/// restore with the GitHub place.
+#[gpui_kit::test]
+fn account_sign_in(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-microsoft", cx));
+    let place = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.place.as_ref().map(|p| p.kind)
+        })
+    };
+    assert_eq!(place(cx), None);
+    act(cx, h, |w, cx| w.click("acc-signin", cx));
+    assert_eq!(place(cx), Some(cleis_app::sync::Provider::GitHub));
+
+    let (h2, app2) = open(cx, &dir.path().join("new/vault.cleis"));
+    cx.run_until_parked();
+    act(cx, h2, |w, cx| w.click("signin-github", cx));
+    app2.read_with(cx, |a, _| {
+        let Phase::Welcome(w) = &a.phase else {
+            panic!()
+        };
+        let r = w.restore.as_ref().expect("restore");
+        assert_eq!(
+            r.place.as_ref().map(|p| p.kind),
+            Some(cleis_app::sync::Provider::GitHub)
+        );
+    });
+}

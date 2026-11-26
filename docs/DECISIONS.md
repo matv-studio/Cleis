@@ -617,6 +617,16 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     sa demande avec elle (le code ne passe jamais par le dossier). Le code PIN (D-79) n'y est que
     local (pas de serveur pour compter les erreurs).
 
+- **D-80 Compte** (26/11/2026, maquettes 36b–36d validées). Settings › Account et « Sign in » au
+  premier lancement sont l'entrée simple de la place de synchronisation (D-50, D-65) : le fichier
+  coffre scellé porte les éléments, les réglages, les adhésions aux organisations, et chaque
+  synchronisation est une version. GitHub (dépôt privé + jeton) fonctionne ; Microsoft (OneDrive,
+  dossier d'application Graph) et Google (drive.appdata) sont affichés grisés tant que Cleis n'est
+  pas enregistré chez eux (« En suspens » 4 ; l'utilisateur : « on verra au moment venu »).
+  - Écarts à la maquette 36c : « Ce qui vous suit » est montré par des coches, pas des interrupteurs
+    (tout voyage dans le même fichier scellé) ; la liste des ordinateurs viendra avec un registre
+    des appareils dans le coffre.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

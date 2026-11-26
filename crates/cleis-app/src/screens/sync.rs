@@ -19,7 +19,7 @@ fn tip(
     }
 }
 
-fn ago(ts: i64) -> String {
+pub(crate) fn ago(ts: i64) -> String {
     let d = cleis_core::now() - ts;
     match d {
         ..=59 => tr("just now").into(),

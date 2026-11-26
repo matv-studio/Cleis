@@ -13,7 +13,8 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, div, px};
 
-const ACCOUNT: [(&str, &str); 4] = [
+const ACCOUNT: [(&str, &str); 5] = [
+    ("cloud", "Account"),
     ("lock", "Security"),
     ("gear", "Preferences"),
     ("fill", "Autofill"),
@@ -227,6 +228,7 @@ pub fn page(
                 .child(inner)
         }
         "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
+        "Account" => super::account::page(s, t, cx),
         "Members" => super::org::members(s, t, cx),
         "Spaces" => super::org::spaces(s, t, cx),
         "Profile" => super::org::profile(s, t, cx),
