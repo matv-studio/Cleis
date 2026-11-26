@@ -82,6 +82,8 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
         // Second sign-in step (D-64): method and its target (phone, identity account).
         ("members", "factor", "TEXT"),
         ("members", "factor_target", "TEXT"),
+        // Organization PIN (D-79): wrong PINs in a row.
+        ("members", "pin_fails", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         let has: bool = conn
             .prepare(&format!(
@@ -96,6 +98,7 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
         "CREATE TABLE IF NOT EXISTS codes (member TEXT PRIMARY KEY REFERENCES members(id), purpose TEXT NOT NULL, method TEXT NOT NULL, target TEXT NOT NULL, hash BLOB NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL) STRICT;
          CREATE TABLE IF NOT EXISTS used_tokens (hash BLOB PRIMARY KEY, expires INTEGER NOT NULL) STRICT;
          CREATE TABLE IF NOT EXISTS code_sends (member TEXT NOT NULL, at INTEGER NOT NULL) STRICT;
+         CREATE TABLE IF NOT EXISTS pin_ok (member TEXT NOT NULL, device TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (member, device)) STRICT;
          UPDATE members SET factor = 'authenticator_app' WHERE totp IS NOT NULL AND factor IS NULL;",
     )?;
     Ok(())

@@ -56,6 +56,8 @@ impl Server {
 struct Person {
     account: KeyPair,
     signing: SigningKeyPair,
+    /// The organization's PIN given at sign-in (D-79).
+    pin: Option<String>,
     member: MemberId,
     client: Client,
 }
@@ -79,6 +81,7 @@ fn join(addr: &str, code: &str, name: &str, email: &str) -> Result<Person, NetEr
     Ok(Person {
         account,
         signing,
+        pin: None,
         member: reply.member,
         client: Client::new(addr, Trust::Pinned(vec![reply.org.cert])),
     })
@@ -113,6 +116,7 @@ impl Person {
                 code,
                 remembered: None,
                 id_token,
+                pin: self.pin.clone(),
             },
         )?;
         self.client.token = Some(reply.token.clone());
@@ -1141,6 +1145,110 @@ fn admin_delegations() {
             limit: 10,
         },
     );
+    assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    srv.stop();
+}
+
+/// D-79: the organization's PIN. Set by an admin, asked of the others at sign-in and again
+/// once "Ask again after" has passed; wrong PINs lock the member out until an admin unlocks.
+#[test]
+fn organization_pin() {
+    let dir = tempdir();
+    let code = App::init(&dir, "Example Studio", &[]).unwrap();
+    let app = App::open(&dir).unwrap();
+    let srv = Server::start_app(app.clone(), dir);
+    let mut lea = join(&srv.addr, &code, "Lea", "lea@example-studio.com").unwrap();
+    lea.sign_in(None).unwrap();
+    let noa_code: InviteReply = lea
+        .client
+        .call(
+            "/v1/invites",
+            &NewInvite {
+                name: "Noa".into(),
+                email: "noa@example-studio.com".into(),
+                role: "member".into(),
+                spaces: vec![],
+                address: String::new(),
+            },
+        )
+        .unwrap();
+    let mut noa = join(&srv.addr, &noa_code.code, "Noa", "noa@example-studio.com").unwrap();
+
+    let mut p = lea.state().policy;
+    p.pin = PinRule {
+        on: true,
+        length: 4,
+        again_hours: 8,
+        tries: 3,
+    };
+    let _: Policy = lea.client.call("/v1/policy", &p).unwrap();
+    // Only a PIN of the policy's length.
+    let r: Result<PushReply, NetError> = lea.client.call(
+        "/v1/policy/pin",
+        &PinSet {
+            pin: "12345".into(),
+        },
+    );
+    assert_eq!(r.unwrap_err().code(), Some("bad_request"));
+    let _: PushReply = lea
+        .client
+        .call("/v1/policy/pin", &PinSet { pin: "4821".into() })
+        .unwrap();
+    // The admin who set it goes on; the member is asked it.
+    lea.state();
+    assert_eq!(noa.sign_in(None).unwrap_err().code(), Some("pin_required"));
+    noa.pin = Some("0000".into());
+    let e = noa.sign_in(None).unwrap_err();
+    assert_eq!(e.code(), Some("wrong_pin"));
+    noa.pin = Some("4821".into());
+    noa.sign_in(None).unwrap();
+    noa.state();
+
+    // "Ask again after" passed on this device: the session asks the PIN again.
+    {
+        let conn = app.db.lock().unwrap();
+        conn.execute(
+            "UPDATE pin_ok SET expires = 0 WHERE member = ?1",
+            [noa.member.to_string()],
+        )
+        .unwrap();
+    }
+    let r: Result<State, NetError> = noa.client.get("/v1/state");
+    assert_eq!(r.unwrap_err().code(), Some("pin_required"));
+
+    // Three wrong PINs in a row: locked out, even with the right one.
+    noa.pin = Some("1111".into());
+    assert_eq!(noa.sign_in(None).unwrap_err().code(), Some("wrong_pin"));
+    assert_eq!(noa.sign_in(None).unwrap_err().code(), Some("wrong_pin"));
+    assert_eq!(noa.sign_in(None).unwrap_err().code(), Some("pin_locked"));
+    noa.pin = Some("4821".into());
+    assert_eq!(noa.sign_in(None).unwrap_err().code(), Some("pin_locked"));
+    let st = lea.state();
+    assert!(
+        st.members
+            .iter()
+            .find(|m| m.id == noa.member)
+            .unwrap()
+            .pin_locked
+    );
+    // An admin unlocks.
+    let _: PushReply = lea
+        .client
+        .call("/v1/members/reset-pin", &IdOnly { id: noa.member.0 })
+        .unwrap();
+    noa.sign_in(None).unwrap();
+    assert!(
+        !lea.state()
+            .members
+            .iter()
+            .find(|m| m.id == noa.member)
+            .unwrap()
+            .pin_locked
+    );
+    // A member cannot change the PIN.
+    let r: Result<PushReply, NetError> = noa
+        .client
+        .call("/v1/policy/pin", &PinSet { pin: "1234".into() });
     assert_eq!(r.unwrap_err().code(), Some("forbidden"));
     srv.stop();
 }

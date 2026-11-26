@@ -372,6 +372,47 @@ pub struct Policy {
     pub unlock: UnlockRule,
     /// The members' master password: at least this many characters (0: Cleis' own minimum).
     pub master_min_length: u32,
+    /// The organization's PIN, asked before its spaces open (D-79).
+    pub pin: PinRule,
+}
+
+/// The organization's PIN (D-79, mockups 36g/36h): one PIN set by an admin, checked by the
+/// server before it opens a session; the organization's spaces stay closed in the app until it
+/// is given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PinRule {
+    pub on: bool,
+    /// Digits: 4, 6 or 8.
+    pub length: u8,
+    /// Asked again after this many hours on a device.
+    pub again_hours: u32,
+    /// Wrong PINs in a row before the member is locked out (until an admin unlocks).
+    pub tries: u32,
+}
+
+impl Default for PinRule {
+    fn default() -> Self {
+        Self {
+            on: false,
+            length: 6,
+            again_hours: 8,
+            tries: 5,
+        }
+    }
+}
+
+impl PinRule {
+    /// A PIN of the policy's length, digits only.
+    pub fn accepts(&self, pin: &str) -> bool {
+        pin.len() == usize::from(self.length) && pin.bytes().all(|b| b.is_ascii_digit())
+    }
+}
+
+/// Sets the organization's PIN (`/v1/policy/pin`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PinSet {
+    pub pin: String,
 }
 
 impl Policy {
@@ -385,6 +426,7 @@ impl Policy {
             && self.keep_days == o.keep_days
             && self.unlock == o.unlock
             && self.master_min_length == o.master_min_length
+            && self.pin == o.pin
     }
 }
 
@@ -406,6 +448,7 @@ impl Default for Policy {
             read_addresses: true,
             unlock: UnlockRule::Any,
             master_min_length: 0,
+            pin: PinRule::default(),
         }
     }
 }
@@ -704,6 +747,9 @@ pub struct SessionRequest {
     /// ID token from the member's identity provider (Google, Microsoft).
     #[serde(default)]
     pub id_token: Option<String>,
+    /// The organization's PIN, when its policy asks for one (D-79).
+    #[serde(default)]
+    pub pin: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -769,6 +815,9 @@ pub struct MemberView {
     /// Second sign-in step set up (D-64).
     #[serde(default)]
     pub factor: Option<Method>,
+    /// Locked out by wrong PINs, until an admin unlocks (D-79).
+    #[serde(default)]
+    pub pin_locked: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

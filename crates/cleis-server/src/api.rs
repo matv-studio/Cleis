@@ -29,6 +29,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/challenge", post(challenge).layer(small()))
         .route("/v1/session", post(session).layer(small()))
         .route("/v1/members/reset-step", post(reset_step))
+        .route("/v1/members/reset-pin", post(reset_pin))
+        .route("/v1/policy/pin", post(set_pin))
         .route("/v1/members/sign-out", post(sign_out_member))
         .route("/v1/state", get(state))
         .route("/v1/pull", post(pull))
@@ -87,9 +89,10 @@ struct Member {
     revoked: Option<i64>,
     factor: Option<Method>,
     factor_target: Option<String>,
+    pin_fails: u32,
 }
 
-const MEMBER_COLS: &str = "id, name, email, role, account_public, verify_key, export, totp, totp_pending, totp_last, last_sign_in, last_device, revoked, factor, factor_target";
+const MEMBER_COLS: &str = "id, name, email, role, account_public, verify_key, export, totp, totp_pending, totp_last, last_sign_in, last_device, revoked, factor, factor_target, pin_fails";
 
 fn method_key(m: Method) -> String {
     serde_json::to_value(m)
@@ -126,6 +129,7 @@ fn member_from(r: &rusqlite::Row) -> rusqlite::Result<Member> {
             .get::<_, Option<String>>(13)?
             .and_then(|s| method_from(&s)),
         factor_target: r.get(14)?,
+        pin_fails: r.get(15)?,
     })
 }
 
@@ -178,6 +182,7 @@ fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
         account_public: m.account_public,
         verify_key: m.verify_key,
         factor: m.factor,
+        pin_locked: pin_locked(&db::policy(conn), m.pin_fails),
     })
 }
 
@@ -260,6 +265,13 @@ impl FromRequestParts<Arc<App>> for Caller {
             params![&hash[..], now()],
         )?;
         let id = MemberId(member.parse().unwrap_or_default());
+        // D-79: past "Ask again after", the PIN is asked again before anything else.
+        if pin_due(&conn, id, &device, now())? {
+            return Err(ApiErr::unauthorized(
+                "pin_required",
+                "Enter the organization's PIN.",
+            ));
+        }
         let role_id: String =
             conn.query_row("SELECT role FROM members WHERE id = ?1", [&member], |r| {
                 r.get(0)
@@ -740,6 +752,7 @@ fn session_check(app: &App, peer: &Peer, req: &SessionRequest, t: i64) -> Result
         throttle(app, peer, true)?;
         return Err(ApiErr::unauthorized("unauthorized", "Signature refused."));
     }
+    pin_check(&conn, &m, &req.device, req.pin.as_deref(), t)?;
     let Some(factor) = m.factor else {
         return Ok(Next::Open(Box::new(m), false));
     };
@@ -1103,6 +1116,178 @@ async fn reset_step(
     end_sessions(&conn, id)?;
     let mut e = caller.event(Action::MemberChanged);
     e.note = format!("Two-step verification reset for {}", m.name);
+    app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+// ---------- Organization PIN (D-79) ----------
+
+/// Argon2id of the PIN with its salt, kept in `meta` under "pin" (never sent to the apps).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PinHash {
+    salt: String,
+    hash: String,
+    params: cleis_crypto::KdfParams,
+}
+
+/// Cost of the PIN's hash: OWASP's floor for Argon2id. A PIN is short: what protects it is the
+/// server counting wrong tries, the hash only keeps it out of a copied database.
+const PIN_KDF: cleis_crypto::KdfParams = cleis_crypto::KdfParams {
+    memory_kib: cleis_crypto::KdfParams::FLOOR_MEMORY_KIB,
+    iterations: cleis_crypto::KdfParams::FLOOR_ITERATIONS,
+    parallelism: 1,
+};
+
+fn pin_digest(
+    pin: &str,
+    salt: &[u8; 16],
+    params: cleis_crypto::KdfParams,
+) -> Result<String, ApiErr> {
+    let k = cleis_crypto::derive_master_key(pin, salt, params)
+        .map_err(|_| ApiErr::bad("PIN not hashed."))?;
+    Ok(hex(k.authentication.as_bytes()))
+}
+
+fn pin_locked(policy: &Policy, fails: u32) -> bool {
+    policy.pin.on && policy.pin.tries > 0 && fails >= policy.pin.tries
+}
+
+/// The PIN is on and set, and this device has no PIN given recently enough.
+fn pin_due(conn: &Connection, member: MemberId, device: &str, t: i64) -> Result<bool, ApiErr> {
+    let policy = db::policy(conn);
+    if !policy.pin.on || db::meta_get(conn, "pin")?.is_none() {
+        return Ok(false);
+    }
+    let ok = conn
+        .prepare("SELECT 1 FROM pin_ok WHERE member = ?1 AND device = ?2 AND expires > ?3")?
+        .exists(params![member.to_string(), device, t])?;
+    Ok(!ok)
+}
+
+/// Sign-in: the PIN asked, checked, counted; a right one opens this device for "Ask again
+/// after" hours.
+fn pin_check(
+    conn: &Connection,
+    m: &Member,
+    device: &str,
+    pin: Option<&str>,
+    t: i64,
+) -> Result<(), ApiErr> {
+    if !pin_due(conn, m.id, device, t)? {
+        return Ok(());
+    }
+    let policy = db::policy(conn);
+    if pin_locked(&policy, m.pin_fails) {
+        return Err(ApiErr::unauthorized(
+            "pin_locked",
+            "Too many wrong PINs. Ask an admin to unlock your access.",
+        ));
+    }
+    let Some(pin) = pin else {
+        return Err(ApiErr::unauthorized(
+            "pin_required",
+            "Enter the organization's PIN.",
+        ));
+    };
+    let stored: PinHash = db::meta_json(conn, "pin").ok_or_else(|| ApiErr::bad("No PIN set."))?;
+    let salt: [u8; 16] = data_encoding::HEXLOWER
+        .decode(stored.salt.as_bytes())
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or_else(|| ApiErr::bad("PIN unreadable."))?;
+    let right = policy.pin.accepts(pin) && pin_digest(pin, &salt, stored.params)? == stored.hash;
+    if !right {
+        let fails = m.pin_fails + 1;
+        conn.execute(
+            "UPDATE members SET pin_fails = ?2 WHERE id = ?1",
+            params![m.id.to_string(), fails],
+        )?;
+        if pin_locked(&policy, fails) {
+            end_sessions(conn, m.id)?;
+            return Err(ApiErr::unauthorized(
+                "pin_locked",
+                "Too many wrong PINs. Ask an admin to unlock your access.",
+            ));
+        }
+        let left = policy.pin.tries.saturating_sub(fails);
+        return Err(ApiErr::unauthorized(
+            "wrong_pin",
+            &format!(
+                "Wrong PIN. {left} {} left.",
+                if left == 1 { "try" } else { "tries" }
+            ),
+        ));
+    }
+    conn.execute(
+        "UPDATE members SET pin_fails = 0 WHERE id = ?1",
+        [m.id.to_string()],
+    )?;
+    conn.execute(
+        "INSERT INTO pin_ok(member, device, expires) VALUES (?1, ?2, ?3)
+         ON CONFLICT(member, device) DO UPDATE SET expires = excluded.expires",
+        params![
+            m.id.to_string(),
+            device,
+            t + i64::from(policy.pin.again_hours.max(1)) * 3600
+        ],
+    )?;
+    Ok(())
+}
+
+/// An admin sets the PIN: every device is asked the new one.
+async fn set_pin(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<PinSet>,
+) -> Res<PushReply> {
+    caller.can(Perm::Rules)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let policy = db::policy(&conn);
+    if !policy.pin.accepts(&req.pin) {
+        return Err(ApiErr::bad(&format!(
+            "The PIN has {} digits.",
+            policy.pin.length
+        )));
+    }
+    let salt: [u8; 16] = random_bytes().map_err(|_| ApiErr::bad("No randomness."))?;
+    let stored = PinHash {
+        salt: hex(&salt),
+        hash: pin_digest(&req.pin, &salt, PIN_KDF)?,
+        params: PIN_KDF,
+    };
+    db::meta_set_json(&conn, "pin", &stored)?;
+    conn.execute("DELETE FROM pin_ok", [])?;
+    // The one who set it is not asked it right away on this device.
+    conn.execute(
+        "INSERT INTO pin_ok(member, device, expires) VALUES (?1, ?2, ?3)",
+        params![
+            caller.id.to_string(),
+            caller.device,
+            now() + i64::from(policy.pin.again_hours.max(1)) * 3600
+        ],
+    )?;
+    let mut e = caller.event(Action::PolicyChanged);
+    e.note = "Organization PIN changed".into();
+    app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+/// An admin unlocks a member locked out by wrong PINs.
+async fn reset_pin(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<IdOnly>,
+) -> Res<PushReply> {
+    caller.can(Perm::Rules)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let id = MemberId(req.id);
+    let m = member(&conn, id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+    conn.execute(
+        "UPDATE members SET pin_fails = 0 WHERE id = ?1",
+        [id.to_string()],
+    )?;
+    let mut e = caller.event(Action::MemberChanged);
+    e.note = format!("PIN unlocked for {}", m.name);
     app.record(&conn, e)?;
     Ok(Json(PushReply::default()))
 }

@@ -103,6 +103,7 @@ const HELP: &str = "Cleis server
   cleis-server restore --data DIR FILE
   cleis-server rotate --data DIR --finish
   cleis-server status --data DIR
+  cleis-server unlock-pin --data DIR
 
 The data folder holds server.db and cleis-server.toml (addresses, backups, e-mail, SMS,
 Google / Microsoft sign-in). Default: CLEIS_DATA, else the system's usual place.";
@@ -191,6 +192,13 @@ fn run(a: Args) -> Result<(), ServerError> {
                     "no rotation announced (Settings › Encryption › Rotate)".into(),
                 )),
             }
+        }
+        // D-79: every member locked out by wrong PINs gets in again (the last admin included).
+        "unlock-pin" => {
+            let conn = db::open(&a.data.join(cleis_server::DB_FILE))?;
+            let n = conn.execute("UPDATE members SET pin_fails = 0 WHERE pin_fails > 0", [])?;
+            println!("{n} member(s) unlocked");
+            Ok(())
         }
         "status" => {
             let app = App::open(&a.data)?;
