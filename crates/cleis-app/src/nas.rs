@@ -430,6 +430,7 @@ mod tests {
         });
         if !up {
             let _ = child.kill();
+            let _ = child.wait();
             return skip("the OpenSSH server did not start");
         }
         let user = String::from_utf8(Command::new("id").arg("-un").output().unwrap().stdout)
