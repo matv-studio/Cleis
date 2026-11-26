@@ -15,8 +15,9 @@
 - Aussi : SFTP comme dossier partagé (`folder_store.rs`), compte (36b–36d, D-80 : GitHub ;
   Microsoft / Google grisés jusqu'à l'enregistrement OAuth), installateur portant Cleis Server pour
   NAS (`server/`), version 0.2.2, notes `docs/notes/v0.2.2.md`.
-- Reste : essai par l'utilisateur (installateur, création sur le QNAP par SSH, dossier SharePoint),
-  puis étiquette v0.2.2 (D-77) quand il valide.
+- Étiquette v0.2.2 posée sur f2f79b3 (D-77) ; brouillon « Cleis v0.2.2 » construit (installateur,
+  serveurs Linux, binaires et .qpkg pour NAS), à publier par l'utilisateur. Reste : essais réels
+  (création sur le QNAP par SSH, dossier SharePoint).
 
 ## 26/11/2026 (version 0.2.1 en préparation, branche `feat/full-app`)
 - v0.2.0 publiée par l'utilisateur. Mises à jour depuis GitHub (D-74), installateur Windows et une
