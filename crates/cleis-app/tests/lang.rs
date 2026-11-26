@@ -16,6 +16,8 @@ fn switch_to_french(cx: &mut TestAppContext) {
     cleis_app::demo::create(&path).unwrap();
     let (h, app) = cx.update(|cx| {
         gpui_kit::init(cx);
+        // Animations at their end state: elements are where the test clicks.
+        cx.set_reduce_motion(true);
         theme::apply(&theme::Appearance::default(), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds {

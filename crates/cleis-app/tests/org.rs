@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 fn open(cx: &mut TestAppContext, path: &Path) -> (WindowHandle<Root>, Entity<CleisApp>) {
     cx.update(|cx| {
         gpui_kit::init(cx);
+        // Animations at their end state: elements are where the test clicks.
+        cx.set_reduce_motion(true);
         theme::apply(&theme::Appearance::default(), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds {

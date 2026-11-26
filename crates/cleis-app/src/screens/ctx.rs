@@ -283,7 +283,7 @@ pub fn render(
                     anchored()
                         .position(m.at + point(px(2.), px(2.)))
                         .snap_to_window_with_margin(px(8.))
-                        .child(body),
+                        .child(crate::ui::menu_in(format!("ctx-{:?}", m.target), body)),
                 ),
         )
         .with_priority(2)

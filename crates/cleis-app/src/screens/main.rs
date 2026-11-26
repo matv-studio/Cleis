@@ -132,7 +132,10 @@ pub fn render(
                 .relative()
                 .flex()
                 .flex_col()
-                .child(page)
+                .child(crate::ui::page_in(
+                    format!("page-{tab:?}"),
+                    div().flex_1().min_h_0().flex().flex_col().child(page),
+                ))
                 .when_some(toast, |d, msg| {
                     d.child(
                         div()
@@ -513,7 +516,7 @@ fn row_cell(
         "name" => base
             .gap(px(8.))
             .when(editing, |d| {
-                d.child(icon("grip", 14., t.text_faint))
+                d.child(crate::ui::grip_pulse(format!("grip-{id}"), t, 14.))
                     .child(super::sidebar::remove_badge(
                         &format!("rm-item-{id}"),
                         t,

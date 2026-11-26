@@ -91,3 +91,8 @@ pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
 pub fn unprotect(stored: &[u8]) -> Result<Vec<u8>, String> {
     Ok(stored.to_vec())
 }
+
+/// Whether the system wants animations (always, here).
+pub fn animations_enabled() -> bool {
+    true
+}

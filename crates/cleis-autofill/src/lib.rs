@@ -22,6 +22,11 @@ use zeroize::Zeroizing;
 
 pub use platform::{accessibility_allowed, request_accessibility};
 
+/// Whether the system wants animations (Cleis' own, 26/11/2026, follow it).
+pub fn animations_enabled() -> bool {
+    platform::animations_enabled()
+}
+
 /// Opening Cleis without the master password (D-76).
 pub mod unlock {
     /// Whether Windows Hello can sign for this account (Windows only for now).

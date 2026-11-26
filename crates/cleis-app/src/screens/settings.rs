@@ -244,7 +244,8 @@ pub fn page(
             .px(px(32.))
             .pt(px(24.))
             .pb(px(40.))
-            .child(
+            .child(crate::ui::page_in(
+                format!("settings-{}", s.settings_page),
                 div()
                     .max_w(px(960.))
                     .mx_auto()
@@ -252,7 +253,7 @@ pub fn page(
                     .flex_col()
                     .gap(px(16.))
                     .child(body),
-            ),
+            )),
     )
 }
 

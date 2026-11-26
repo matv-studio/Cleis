@@ -405,11 +405,7 @@ fn folder_row(
     let inner = if editing {
         // Customize: a handle to drag, a cross to delete (personal folders).
         inner
-            .child(div().flex_none().text_color(t.text_faint).child(icon(
-                "grip",
-                14.,
-                t.text_faint,
-            )))
+            .child(crate::ui::grip_pulse(format!("sgrip-{id}"), t, 14.))
             .when(personal, |r| {
                 r.child(remove_badge(
                     &format!("rm-folder-{id}"),

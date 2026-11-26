@@ -112,6 +112,8 @@ fn main() {
         .with_assets(cleis_app::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            // Windows "Show animations" off: Cleis' own motion stays still too.
+            cx.set_reduce_motion(!cleis_autofill::animations_enabled());
             cleis_app::assets::load_fonts(cx);
             let mut appearance = cleis_app::app::load_appearance();
             if let Some(l) = &lang {

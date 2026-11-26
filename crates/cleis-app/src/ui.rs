@@ -169,7 +169,19 @@ pub fn switch(id: impl Into<ElementId>, t: &Tokens, on: bool) -> Stateful<Div> {
         .flex_none()
         .cursor_pointer()
         .child(track)
-        .child(handle)
+        // The handle slides to its side when the switch changes (120 ms).
+        .child({
+            use gpui_kit::AnimationExt;
+            handle.with_animation(
+                if on { "sw-on" } else { "sw-off" },
+                gpui_kit::Animation::new(std::time::Duration::from_millis(TOGGLE_MS))
+                    .with_easing(gpui_kit::ease_out_quint()),
+                move |d, v| {
+                    let away = px((1. - v) * 10.);
+                    if on { d.right(away) } else { d.left(away) }
+                },
+            )
+        })
 }
 
 /// `.section`: raised card with title and rows.
@@ -423,6 +435,52 @@ pub fn scrim(t: &Tokens) -> Div {
 }
 
 pub const DIALOG_W: gpui_kit::Pixels = px(420.);
+
+// ---------- Motion (26/11/2026: short and lively; none when the system asks for less) ----------
+
+/// Pages: fade in while rising 8 px, 150 ms.
+pub const PAGE_MS: u64 = 150;
+/// Menus and popups: fade in while dropping 4 px, 120 ms.
+pub const MENU_MS: u64 = 120;
+/// Switches: 120 ms.
+pub const TOGGLE_MS: u64 = 120;
+
+/// A page shown: fades in and rises into place. `key` changes with the page, which plays it again.
+pub fn page_in(key: impl Into<SharedString>, el: Div) -> gpui_kit::AnimationElement<Div> {
+    use gpui_kit::AnimationExt;
+    el.relative().with_animation(
+        ElementId::Name(key.into()),
+        gpui_kit::Animation::new(std::time::Duration::from_millis(PAGE_MS))
+            .with_easing(gpui_kit::ease_out_quint()),
+        |d, v| d.opacity(v).top(px((1. - v) * 8.)),
+    )
+}
+
+/// A menu or popup opened: fades in and drops into place.
+pub fn menu_in(key: impl Into<SharedString>, el: Div) -> gpui_kit::AnimationElement<Div> {
+    use gpui_kit::AnimationExt;
+    el.with_animation(
+        ElementId::Name(key.into()),
+        gpui_kit::Animation::new(std::time::Duration::from_millis(MENU_MS))
+            .with_easing(gpui_kit::ease_out_quint()),
+        |d, v| d.opacity(v).mt(px((v - 1.) * 4.)),
+    )
+}
+
+/// Customize mode: the handles breathe, all together, to say they can be dragged.
+pub fn grip_pulse(id: impl Into<SharedString>, t: &Tokens, size: f32) -> impl IntoElement {
+    use gpui_kit::AnimationExt;
+    div()
+        .flex_none()
+        .child(icon("grip", size, t.text_muted))
+        .with_animation(
+            ElementId::Name(id.into()),
+            gpui_kit::Animation::new(std::time::Duration::from_millis(1400))
+                .repeat_synced()
+                .with_easing(gpui_kit::pulsating_between(0.35, 1.)),
+            |d, v| d.opacity(v),
+        )
+}
 
 /// A pill that is on or off (mockup 35j: the shortcuts of a vault).
 pub fn tag_toggle(id: impl Into<ElementId>, t: &Tokens, label: &str, on: bool) -> Stateful<Div> {
