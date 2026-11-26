@@ -7,9 +7,7 @@
 //!
 //! The keys are random, so they seal directly (AES-256-GCM, as everywhere else): no derivation.
 
-use crate::{
-    AccountSecrets, LockedVault, Result, StoreError, Vault, meta_get, meta_set, now_ms,
-};
+use crate::{AccountSecrets, LockedVault, Result, StoreError, Vault, meta_get, meta_set, now_ms};
 use cleis_crypto::{SymmetricKey, open, random_bytes, seal};
 use zeroize::Zeroizing;
 
@@ -200,7 +198,10 @@ mod tests {
         assert!(v.has_password().unwrap());
         assert_eq!(v.recovery_saved().unwrap(), None);
         // Without a recovery key the password stays.
-        assert!(matches!(v.remove_password(), Err(StoreError::NoRecoveryKey)));
+        assert!(matches!(
+            v.remove_password(),
+            Err(StoreError::NoRecoveryKey)
+        ));
         let text = v.new_recovery_key().unwrap();
         let device = [7u8; 32];
         let blob = v.seal_for_device(&device).unwrap();
@@ -228,10 +229,16 @@ mod tests {
             .unwrap();
         assert_eq!(v.home_space(), home);
         // A master password again; the recovery key still opens.
-        v.change_password("new", KdfParams::insecure_for_tests()).unwrap();
+        v.change_password("new", KdfParams::insecure_for_tests())
+            .unwrap();
         drop(v);
         assert!(LockedVault::open(&path).unwrap().unlock("new").is_ok());
-        assert!(LockedVault::open(&path).unwrap().unlock_recovery(&text).is_ok());
+        assert!(
+            LockedVault::open(&path)
+                .unwrap()
+                .unlock_recovery(&text)
+                .is_ok()
+        );
         assert!(matches!(
             LockedVault::open(&path)
                 .unwrap()

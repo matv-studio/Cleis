@@ -143,6 +143,8 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
         )
     });
     assert!(path.exists());
+    // The recovery key is shown once (D-76).
+    act(cx, h, |w, cx| w.click("recovery-key-done", cx));
 
     // New item, favourite, then preferences persist across lock/unlock.
     act(cx, h, |w, cx| w.click("new-item", cx));
@@ -2095,4 +2097,123 @@ fn renewal_calendar(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("cal-open-renewal", cx));
     act(cx, h, |w, cx| w.click("cal-clear", cx));
     assert_eq!(renewal(cx), None);
+}
+
+/// Opening Cleis (D-76, mockups 35h, 35i): created to open with nothing to type, the recovery key
+/// shown once; locked, it opens with one click or the recovery key; a master password set again
+/// brings the password back on this computer.
+#[gpui_kit::test]
+fn opening_without_password(cx: &mut TestAppContext) {
+    use cleis_app::opening::Mode;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.cleis");
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("first-opening-Nothing", cx));
+    act(cx, h, |w, cx| w.click("create", cx));
+    let key = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else {
+            panic!("created and open")
+        };
+        assert_eq!(s.opening, Mode::Nothing);
+        assert!(!s.vault.has_password().unwrap());
+        match &s.security.dialog {
+            Some(cleis_app::screens::security::SecDialog::RecoveryKey(k)) => k.to_string(),
+            _ => panic!("the recovery key is shown"),
+        }
+    });
+    act(cx, h, |w, cx| w.click("recovery-key-done", cx));
+    assert_eq!(cleis_app::opening::mode(&path), Mode::Nothing);
+
+    // Locked: one click opens it; no password box.
+    act(cx, h, |w, cx| w.click("lock", cx));
+    let has_box = cx
+        .update_window(h.into(), |_, w, _| w.try_find("master-password").is_some())
+        .unwrap();
+    assert!(!has_box);
+    act(cx, h, |w, cx| w.click("unlock-device", cx));
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+
+    // The recovery key opens it too (typed in lower case).
+    act(cx, h, |w, cx| w.click("lock", cx));
+    act(cx, h, |w, cx| w.click("use-recovery", cx));
+    act(cx, h, |w, cx| {
+        w.click("recovery-key", cx);
+        w.input("WRONG", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Unlock(u) = &a.phase else { panic!() };
+        assert_eq!(u.error.as_deref(), Some("Wrong recovery key"));
+    });
+    act(cx, h, |w, cx| {
+        w.click("recovery-key", cx);
+        w.input(&key.to_lowercase(), cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+
+    // Back to the master password: set first, then this computer's key goes.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("opening-Password", cx));
+    let pw = "a long enough master password";
+    act(cx, h, |w, cx| {
+        w.click("pw-new", cx);
+        w.input(pw, cx);
+        w.click("pw-confirm", cx);
+        w.input(pw, cx);
+        w.click("chpw-ok", cx);
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.vault.has_password().unwrap());
+        assert_eq!(s.opening, Mode::Password);
+    });
+    assert_eq!(cleis_app::opening::mode(&path), Mode::Password);
+    act(cx, h, |w, cx| w.click("lock", cx));
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(pw, cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+}
+
+/// D-76: an organization that wants the master password takes "nothing" away on this computer.
+#[gpui_kit::test]
+fn organization_rule_for_opening(cx: &mut TestAppContext) {
+    use cleis_app::opening::Mode;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("opening-Nothing", cx));
+    assert_eq!(cleis_app::opening::mode(&path), Mode::Nothing);
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+        if let Some(st) = s.org.as_mut().and_then(|o| o.state.as_mut()) {
+            st.policy.unlock = cleis_core::org::UnlockRule::PasswordOnly;
+            st.policy.master_min_length = 40;
+        }
+        s.typed_len = Some(cleis_app::demo::PASSWORD.chars().count());
+        s.enforce_opening(&path);
+        assert_eq!(s.opening, Mode::Password);
+        assert!(s.password_due, "a longer master password is asked for");
+    });
+    assert_eq!(cleis_app::opening::mode(&path), Mode::Password);
 }

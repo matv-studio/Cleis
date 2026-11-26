@@ -236,6 +236,46 @@ pub fn upgrade_roles(mut roles: Vec<Role>) -> Vec<Role> {
 
 // ---------- Security policy ----------
 
+/// How the members' Cleis may open on their computers (D-76, mockup 35k).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnlockRule {
+    /// The master password every time.
+    PasswordOnly,
+    /// The master password, or Windows Hello on the member's computer.
+    PasswordOrHello,
+    /// Also nothing to type on the member's computer.
+    #[default]
+    Any,
+}
+
+impl UnlockRule {
+    /// Whether Windows Hello may open the vault.
+    pub fn allows_hello(self) -> bool {
+        self != UnlockRule::PasswordOnly
+    }
+
+    /// Whether nothing to type may open the vault.
+    pub fn allows_nothing(self) -> bool {
+        self == UnlockRule::Any
+    }
+
+    /// Whether the master password may be removed (the recovery key then opens elsewhere).
+    pub fn allows_no_password(self) -> bool {
+        self != UnlockRule::PasswordOnly
+    }
+
+    /// The stricter of two rules (a vault in several organizations follows all of them).
+    pub fn stricter(self, o: UnlockRule) -> UnlockRule {
+        use UnlockRule::*;
+        match (self, o) {
+            (PasswordOnly, _) | (_, PasswordOnly) => PasswordOnly,
+            (PasswordOrHello, _) | (_, PasswordOrHello) => PasswordOrHello,
+            _ => Any,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogDetail {
@@ -328,6 +368,10 @@ pub struct Policy {
     pub fill_fields: bool,
     pub type_keys: bool,
     pub read_addresses: bool,
+    /// How Cleis may open on the members' computers (D-76).
+    pub unlock: UnlockRule,
+    /// The members' master password: at least this many characters (0: Cleis' own minimum).
+    pub master_min_length: u32,
 }
 
 impl Policy {
@@ -339,6 +383,8 @@ impl Policy {
             && self.record_activity == o.record_activity
             && self.detail == o.detail
             && self.keep_days == o.keep_days
+            && self.unlock == o.unlock
+            && self.master_min_length == o.master_min_length
     }
 }
 
@@ -358,6 +404,8 @@ impl Default for Policy {
             fill_fields: true,
             type_keys: true,
             read_addresses: true,
+            unlock: UnlockRule::Any,
+            master_min_length: 0,
         }
     }
 }

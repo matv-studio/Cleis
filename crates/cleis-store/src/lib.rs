@@ -70,9 +70,9 @@ mod org;
 mod sync;
 mod unlock;
 
-pub use unlock::{format_recovery, parse_recovery};
 pub use org::{open_space_info, seal_space_info};
 pub use sync::SyncReport;
+pub use unlock::{format_recovery, parse_recovery};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

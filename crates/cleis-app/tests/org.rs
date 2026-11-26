@@ -113,6 +113,8 @@ fn first_launch(
         w.input("correct horse battery staple", cx);
         w.click("create", cx);
     });
+    // The recovery key shown once after the creation (D-76).
+    act(cx, h, |w, cx| w.click("recovery-key-done", cx));
 }
 
 #[gpui_kit::test]
@@ -550,6 +552,7 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
         w.input("correct horse battery staple", cx);
         w.click("create", cx);
     });
+    act(cx, h, |w, cx| w.click("recovery-key-done", cx));
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Organization", cx));
     act(cx, h, |w, cx| {

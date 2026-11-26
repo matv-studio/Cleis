@@ -454,7 +454,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     contrôle de santé qui joint le serveur, scripts de captures qui échouent quand une vue échoue.
   - Restent à décider (voir « En suspens » 10 à 14).
 
-- **D-71 Choix de fin d'audit** (25/11/2026, réponses de l'utilisateur) :
+- **D-71 Choix de fin d'audit** *(S-9 remplacé par D-76 : Windows Hello revient, par une clé du TPM.)* (25/11/2026, réponses de l'utilisateur) :
   - S-9 : le déverrouillage par Windows Hello / Touch ID est retiré (appli, politique, module
     système, fonctions du coffre) : la clé gardée par DPAPI ou le trousseau restait lisible par
     tout programme de la session. Le fichier `<coffre>.bio` d'une version précédente est effacé à
@@ -533,6 +533,36 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Mises à jour (D-74) : Cleis télécharge l'installateur et sa somme, le lance avec `/S /UPDATE` et
     se ferme ; l'installateur attend sa fermeture, installe, relance Cleis. Le remplacement des
     fichiers en place (zip portable) est retiré.
+
+- **D-76 Ouverture de Cleis : mot de passe maître, Windows Hello ou rien ; clé de récupération**
+  (26/11/2026, maquettes 35h à 35k validées) :
+  - Par ordinateur (Settings › Security › Opening Cleis, et au premier lancement) : le mot de
+    passe maître, Windows Hello, ou rien. Pour les deux derniers, une clé de cet ordinateur scelle
+    les secrets du compte dans `<coffre>.unlock`, à côté du coffre mais jamais synchronisé.
+  - Windows Hello comme KeePassXC : une paire de clés du magasin Windows Hello (dans le TPM s'il y
+    en a un) signe un défi aléatoire gardé dans ce fichier ; la signature (RSA PKCS#1 v1.5,
+    déterministe), obtenue seulement après l'invite Windows Hello, donne la clé par SHA-256.
+    Corrige le défaut S-9 qui avait fait retirer D-66 (D-71) : un programme de la session ne lit
+    plus la clé, il devrait passer par l'invite. L'invite, ouverte parfois derrière la fenêtre,
+    est remise devant (fenêtre « Credential Dialog Xaml Host »).
+  - « Rien » : clé aléatoire scellée par DPAPI pour le compte Windows (tout programme de la session
+    peut la lire : l'info-bulle le dit). Cleis s'ouvre seul au lancement. Linux et macOS : pas
+    de Windows Hello ; « rien » garde la clé dans un fichier lisible par l'utilisateur seul
+    (trousseau macOS à faire quand l'appli Mac sera construite).
+  - Clé de récupération : 32 octets aléatoires montrés une fois (base32 de Crockford, groupes de
+    4), qui scellent les secrets du compte dans le coffre ; elle ouvre le coffre partout (écran de
+    déverrouillage, restauration). Elle n'est pas gardée en clair : « Replace » en fait une
+    nouvelle (la maquette disait « Show », impossible sans la garder lisible).
+  - Le mot de passe maître peut être retiré (avec une clé de récupération et Windows Hello ou
+    « rien » sur cet ordinateur) ; le retrait et une nouvelle clé de récupération passent aux
+    autres appareils par la synchronisation. « Set » le remet.
+  - Organisation (Security policy › Opening Cleis) : « Master password only », « Master password
+    or Windows Hello », « Anything, also nothing » (défaut), et une longueur minimale du mot de
+    passe maître (10 par défaut). Droit `Rules` (D-67) pour les changer. Chez le membre, à
+    chaque synchronisation : la façon interdite est retirée de l'ordinateur, un mot de passe
+    absent ou trop court (vérifié au déverrouillage suivant) est demandé.
+  - Reste à essayer sur un vrai Windows Hello (le code Windows est vérifié par clippy, pas
+    exécuté ici).
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

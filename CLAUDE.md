@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-75,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-76,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -16,9 +16,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|confirm-transfer|confirm-remove|health-vault]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|recovery-key|confirm-transfer|confirm-remove|health-vault]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
-   [--quick-access] [--restore]
+   [--quick-access] [--restore] [--unlock-with hello|nothing]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
    `install [--print]`, `backup`, `restore`, `invite`, `status` ; configuration `cleis-server.toml`,
@@ -73,7 +73,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
   sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google /
   Microsoft par le navigateur), `screens/ctx.rs` (menus du clic droit, raccourcis d'un élément),
-  `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74), `instance.rs` (une seule
+  `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74), `opening.rs` (ouverture par
+  Windows Hello ou sans rien, fichier `<coffre>.unlock`, D-76), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
   `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
@@ -132,5 +133,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `find target/debug/build -mindepth 2 -maxdepth 2 -type d -mmin +30 -exec rm -rf {} +`.
 - Installateur Windows (D-75) : `makensis` existe aussi sous Linux (`apt install nsis`) ; essai
   local : `makensis -DVERSION=x -DSRC=dossier -DOUT=setup.exe packaging/windows/cleis.nsi`.
+- Création d'un coffre (essais) : la clé de récupération s'affiche ensuite dans un dialogue qui
+  couvre le centre : `w.click("recovery-key-done")` avant de cliquer ailleurs.
 - Barre du haut (fenêtre sans cadre) : sous Windows, tout contrôle posé dedans doit avoir
   `.occlude()`, sinon le clic part en déplacement de fenêtre.

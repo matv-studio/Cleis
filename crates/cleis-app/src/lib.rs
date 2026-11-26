@@ -14,6 +14,7 @@ pub mod i18n;
 pub mod instance;
 pub mod kit;
 pub mod oidc;
+pub mod opening;
 pub mod org;
 pub mod remote;
 pub mod screens;

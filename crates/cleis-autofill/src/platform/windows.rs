@@ -422,12 +422,10 @@ pub fn hello_sign(name: &str, challenge: &[u8]) -> Result<Vec<u8>, String> {
     use windows::Security::Cryptography::CryptographicBuffer;
     let name = windows::core::HSTRING::from(name);
     raise_hello_prompt();
-    let created = KeyCredentialManager::RequestCreateAsync(
-        &name,
-        KeyCredentialCreationOption::FailIfExists,
-    )
-    .and_then(|op| op.join())
-    .map_err(|e| e.to_string())?;
+    let created =
+        KeyCredentialManager::RequestCreateAsync(&name, KeyCredentialCreationOption::FailIfExists)
+            .and_then(|op| op.join())
+            .map_err(|e| e.to_string())?;
     let credential = match created.Status().map_err(|e| e.to_string())? {
         KeyCredentialStatus::Success => created.Credential(),
         KeyCredentialStatus::CredentialAlreadyExists => KeyCredentialManager::OpenAsync(&name)

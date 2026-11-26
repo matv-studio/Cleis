@@ -34,6 +34,7 @@ shot() { # name, args...
 }
 for theme in ${THEMES:-dark}; do
   shot "unlock-$theme" --demo --theme $theme
+  shot "unlock-hello-$theme" --demo --unlock-with hello --theme $theme
   shot "vault-$theme" --demo --unlocked --theme $theme
   shot "update-$theme" --demo --unlocked --update 0.2.1 --theme $theme
   shot "update-confirm-$theme" --demo --unlocked --update 0.2.1 --menu update --theme $theme
@@ -47,6 +48,7 @@ for theme in ${THEMES:-dark}; do
   shot "health-$theme" --demo --unlocked --tab health --theme $theme
   shot "preferences-$theme" --demo --unlocked --tab settings --theme $theme
   shot "security-$theme" --demo --unlocked --tab settings --page security --theme $theme
+  shot "recovery-key-$theme" --demo --unlocked --tab settings --page security --menu recovery-key --theme $theme
   shot "open-code-$theme" --demo --unlocked --tab settings --page security --menu open-code --theme $theme
   shot "autofill-$theme" --demo --unlocked --tab settings --page autofill --theme $theme
   shot "quick-access-$theme" --demo --unlocked --quick-access --theme $theme

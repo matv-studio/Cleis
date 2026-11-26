@@ -933,6 +933,7 @@ impl CleisApp {
                     );
                 }
                 apply_state(s, *state, &changes);
+                s.enforce_opening(&path);
             }
             Outcome::NeedCode { wrong, message } => {
                 o.again = false;

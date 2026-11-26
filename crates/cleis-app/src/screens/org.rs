@@ -947,6 +947,26 @@ const OFFLINE: [(u32, &str); 4] = [
     (30, "30 days"),
 ];
 const MIN_LEN: [u32; 6] = [8, 10, 12, 14, 16, 20];
+/// Mockup 35k (D-76).
+const UNLOCK_RULES: [(cleis_core::org::UnlockRule, &str); 3] = [
+    (
+        cleis_core::org::UnlockRule::PasswordOnly,
+        "Master password only",
+    ),
+    (
+        cleis_core::org::UnlockRule::PasswordOrHello,
+        "Master password or Windows Hello",
+    ),
+    (cleis_core::org::UnlockRule::Any, "Anything, also nothing"),
+];
+/// The members' master password (0: Cleis' own minimum, 10).
+const MASTER_MIN: [(u32, &str); 5] = [
+    (0, "10 characters"),
+    (12, "12 characters"),
+    (14, "14 characters"),
+    (16, "16 characters"),
+    (20, "20 characters"),
+];
 const MAX_AGE: [(u32, &str); 4] = [
     (182, "6 months"),
     (365, "1 year"),
@@ -1130,6 +1150,46 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     cx,
                 )),
         );
+    let opening = section(t)
+        .child(titled(
+            t,
+            tr("Opening Cleis"),
+            Some(tr("Applies to every member whose vault holds this organization")),
+        ))
+        .child(
+            row(t, true).child(div().flex_1().child(tr("Unlock with"))).child(sel(
+                "pol-unlock",
+                280.,
+                UNLOCK_RULES
+                    .iter()
+                    .map(|(r, l)| ((*l).into(), *r == p.unlock))
+                    .collect(),
+                Rc::new(|app, i, cx| app.org_set_policy(|p| p.unlock = UNLOCK_RULES[i].0, cx)),
+                cx,
+            )),
+        )
+        .child(
+            row(t, false)
+                .child(
+                    div()
+                        .id("master-min-l")
+                        .flex_1()
+                        .child(tr("Master password: at least"))
+                        .tooltip(tip(tr("Asked when a member sets or changes it, and at the next unlock with a shorter one"))),
+                )
+                .child(sel(
+                    "pol-master-min",
+                    160.,
+                    MASTER_MIN
+                        .iter()
+                        .map(|(n, l)| ((*l).into(), *n == p.master_min_length))
+                        .collect(),
+                    Rc::new(|app, i, cx| {
+                        app.org_set_policy(|p| p.master_min_length = MASTER_MIN[i].0, cx)
+                    }),
+                    cx,
+                )),
+        );
     let passwords = section(t)
         .child(titled(
             t,
@@ -1273,6 +1333,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(head(t, tr("Security policy")))
         .child(rules_lock("pol-lock-signing", rules, signing))
         .child(rules_lock("pol-lock-methods", rules, methods))
+        .child(rules_lock("pol-lock-opening", rules, opening))
         .child(locking)
         .child(passwords)
         .child(rules_lock("pol-lock-log", rules, log))
@@ -3675,6 +3736,15 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                     }
                     _ => {}
                 }
+            }
+        }
+        "recovery-key" => {
+            if let Some(s) = app.session() {
+                // A sample, never a real key.
+                let sample: [u8; 32] = core::array::from_fn(|i| (i * 29 + 3) as u8);
+                s.security.dialog = Some(super::security::SecDialog::RecoveryKey(
+                    zeroize::Zeroizing::new(cleis_store::format_recovery(&sample)),
+                ));
             }
         }
         "calendar" => {

@@ -181,7 +181,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(section(t).child(field(
             t,
-            "Master password",
+            "Master password or recovery key",
             Input::new(&r.password).id("restore-password").mask_toggle(),
         )))
         .when_some(r.error.clone().map(|e| crate::i18n::tr_dynamic(&e)), |d, e| {
@@ -272,6 +272,77 @@ fn choice_with(
         )
 }
 
+/// Mockup 35i: how this computer will open the vault.
+fn opening_choice(
+    now: crate::opening::Mode,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    use crate::opening::Mode;
+    let hello_ok = crate::opening::hello_available();
+    let mut seg = div()
+        .flex()
+        .flex_none()
+        .p(px(2.))
+        .gap(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD);
+    for (mode, label, why) in [
+        (Mode::Password, "Password", None),
+        (
+            Mode::Hello,
+            "Windows Hello",
+            Some(if hello_ok {
+                "Face, fingerprint or PIN of this Windows account"
+            } else {
+                "Windows Hello is not set up on this computer"
+            }),
+        ),
+        (
+            Mode::Nothing,
+            "Nothing",
+            Some("Anyone using this Windows account opens Cleis"),
+        ),
+    ] {
+        let on = now == mode;
+        let allowed = mode != Mode::Hello || hello_ok;
+        seg = seg.child(
+            div()
+                .id(SharedString::from(format!("first-opening-{mode:?}")))
+                .h(px(24.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .rounded(RADIUS_SM)
+                .font_weight(W_MEDIUM)
+                .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
+                .when(!on, |d| d.text_color(t.text_muted))
+                .when(allowed, |d| d.cursor_pointer())
+                .when(!allowed, |d| d.opacity(0.45))
+                .child(tr(label))
+                .when_some(why, |d, w| d.tooltip(tip(tr(w))))
+                .when(allowed, |d| {
+                    d.on_click(cx.listener(move |this, _, _, cx| {
+                        if let Phase::Welcome(w) = &mut this.phase {
+                            w.opening = mode;
+                            w.error = None;
+                        }
+                        cx.notify();
+                    }))
+                })
+                .test_support(),
+        );
+    }
+    div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .child(div().flex_1().child(tr("Unlock with")))
+        .child(seg)
+}
+
 pub fn render(
     app: &mut CleisApp,
     _window: &mut Window,
@@ -355,16 +426,19 @@ pub fn render(
         )
         .child(
             section(&t)
-                .child(field(
-                    &t,
-                    "Master password",
-                    Input::new(&w.password).id("new-password").mask_toggle(),
-                ))
-                .child(field(
-                    &t,
-                    "Confirm",
-                    Input::new(&w.confirm).id("confirm-password").mask_toggle(),
-                ))
+                .child(opening_choice(w.opening, &t, cx))
+                .when(w.opening == crate::opening::Mode::Password, |d| {
+                    d.child(field(
+                        &t,
+                        "Master password",
+                        Input::new(&w.password).id("new-password").mask_toggle(),
+                    ))
+                    .child(field(
+                        &t,
+                        "Confirm",
+                        Input::new(&w.confirm).id("confirm-password").mask_toggle(),
+                    ))
+                })
                 .when_some(
                     w.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
                     |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
@@ -385,6 +459,9 @@ pub fn render(
                 .child(
                     button("create", &t, BtnKind::Primary, false)
                         .when(busy, |b| b.opacity(0.6))
+                        .tooltip(tip(tr(
+                            "A recovery key is shown next: it opens the vault on another computer",
+                        )))
                         .child(if busy {
                             tr("Creating…")
                         } else {
@@ -484,8 +561,17 @@ impl CleisApp {
                         return Err(tr("A vault already exists on this computer").to_owned());
                     }
                     std::fs::copy(&src, &d2).map_err(|e| e.to_string())?;
+                    // The master password, or the recovery key typed in its place (D-76).
                     let v = cleis_store::LockedVault::open(&d2)
-                        .and_then(|l| l.unlock(&pw))
+                        .and_then(|l| {
+                            if cleis_store::parse_recovery(&pw).is_some() {
+                                l.unlock_recovery(&pw).or_else(|_| {
+                                    cleis_store::LockedVault::open(&d2).and_then(|l| l.unlock(&pw))
+                                })
+                            } else {
+                                l.unlock(&pw)
+                            }
+                        })
                         .map_err(|e| e.to_string());
                     if v.is_err() {
                         let _ = std::fs::remove_file(&d2);

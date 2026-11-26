@@ -65,6 +65,8 @@ fn main() {
     let page = value("--page");
     let quick_access = flag("--quick-access") && unlocked;
     let menu = value("--menu").filter(|_| unlocked);
+    // Screenshots of the unlock screen as Windows Hello or "nothing" shows it (D-76).
+    let unlock_with = value("--unlock-with").filter(|_| demo && !unlocked);
     // Screenshots: a newer version shown as published (`--update 0.2.1`).
     let fake_update = value("--update");
     let import = value("--import").filter(|_| unlocked);
@@ -157,6 +159,14 @@ fn main() {
                         // Demo and screenshots: never take the system's shortcuts or type.
                         app.no_shortcuts = true;
                         app.autofill.dry_run = Some(vec![]);
+                    }
+                    if let (Some(m), cleis_app::app::Phase::Unlock(u)) =
+                        (unlock_with.as_deref(), &mut app.phase)
+                    {
+                        u.mode = match m {
+                            "nothing" => cleis_app::opening::Mode::Nothing,
+                            _ => cleis_app::opening::Mode::Hello,
+                        };
                     }
                     if unlocked
                         && let Ok(v) = cleis_store::LockedVault::open(&path)

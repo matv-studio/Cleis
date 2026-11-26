@@ -75,6 +75,8 @@ pub enum ConfirmAction {
     LeaveOrg,
     RotateKey,
     DisconnectPlace,
+    /// D-76: no more master password.
+    RemovePassword,
 }
 
 pub struct Welcome {
@@ -88,12 +90,38 @@ pub struct Welcome {
     /// "Add an organization server" chosen (screen 03): joined once the vault exists.
     pub org: bool,
     pub join: crate::screens::org::JoinForm,
+    /// How this computer will open the vault (mockup 35i, D-76).
+    pub opening: crate::opening::Mode,
 }
 
 pub struct Unlock {
     pub password: Entity<InputState>,
     pub error: Option<SharedString>,
     pub busy: bool,
+    /// Whether a master password opens the vault (D-76).
+    pub has_password: bool,
+    /// How this computer opens it.
+    pub mode: crate::opening::Mode,
+    /// The recovery key is being typed.
+    pub recovery: bool,
+    pub recovery_key: Entity<InputState>,
+}
+
+impl Unlock {
+    pub fn new(path: &std::path::Path, window: &mut Window, cx: &mut Context<CleisApp>) -> Self {
+        Self {
+            password: password_input(window, cx, ""),
+            error: None,
+            busy: false,
+            has_password: LockedVault::open(path)
+                .and_then(|l| l.has_password())
+                .unwrap_or(true),
+            mode: crate::opening::mode(path),
+            recovery: false,
+            recovery_key: cx
+                .new(|cx| InputState::new(window, cx).placeholder("XXXX-XXXX-XXXX-XXXX-…")),
+        }
+    }
 }
 
 pub struct Session {
@@ -172,6 +200,14 @@ pub struct Session {
     pub resize: Option<crate::screens::dnd::Resize>,
     /// The calendar open below a date box (mockup 35g).
     pub calendar: Option<crate::screens::calendar::Calendar>,
+    /// How this computer opens the vault (D-76).
+    pub opening: crate::opening::Mode,
+    /// Chosen while the vault had no master password: applied once it is set.
+    pub after_password: Option<crate::opening::Mode>,
+    /// An organization's rule asks for a master password, or a longer one (D-76).
+    pub password_due: bool,
+    /// Length of the master password typed at the unlock (checked against the rules).
+    pub typed_len: Option<usize>,
     /// Menu opened by a right-click (mockups 33 to 33d).
     pub ctx: Option<crate::screens::ctx::CtxMenu>,
     /// Settings › Organization: joining one from an open vault.
@@ -346,6 +382,56 @@ impl Session {
         self.all_orgs().find(|o| o.names.contains_key(&space))
     }
 
+    /// The organizations' rule for opening Cleis (the strictest), and who sets it (D-76).
+    pub fn unlock_rule(&self) -> (cleis_core::org::UnlockRule, Option<String>) {
+        let mut rule = cleis_core::org::UnlockRule::Any;
+        let mut by = None;
+        for o in self.all_orgs() {
+            if let Some(p) = o.policy() {
+                let r = rule.stricter(p.unlock);
+                if r != rule {
+                    by = Some(o.m.name.clone());
+                }
+                rule = r;
+            }
+        }
+        (rule, by)
+    }
+
+    /// Applies the organizations' rule for opening Cleis (D-76): a way in they forbid on this
+    /// computer goes, and a missing or too short master password is asked for.
+    pub fn enforce_opening(&mut self, path: &std::path::Path) {
+        use crate::opening::Mode;
+        let (rule, _) = self.unlock_rule();
+        let forbidden = match self.opening {
+            Mode::Hello => !rule.allows_hello(),
+            Mode::Nothing => !rule.allows_nothing(),
+            Mode::Password => false,
+        };
+        if forbidden {
+            crate::opening::forget(path);
+            self.opening = Mode::Password;
+            self.toast = Some(tr("Your organization asks for the master password").into());
+        }
+        let has = self.vault.has_password().unwrap_or(true);
+        if !has && !rule.allows_no_password() {
+            self.password_due = true;
+        }
+        if has && self.typed_len.is_some_and(|n| n < self.master_min()) {
+            self.typed_len = None;
+            self.password_due = true;
+            self.toast = Some(tr("Your organization asks for a longer master password").into());
+        }
+    }
+
+    /// The shortest master password allowed: Cleis' own minimum, or more if an organization
+    /// says so (D-76).
+    pub fn master_min(&self) -> usize {
+        self.all_orgs()
+            .filter_map(|o| o.policy().map(|p| p.master_min_length as usize))
+            .fold(10, usize::max)
+    }
+
     /// Whether an item of `space` is shown by the current scope (D-69).
     pub fn in_scope(&self, space: cleis_core::SpaceId) -> bool {
         self.scope_has(&self.scope, space)
@@ -437,25 +523,35 @@ impl CleisApp {
                             }
                         });
                     }
-                    app.idle_lock_due().then_some(app.main_window).flatten()
+                    // An organization's rule asks for a master password (D-76).
+                    if app.password_due() {
+                        return app.main_window.map(|w| (w, false));
+                    }
+                    app.idle_lock_due()
+                        .then_some(app.main_window)
+                        .flatten()
+                        .map(|w| (w, true))
                 }) else {
                     break;
                 };
                 // Security › Locking › After inactivity.
-                if let Some(w) = idle {
+                if let Some((w, lock)) = idle {
                     let _ = cx.update_window(w, |_, window, cx| {
-                        let _ = this.update(cx, |app, cx| app.lock(window, cx));
+                        let _ = this.update(cx, |app, cx| {
+                            if lock {
+                                app.lock(window, cx)
+                            } else {
+                                app.start_change_password(window, cx)
+                            }
+                        });
                     });
                 }
             }
         });
+        let first = Unlock::new(&path, window, cx);
         let mut app = Self {
             path,
-            phase: Phase::Unlock(Unlock {
-                password: password_input(window, cx, ""),
-                error: None,
-                busy: false,
-            }),
+            phase: Phase::Unlock(first),
             forced_mode,
             main_window: Some(window.window_handle()),
             autofill: Default::default(),
@@ -479,6 +575,10 @@ impl CleisApp {
         .detach();
         if app.path.exists() {
             app.show_unlock(window, cx);
+            // "Nothing" on this computer (D-76): the vault opens by itself at launch.
+            if crate::opening::mode(&app.path) == crate::opening::Mode::Nothing {
+                app.unlock_device(window, cx);
+            }
         } else {
             app.show_welcome(window, cx);
         }
@@ -540,6 +640,7 @@ impl CleisApp {
             restore: None,
             org: false,
             join,
+            opening: crate::opening::Mode::Password,
         }));
         cx.notify();
     }
@@ -554,24 +655,31 @@ impl CleisApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Phase> {
-        let password = password_input(window, cx, "");
-        self._subs =
-            vec![
-                cx.subscribe_in(&password, window, |this, _, ev: &InputEvent, window, cx| {
+        let u = Unlock::new(&self.path, window, cx);
+        self._subs = vec![
+            cx.subscribe_in(
+                &u.password,
+                window,
+                |this, _, ev: &InputEvent, window, cx| {
                     if let InputEvent::PressEnter { .. } = ev {
                         this.unlock(window, cx);
                     }
-                }),
-            ];
-        password.update(cx, |s, cx| s.focus(window, cx));
-        let old = std::mem::replace(
-            &mut self.phase,
-            Phase::Unlock(Unlock {
-                password,
-                error: None,
-                busy: false,
-            }),
-        );
+                },
+            ),
+            cx.subscribe_in(
+                &u.recovery_key,
+                window,
+                |this, _, ev: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { .. } = ev {
+                        this.unlock_recovery(window, cx);
+                    }
+                },
+            ),
+        ];
+        if u.has_password {
+            u.password.update(cx, |s, cx| s.focus(window, cx));
+        }
+        let old = std::mem::replace(&mut self.phase, Phase::Unlock(u));
         cx.notify();
         Some(old)
     }
@@ -583,14 +691,22 @@ impl CleisApp {
         if w.busy {
             return;
         }
-        let pw = w.password.read(cx).value().to_string();
+        let opening = w.opening;
+        let with_password = opening == crate::opening::Mode::Password;
+        let pw = if with_password {
+            w.password.read(cx).value().to_string()
+        } else {
+            // Windows Hello or nothing (D-76): a password nobody knows, removed once the
+            // recovery key and this computer's key exist.
+            cleis_crypto::hex(&cleis_crypto::random_bytes::<32>().unwrap_or([7; 32]))
+        };
         let confirm = w.confirm.read(cx).value().to_string();
-        if pw.chars().count() < 10 {
+        if with_password && pw.chars().count() < 10 {
             w.error = Some(tr("At least 10 characters").into());
             cx.notify();
             return;
         }
-        if pw != confirm {
+        if with_password && pw != confirm {
             w.error = Some(tr("The passwords differ").into());
             cx.notify();
             return;
@@ -628,16 +744,53 @@ impl CleisApp {
         w.error = None;
         cx.notify();
         let path = self.path.clone();
+        let challenge = crate::opening::new_challenge();
         cx.spawn_in(window, async move |this, cx| {
             let res = cx
                 .background_executor()
                 .spawn(async move {
+                    // Windows Hello first: nothing is created if the prompt is turned down.
+                    let hello = match opening {
+                        crate::opening::Mode::Hello => Some(crate::opening::hello_key(&challenge)?),
+                        _ => None,
+                    };
                     if let Some(dir) = path.parent() {
                         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                     }
-                    Vault::create(&path, &pw, KdfParams::default()).map_err(|e| e.to_string())
+                    let mut v = Vault::create(&path, &pw, KdfParams::default())
+                        .map_err(|e| e.to_string())?;
+                    let finish = || -> Result<_, String> {
+                        let key = v.new_recovery_key().map_err(|e| e.to_string())?;
+                        match (opening, hello) {
+                            (crate::opening::Mode::Hello, Some(k)) => {
+                                crate::opening::set_hello(&path, &v, challenge, &k)?
+                            }
+                            (crate::opening::Mode::Nothing, _) => {
+                                crate::opening::set_nothing(&path, &v)?
+                            }
+                            _ => {}
+                        }
+                        if opening != crate::opening::Mode::Password {
+                            v.remove_password().map_err(|e| e.to_string())?;
+                        }
+                        Ok(key)
+                    };
+                    match finish() {
+                        Ok(key) => Ok::<_, String>((v, key)),
+                        // A vault nobody could open is not left behind.
+                        Err(e) => {
+                            drop(v);
+                            let _ = std::fs::remove_file(&path);
+                            crate::opening::forget(&path);
+                            Err(e)
+                        }
+                    }
                 })
                 .await;
+            let (res, recovery) = match res {
+                Ok((v, key)) => (Ok(v), Some(key)),
+                Err(e) => (Err(e), None),
+            };
             let res = match (res, join) {
                 (Ok(v), Some((address, code, name, email))) => {
                     let public = v.account_public().0;
@@ -665,6 +818,13 @@ impl CleisApp {
                         None => None,
                     };
                     this.enter(v, window, cx);
+                    // The recovery key, shown once (mockup 35i: "shown next").
+                    if let Some(key) = recovery
+                        && let Some(s) = this.session()
+                    {
+                        s.security.dialog =
+                            Some(crate::screens::security::SecDialog::RecoveryKey(key));
+                    }
                     if let Some(e) = failed {
                         this.toast_for(crate::trf!("Not joined: {}", e), 8, cx);
                         if let Some(s) = this.session() {
@@ -697,6 +857,7 @@ impl CleisApp {
         if pw.is_empty() {
             return;
         }
+        let len = pw.chars().count();
         u.busy = true;
         u.error = None;
         cx.notify();
@@ -715,13 +876,23 @@ impl CleisApp {
                 })
                 .await;
             this.update_in(cx, |this, window, cx| match res {
-                Ok(v) => this.enter(v, window, cx),
+                Ok(v) => {
+                    this.enter(v, window, cx);
+                    let path = this.path.clone();
+                    if let Some(s) = this.session() {
+                        s.typed_len = Some(len);
+                        s.enforce_opening(&path);
+                    }
+                }
                 Err(e) => {
                     if let Phase::Unlock(u) = &mut this.phase {
                         u.busy = false;
                         u.error = Some(match e {
                             cleis_store::StoreError::WrongPassword => {
                                 tr("Wrong master password").into()
+                            }
+                            cleis_store::StoreError::NoPassword => {
+                                tr("This vault has no master password: use the recovery key").into()
                             }
                             other => other.to_string().into(),
                         });
@@ -731,6 +902,94 @@ impl CleisApp {
                         });
                     }
                     cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The unlock failed: the message, the boxes emptied.
+    fn unlock_failed(&mut self, msg: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        if let Phase::Unlock(u) = &mut self.phase {
+            u.busy = false;
+            u.error = Some(msg);
+            for i in [&u.password, &u.recovery_key] {
+                i.update(cx, |s, cx| s.set_value("", window, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Windows Hello (D-76): the prompt, then the vault opens with this computer's key.
+    pub fn unlock_hello(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Phase::Unlock(u) = &mut self.phase else {
+            return;
+        };
+        if u.busy {
+            return;
+        }
+        let Some(challenge) = crate::opening::hello_challenge(&self.path) else {
+            return;
+        };
+        u.busy = true;
+        u.error = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let key = cx
+                .background_executor()
+                .spawn(async move { crate::opening::hello_key(&challenge) })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                match key.and_then(|k| crate::opening::open(&this.path, Some(&k))) {
+                    Ok(v) => this.enter(v, window, cx),
+                    Err(e) => this.unlock_failed(crate::i18n::tr_dynamic(&e).into(), window, cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Nothing to type on this computer (D-76): the key kept for the Windows account opens it.
+    pub fn unlock_device(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match crate::opening::open(&self.path, None) {
+            Ok(v) => self.enter(v, window, cx),
+            Err(e) => self.unlock_failed(crate::i18n::tr_dynamic(&e).into(), window, cx),
+        }
+    }
+
+    /// The recovery key typed (D-76) opens the vault, master password or not.
+    pub fn unlock_recovery(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Phase::Unlock(u) = &mut self.phase else {
+            return;
+        };
+        let text = zeroize::Zeroizing::new(u.recovery_key.read(cx).value().to_string());
+        if u.busy || text.trim().is_empty() {
+            return;
+        }
+        u.busy = true;
+        u.error = None;
+        cx.notify();
+        let path = self.path.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = cx
+                .background_executor()
+                .spawn(
+                    async move { LockedVault::open(&path).and_then(|l| l.unlock_recovery(&text)) },
+                )
+                .await;
+            this.update_in(cx, |this, window, cx| match res {
+                Ok(v) => this.enter(v, window, cx),
+                Err(e) => {
+                    let msg = match e {
+                        cleis_store::StoreError::WrongRecoveryKey => tr("Wrong recovery key"),
+                        cleis_store::StoreError::NoRecoveryKey => {
+                            tr("This vault has no recovery key")
+                        }
+                        _ => tr("Wrong recovery key"),
+                    };
+                    this.unlock_failed(msg.into(), window, cx)
                 }
             })
             .ok();
@@ -765,11 +1024,9 @@ impl CleisApp {
         let (entries, trash, contacts, spaces, columns, prefs) = match load() {
             Ok(x) => x,
             Err(e) => {
-                self.phase = Phase::Unlock(Unlock {
-                    password: password_input(window, cx, ""),
-                    error: Some(crate::i18n::tr_dynamic(&e.to_string()).into()),
-                    busy: false,
-                });
+                let mut u = Unlock::new(&self.path, window, cx);
+                u.error = Some(crate::i18n::tr_dynamic(&e.to_string()).into());
+                self.phase = Phase::Unlock(u);
                 cx.notify();
                 return;
             }
@@ -832,6 +1089,10 @@ impl CleisApp {
             customize: false,
             resize: None,
             calendar: None,
+            opening: crate::opening::mode(&self.path),
+            after_password: None,
+            password_due: false,
+            typed_len: None,
             ctx: None,
             orgs_idle: vec![],
             vault_name: None,
@@ -1042,6 +1303,18 @@ impl CleisApp {
         if let Phase::Main(s) = &mut self.phase {
             s.last_activity = std::time::Instant::now();
         }
+    }
+
+    /// A master password to set or lengthen, and nothing else open to ask it in.
+    fn password_due(&mut self) -> bool {
+        let Phase::Main(s) = &mut self.phase else {
+            return false;
+        };
+        if !s.password_due || s.security.dialog.is_some() || s.gate.is_some() {
+            return false;
+        }
+        s.password_due = false;
+        true
     }
 
     fn idle_lock_due(&self) -> bool {

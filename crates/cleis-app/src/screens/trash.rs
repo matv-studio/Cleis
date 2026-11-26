@@ -261,6 +261,12 @@ impl CleisApp {
                 tr("This device stops syncing there. The copy already there is kept.").to_owned(),
                 "Disconnect",
             ),
+            A::RemovePassword => (
+                tr("Remove the master password?").to_owned(),
+                tr("This computer opens Cleis as chosen; any other computer needs the recovery key. Your other devices follow at their next sync.")
+                    .to_owned(),
+                "Remove",
+            ),
             _ => return,
         };
         s.confirm = Some(Confirm {
@@ -309,6 +315,7 @@ impl CleisApp {
             ConfirmAction::LeaveOrg => self.org_leave(cx),
             ConfirmAction::RotateKey => self.org_rotate(cx),
             ConfirmAction::DisconnectPlace => self.disconnect_sync(cx),
+            ConfirmAction::RemovePassword => self.remove_password(cx),
             ConfirmAction::EmptyTrash => {
                 let ids: Vec<_> = s.trash.iter().map(|e| e.id).collect();
                 let mut failed = 0;
