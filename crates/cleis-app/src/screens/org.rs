@@ -72,6 +72,10 @@ pub struct JoinForm {
     /// Where the organization lives (D-78, mockup 36f).
     pub place: OrgPlace,
     pub nas: Option<NasForm>,
+    /// Shared folder: the place chosen (0 SharePoint, 1 Google, 2 NAS share) and its folder.
+    pub folder: Option<(usize, std::path::PathBuf)>,
+    /// A folder chosen to join, put in the address box at the next render.
+    pub address_fill: Option<String>,
 }
 
 /// Where a new organization lives (D-78).
@@ -2090,7 +2094,7 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         return div();
     };
     let nas_extra = (j.place == OrgPlace::Nas).then(|| nas_fields(j, t, cx));
-    let folder_extra = (j.place == OrgPlace::Folder).then(|| folder_places(t, cx));
+    let folder_extra = (j.place == OrgPlace::Folder).then(|| folder_places(j, t, cx));
     let opt = |id: &'static str,
                p: OrgPlace,
                title: &str,
@@ -2118,7 +2122,7 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         (OrgPlace::Nas, false, _) if !j.elsewhere => tr("Install and create").to_owned(),
         _ => tr("Create").to_owned(),
     };
-    let planned = j.place == OrgPlace::Folder;
+    let planned = j.place == OrgPlace::Folder && j.folder.is_none();
     let by_hand = j.place == OrgPlace::Nas && j.elsewhere;
     section(t)
         .child(titled(t, tr("Create an organization"), None))
@@ -2162,7 +2166,9 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 div().flex().justify_end().child(
                     button("create-org", t, BtnKind::Primary, false)
                         .when(busy || planned, |b| b.opacity(0.6))
-                        .when(planned, |b| b.tooltip(tip(tr("Coming in this version"))))
+                        .when(planned, |b| {
+                            b.tooltip(tip(tr("Choose the shared folder first")))
+                        })
                         .child(label)
                         .when(!planned, |b| {
                             b.on_click(cx.listener(|this, _, _, cx| this.create_org_clicked(cx)))
@@ -2294,50 +2300,100 @@ fn nas_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(toggle)
 }
 
-/// Shared folder (mockup 36i): SharePoint, Google shared drive, NAS share or SFTP.
-fn folder_places(t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let _ = cx;
-    let place = |ico: &str, name: &str, sub: &str| {
-        row(t, false)
-            .gap(px(10.))
-            .child(icon(ico, 16., t.text_muted))
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .child(crate::i18n::tr_owned(name))
-                    .child(
-                        div()
-                            .text_size(TEXT_SM)
-                            .text_color(t.text_muted)
-                            .child(crate::i18n::tr_owned(sub)),
-                    ),
-            )
-    };
-    div()
+/// Shared folder (mockup 36i): SharePoint, Google shared drive, NAS share or SFTP; the one chosen
+/// shows its folder.
+fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    const PLACES: [(&str, &str, &str); 3] = [
+        ("cloud", "SharePoint", "Library synced by the OneDrive app"),
+        (
+            "cloud",
+            "Google shared drive",
+            "Folder kept by Google Drive for desktop",
+        ),
+        ("folder", "NAS share", "Network folder"),
+    ];
+    let mut list = div()
         .px(px(12.))
         .bg(t.bg)
         .border_1()
         .border_color(t.line_strong)
-        .rounded(RADIUS_MD)
-        .child(place(
-            "cloud",
-            "SharePoint",
-            "Library synced by the OneDrive app",
-        ))
-        .child(place(
-            "cloud",
-            "Google shared drive",
-            "Folder kept by Google Drive for desktop",
-        ))
-        .child(place("folder", "NAS share", "Network folder"))
-        .child(place("server", "SFTP", "An SSH server"))
+        .rounded(RADIUS_MD);
+    for (i, (ico, name, sub)) in PLACES.into_iter().enumerate() {
+        let chosen = j.folder.as_ref().filter(|(k, _)| *k == i);
+        let on = chosen.is_some();
+        let sub = chosen.map_or_else(
+            || crate::i18n::tr_owned(sub),
+            |(_, p)| p.display().to_string(),
+        );
+        list = list.child(
+            row(t, i > 0)
+                .gap(px(10.))
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(12.))
+                        .rounded_full()
+                        .border(px(if on { 4. } else { 1.5 }))
+                        .border_color(if on { t.accent_text } else { t.text_faint }),
+                )
+                .child(icon(ico, 16., t.text_muted))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(crate::i18n::tr_owned(name))
+                        .child(
+                            div()
+                                .text_size(TEXT_SM)
+                                .text_color(t.text_muted)
+                                .when(on, |d| d.font_family(FONT_MONO))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(sub),
+                        ),
+                )
+                .child(
+                    button(
+                        SharedString::from(format!("folder-pick-{i}")),
+                        t,
+                        BtnKind::Default,
+                        true,
+                    )
+                    .child(tr(if on { "Change" } else { "Choose folder" }))
+                    .on_click(cx.listener(move |this, _, _, cx| this.pick_org_folder(i, cx)))
+                    .test_support(),
+                ),
+        );
+    }
+    list.child(
+        row(t, true)
+            .gap(px(10.))
+            .opacity(0.45)
+            .child(div().flex_none().size(px(12.)))
+            .child(icon("server", 16., t.text_muted))
+            .child(
+                div().flex_1().flex().flex_col().child(tr("SFTP")).child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_muted)
+                        .child(tr("An SSH server")),
+                ),
+            )
+            .child(
+                div()
+                    .id("folder-sftp")
+                    .tooltip(tip(tr("Coming next")))
+                    .child(
+                        button("folder-pick-sftp", t, BtnKind::Default, true).child(tr("Set up")),
+                    ),
+            ),
+    )
 }
 
 /// Address, invitation code, and name/e-mail when the invitation has none.
 pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let _ = cx;
     let (Some(address), Some(code)) = (&j.address, &j.code) else {
         return div();
     };
@@ -2367,7 +2423,14 @@ pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div 
                         .items_center()
                         .gap(px(8.))
                         .child(div().flex_1().child(Input::new(address).id("org-address")))
-                        .when_some(chip_el, |d, c| d.child(c)),
+                        .when_some(chip_el, |d, c| d.child(c))
+                        // D-78: an organization in a shared folder joins from its folder.
+                        .child(
+                            icon_button("join-folder", t, "folder", false)
+                                .tooltip(tip(tr("Organization in a shared folder")))
+                                .on_click(cx.listener(|this, _, _, cx| this.pick_join_folder(cx)))
+                                .test_support(),
+                        ),
                 )),
         )
         .child(field(
@@ -3276,6 +3339,11 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
                                 to
                             )
                         }
+                        // D-78: the folder, shared with the member, takes the place of an address.
+                        None if o.m.in_folder() => tr(
+                            "Send this code, and share the organization's folder with this person. Valid 7 days, once.",
+                        )
+                        .into(),
                         None => {
                             tr("Send this code with the server address. Valid 7 days, once.").into()
                         }
@@ -3748,6 +3816,11 @@ impl CleisApp {
         {
             o.ui.pin_new = Some(cx.new(|cx| InputState::new(window, cx).masked(true)));
         }
+        if let Some(j) = self.join_form_mut()
+            && let (Some(fill), Some(a)) = (j.address_fill.take(), j.address.clone())
+        {
+            a.update(cx, |i, cx| i.set_value(fill, window, cx));
+        }
         let Some(s) = self.session() else { return };
         let joining = s.org.is_none() || s.settings_page == "Add an organization";
         if joining && s.join.address.is_none() {
@@ -3900,8 +3973,63 @@ impl CleisApp {
         match place {
             OrgPlace::Here => self.org_create_here(n, me, cx),
             OrgPlace::Nas => self.org_create_on_nas(n, me, cx),
-            OrgPlace::Folder => {}
+            OrgPlace::Folder => {
+                let Some((_, folder)) = self.join_form_mut().and_then(|j| j.folder.clone()) else {
+                    return;
+                };
+                self.org_create_in_folder(n, me, folder, cx);
+            }
         }
+    }
+
+    /// Join: the folder of an organization, in the address box.
+    pub fn pick_join_folder(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(tr("Choose folder").into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(p) = paths.into_iter().next()
+            {
+                this.update(cx, |app, cx| {
+                    if let Some(j) = app.join_form_mut() {
+                        j.address_fill = Some(p.display().to_string());
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Shared folder: the folder of SharePoint, Google shared drive or the NAS share chosen.
+    pub fn pick_org_folder(&mut self, kind: usize, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(tr("Choose folder").into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(p) = paths.into_iter().next()
+            {
+                this.update(cx, |app, cx| {
+                    if let Some(j) = app.join_form_mut() {
+                        j.folder = Some((kind, p));
+                        j.place = OrgPlace::Folder;
+                        j.error = None;
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
     }
 
     pub(crate) fn join_form_mut(&mut self) -> Option<&mut JoinForm> {
@@ -3930,7 +4058,11 @@ impl CleisApp {
         };
         j.info = None;
         j.error = None;
-        if Invitation::parse(&code).is_none() || server_address(&address).is_none() {
+        let folder = std::path::Path::new(address.trim()).join(crate::folder_org::ORG_FILE);
+        if Invitation::parse(&code).is_none()
+            || server_address(&address).is_none()
+            || folder.is_file()
+        {
             cx.notify();
             return;
         }
@@ -3977,6 +4109,13 @@ impl CleisApp {
             .is_some_and(|i| i.name.trim().is_empty());
         if need_name && name.trim().is_empty() {
             s.join.error = Some(tr("Enter your name").into());
+            cx.notify();
+            return;
+        }
+        // D-78: a shared folder holding an organization, in the place of a server address.
+        let folder = std::path::PathBuf::from(address.trim());
+        if folder.join(crate::folder_org::ORG_FILE).is_file() {
+            self.org_join_folder(folder, code, name, email, cx);
             cx.notify();
             return;
         }

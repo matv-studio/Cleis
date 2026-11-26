@@ -804,6 +804,7 @@ pub fn org(s: &mut crate::app::Session) {
             offline_days: None,
             pin_hours: None,
             pin_until: None,
+            folder: None,
         },
         state: Some(st),
         busy: false,

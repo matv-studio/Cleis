@@ -489,6 +489,16 @@ pub fn register(key: &str, engine: Engine) -> LocalApi {
     LocalApi(shared as Arc<dyn Local>)
 }
 
+/// The member this computer is, once joined.
+pub fn set_member(key: &str, member: MemberId) {
+    if let Ok(open) = OPEN.lock()
+        && let Some((_, e)) = open.iter().find(|(k, _)| k == key)
+        && let Ok(mut e) = e.0.lock()
+    {
+        e.set_member(member);
+    }
+}
+
 pub fn forget(key: &str) {
     if let Ok(mut open) = OPEN.lock() {
         open.retain(|(k, _)| k != key);

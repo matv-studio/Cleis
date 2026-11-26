@@ -40,9 +40,17 @@ pub struct Membership {
     pub member: MemberId,
 }
 
+/// `Membership::address` of an organization in a shared folder (D-78): the folder itself is
+/// this computer's (`Local::folder`), as it is not at the same place on every computer.
+pub const FOLDER: &str = "folder";
+
 impl Membership {
     pub fn key(&self) -> String {
         self.org.to_string()
+    }
+
+    pub fn in_folder(&self) -> bool {
+        self.address == FOLDER
     }
 
     pub fn trust(&self) -> Trust {
@@ -72,6 +80,24 @@ pub struct Local {
     /// The PIN was last given on this computer until then: the organization's spaces open
     /// without asking it again before.
     pub pin_until: Option<i64>,
+    /// Shared folder (D-78): where the organization's folder is on this computer.
+    pub folder: Option<PathBuf>,
+}
+
+/// This computer's copy of an organization kept in a shared folder (D-78).
+pub fn replica_dir(vault: &Path, key: &str) -> PathBuf {
+    let mut p = vault.as_os_str().to_owned();
+    p.push(format!(".org-{key}.replica"));
+    PathBuf::from(p)
+}
+
+/// An organization in a shared folder: what opens its copy (off the interface thread).
+#[derive(Clone)]
+pub struct FolderSpec {
+    pub key: String,
+    pub folder: Option<PathBuf>,
+    pub replica: PathBuf,
+    pub member: Option<MemberId>,
 }
 
 /// This computer's file for the organization `key` (one per organization, D-69); the first
@@ -115,6 +141,10 @@ pub fn remembered_setting(device: &str, key: &str) -> String {
 pub fn remove_local(vault: &Path, key: &str) {
     let _ = std::fs::remove_file(local_path(vault, key));
     let _ = std::fs::remove_file(legacy_local_path(vault));
+    // Shared folder (D-78): this computer's copy goes too (the folder itself stays).
+    let replica = replica_dir(vault, key);
+    crate::folder_org::forget(&replica.display().to_string());
+    let _ = std::fs::remove_dir_all(replica);
 }
 
 /// Setting holding every membership of this vault (D-69); `SETTING` keeps the first, as before.
@@ -181,10 +211,41 @@ pub struct Conn {
     pub setup_code: bool,
     /// The organization's PIN typed (D-79), kept for the sign-ins of this job.
     pub pin: Option<Zeroizing<String>>,
+    /// Shared folder (D-78): no server, the API answered in the app.
+    pub folder: Option<FolderSpec>,
+}
+
+/// The shared folder's API, opened if needed (rebuilds the copy: off the interface thread).
+pub fn folder_api(
+    f: &FolderSpec,
+    device: &str,
+    signing: &Zeroizing<[u8; 32]>,
+) -> Result<cleis_net::LocalApi, NetError> {
+    if let Some(api) = crate::folder_org::api_of(&f.key) {
+        return Ok(api);
+    }
+    let folder = f.folder.as_ref().ok_or_else(|| {
+        NetError::Unreachable(tr("Choose the organization's shared folder").into())
+    })?;
+    let engine = crate::folder_org::Engine::open(
+        folder,
+        &f.replica,
+        f.member,
+        device,
+        SigningKeyPair::from_secret_bytes(**signing),
+    )
+    .map_err(NetError::Unreachable)?;
+    Ok(crate::folder_org::register(&f.key, engine))
 }
 
 impl Conn {
     pub fn sign_in(&mut self) -> Result<(), NetError> {
+        if let Some(f) = self.folder.clone() {
+            self.client.local = Some(folder_api(&f, &self.device, &self.signing)?);
+            self.client.token = Some("local".into());
+            self.setup_code = false;
+            return Ok(());
+        }
         let (ch, cert): (Challenge, [u8; 32]) = self.client.call_cert("/v1/challenge", &())?;
         let key = SigningKeyPair::from_secret_bytes(*self.signing);
         let reply: SessionReply = self.client.call(
@@ -815,6 +876,134 @@ impl CleisApp {
         cx.notify();
     }
 
+    /// Shared folder (D-78): the organization's start written in `folder`, this vault its first
+    /// administrator.
+    pub fn org_create_in_folder(
+        &mut self,
+        name: String,
+        me: String,
+        folder: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let public = s.vault.account_public().0;
+        let signing = SigningKeyPair::from_secret_bytes(*s.vault.signing_key().secret_bytes());
+        s.join.busy = true;
+        s.join.error = None;
+        let task = cx.background_spawn(async move {
+            // The copy is made under a temporary name: the organization's id is not known yet.
+            let tmp = replica_dir(&path, &format!("new-{}", uuid::Uuid::new_v4()));
+            let (engine, org, member) = crate::folder_org::Engine::create(
+                &folder,
+                &tmp,
+                name.trim(),
+                me.trim(),
+                public,
+                signing,
+                &device_name(),
+            )?;
+            drop(engine);
+            let key = org.to_string();
+            let replica = replica_dir(&path, &key);
+            let _ = std::fs::remove_dir_all(&replica);
+            let _ = std::fs::remove_dir_all(&tmp);
+            let m = Membership {
+                org,
+                name: name.trim().to_owned(),
+                address: FOLDER.into(),
+                pins: vec![],
+                member,
+            };
+            Ok::<_, String>((m, folder))
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                let path = app.path.clone();
+                match r {
+                    Ok((m, folder)) => {
+                        let key = m.key();
+                        let mut local = load_local(&path, &key);
+                        local.folder = Some(folder);
+                        save_local(&path, &key, &local);
+                        app.org_joined(Ok(m), cx);
+                    }
+                    Err(e) => app.org_joined(Err(e), cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Shared folder (D-78): joins the organization in `folder` with an invitation code.
+    pub fn org_join_folder(
+        &mut self,
+        folder: PathBuf,
+        code: String,
+        name: String,
+        email: String,
+        cx: &mut Context<Self>,
+    ) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let public = s.vault.account_public().0;
+        let secret = Zeroizing::new(*s.vault.signing_key().secret_bytes());
+        s.join.busy = true;
+        s.join.error = None;
+        let task = cx.background_spawn(async move {
+            let info = crate::folder_org::Engine::org_file(&folder)
+                .ok_or_else(|| crate::trf!("No Cleis organization in {}", folder.display()))?;
+            let replica = replica_dir(&path, &info.id.to_string());
+            let key = replica.display().to_string();
+            let spec = FolderSpec {
+                key: key.clone(),
+                folder: Some(folder.clone()),
+                replica,
+                member: None,
+            };
+            let device = device_name();
+            let mut client = Client::new(FOLDER, Trust::Pinned(vec![]));
+            client.local = Some(folder_api(&spec, &device, &secret).map_err(|e| e.to_string())?);
+            client.token = Some("local".into());
+            let signing = SigningKeyPair::from_secret_bytes(*secret);
+            let req =
+                crate::folder_org::proven_join(&code, &name, &email, &device, public, &signing)?;
+            let reply: JoinReply = client.call("/v1/join", &req).map_err(|e| e.to_string())?;
+            crate::folder_org::set_member(&key, reply.member);
+            Ok::<_, String>((
+                Membership {
+                    org: reply.org.id,
+                    name: reply.org.name,
+                    address: FOLDER.into(),
+                    pins: vec![],
+                    member: reply.member,
+                },
+                folder,
+            ))
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                let path = app.path.clone();
+                match r {
+                    Ok((m, folder)) => {
+                        let key = m.key();
+                        let mut local = load_local(&path, &key);
+                        local.folder = Some(folder);
+                        save_local(&path, &key, &local);
+                        app.org_joined(Ok(m), cx);
+                    }
+                    Err(e) => app.org_joined(Err(e), cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Server on the NAS (D-78): signs in over SSH, finds the system, sends Cleis Server, creates
     /// the organization there and joins it as its first administrator.
     pub fn org_create_on_nas(&mut self, name: String, me: String, cx: &mut Context<Self>) {
@@ -964,6 +1153,21 @@ impl CleisApp {
         let o = s.org.as_ref()?;
         let mut client = Client::new(&o.m.address, o.m.trust());
         client.token = o.token.clone();
+        // The copy is this vault's: its folder names it (one vault per run, several in tests).
+        let replica = replica_dir(&self.path, &o.m.key());
+        let rkey = replica.display().to_string();
+        let folder = o.m.in_folder().then(|| FolderSpec {
+            key: rkey.clone(),
+            folder: o.local.folder.clone(),
+            replica: replica.clone(),
+            member: Some(o.m.member),
+        });
+        if folder.is_some() {
+            client.local = crate::folder_org::api_of(&rkey);
+            if client.local.is_none() {
+                client.token = None;
+            }
+        }
         Some(Conn {
             client,
             member: o.m.member,
@@ -975,6 +1179,7 @@ impl CleisApp {
             new_remembered: None,
             setup_code: false,
             pin: None,
+            folder,
         })
     }
 
@@ -1707,13 +1912,34 @@ impl CleisApp {
 
     // ---------- Admin actions ----------
 
-    pub fn org_invite(&mut self, req: NewInvite, cx: &mut Context<Self>) {
+    pub fn org_invite(&mut self, mut req: NewInvite, cx: &mut Context<Self>) {
         let to = req.email.clone();
+        // Shared folder (D-78): the code is made here and never goes to the folder.
+        let folder = self
+            .session()
+            .and_then(|s| s.org.as_ref())
+            .is_some_and(|o| o.m.in_folder());
+        let mut made = None;
+        if folder {
+            match crate::folder_org::new_invite_secret() {
+                Ok((token, secret)) => {
+                    req.secret = Some(secret);
+                    made = Some(cleis_server::code_for(token, &[0; 32]));
+                }
+                Err(e) => {
+                    self.toast(e, cx);
+                    return;
+                }
+            }
+        }
         self.org_request::<_, InviteReply>(
             "/v1/invites",
             req,
             move |app, r, cx| {
-                if let (Ok(r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
+                if let (Ok(mut r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
+                    if let Some(c) = made {
+                        r.code = c;
+                    }
                     o.ui.invite_code = Some(r.code);
                     o.ui.invite_sent = r.emailed.then_some(to);
                 }
@@ -1928,15 +2154,32 @@ impl CleisApp {
                     (o.m.address.clone(), to)
                 })
                 .unwrap_or_default();
+            // Shared folder (D-78): the new code is made here.
+            let (secret, made) = if address == FOLDER {
+                match crate::folder_org::new_invite_secret() {
+                    Ok((token, secret)) => {
+                        (Some(secret), Some(cleis_server::code_for(token, &[0; 32])))
+                    }
+                    Err(e) => {
+                        self.toast(e, cx);
+                        return;
+                    }
+                }
+            } else {
+                (None, None)
+            };
             self.org_request::<_, InviteReply>(
                 "/v1/invites/renew",
                 RenewInvite {
                     id,
                     address,
-                    secret: None,
+                    secret,
                 },
                 move |app, r, cx| {
-                    if let (Ok(r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
+                    if let (Ok(mut r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
+                        if let Some(c) = made {
+                            r.code = c;
+                        }
                         o.ui.invite_code = Some(r.code);
                         o.ui.invite_sent = r.emailed.then_some(to);
                     }

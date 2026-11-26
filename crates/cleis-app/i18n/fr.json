@@ -1119,5 +1119,17 @@
   "Sending Cleis Server": "Envoi de Cleis Server",
   "Creating the organization": "Création de l'organisation",
   "Starting the server": "Démarrage du serveur",
-  "The server does not answer on {}:{}": "Le serveur ne répond pas sur {}:{}"
+  "The server does not answer on {}:{}": "Le serveur ne répond pas sur {}:{}",
+  "Choose the organization's shared folder": "Choisissez le dossier partagé de l'organisation",
+  "No Cleis organization in {}": "Aucune organisation Cleis dans {}",
+  "{} already holds an organization": "{} contient déjà une organisation",
+  "Send this code, and share the organization's folder with this person. Valid 7 days, once.": "Envoyez ce code et partagez le dossier de l'organisation avec cette personne. Valable 7 jours, une fois.",
+  "Coming next": "Bientôt",
+  "Choose the shared folder first": "Choisissez d'abord le dossier partagé",
+  "Organization in a shared folder": "Organisation dans un dossier partagé",
+  "SFTP": "SFTP",
+  "Not with an organization in a shared folder": "Impossible avec une organisation dans un dossier partagé",
+  "The change was not applied": "Le changement n'a pas été appliqué",
+  "Not signed by this member.": "Pas signé par ce membre.",
+  "App Center did not install Cleis Server": "L'App Center n'a pas installé Cleis Server"
 }

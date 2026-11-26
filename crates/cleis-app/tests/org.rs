@@ -905,3 +905,149 @@ fn organization_pin(cx: &mut TestAppContext) {
         .is_none()));
     assert!(sees_figma(cx));
 }
+
+/// Scenario (mockup 36i, D-78): no server. Lea creates the organization in a shared folder,
+/// makes a space with an item, invites Hugo; Hugo joins from the same folder with the code (put in
+/// the address box) and receives the item once Lea's app gives him the space's key.
+#[gpui_kit::test]
+fn organization_in_shared_folder(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = dir.path().join("SharePoint/Example Studio");
+    let (lh, lea) = open(cx, &dir.path().join("lea.cleis"));
+    cx.run_until_parked();
+    act(cx, lh, |w, cx| {
+        w.click("new-password", cx);
+        w.input("correct horse battery staple", cx);
+        w.click("confirm-password", cx);
+        w.input("correct horse battery staple", cx);
+        w.click("create", cx);
+    });
+    act(cx, lh, |w, cx| w.click("recovery-key-done", cx));
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| w.click("set-Organization", cx));
+    act(cx, lh, |w, cx| w.click("create-folder", cx));
+    // The folder dialog of the system is not driven here: the folder is set as it would be.
+    let s2 = shared.clone();
+    lea.update(cx, |a, cx| {
+        if let Phase::Main(s) = &mut a.phase {
+            s.join.folder = Some((0, s2));
+        }
+        cx.notify();
+    });
+    act(cx, lh, |w, cx| {
+        w.click("create-name", cx);
+        w.input("Example Studio", cx);
+        w.click("create-me", cx);
+        w.input("Lea Martin", cx);
+        w.click("create-org", cx);
+    });
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if session(cx, &lea, |s| s.org.is_some() || s.join.error.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    session(cx, &lea, |s| {
+        assert!(s.join.error.is_none(), "{:?}", s.join.error);
+        assert!(s.org.as_ref().unwrap().m.in_folder());
+    });
+    assert!(shared.join("cleis-org.json").is_file());
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        let o = s.org.as_ref().unwrap();
+        assert!(o.error.is_none(), "{:?}", o.error);
+        assert_eq!(
+            o.state.as_ref().unwrap().me.role,
+            cleis_core::org::SUPER_ADMIN
+        );
+    });
+
+    act(cx, lh, |w, cx| w.click("tab-Vault", cx));
+    act(cx, lh, |w, cx| w.click("new-space", cx));
+    act(cx, lh, |w, cx| {
+        w.click("space-name", cx);
+        w.input("General", cx);
+        w.click("space-create", cx);
+    });
+    sync(cx, &lea);
+    let general = session(cx, &lea, |s| {
+        s.org.as_ref().unwrap().state.as_ref().unwrap().spaces[0].id
+    });
+    lea.update(cx, |a, _| {
+        if let Phase::Main(s) = &mut a.phase {
+            let mut e = cleis_core::Entry::new(general, "Figma");
+            e.password = "figma-pass-2026".into();
+            s.vault.put_entry(&e).unwrap();
+        }
+    });
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| w.click("set-Members", cx));
+    act(cx, lh, |w, cx| w.click("invite", cx));
+    act(cx, lh, |w, cx| {
+        w.click("inv-email", cx);
+        w.input("hugo@example-studio.com", cx);
+        w.click("inv-name", cx);
+        w.input("Hugo Bernard", cx);
+        w.click(format!("inv-sp-{general}"), cx);
+        w.click("inv-send", cx);
+    });
+    let code = session(cx, &lea, |s| {
+        s.org.as_ref().unwrap().ui.invite_code.clone().unwrap()
+    });
+    assert!(
+        cleis_core::org::Invitation::parse(&code).is_some(),
+        "{code}"
+    );
+    act(cx, lh, |w, cx| w.click("invite-done", cx));
+
+    // Hugo: a vault of his own, then Settings › Organization › Join with the folder.
+    let (hh, hugo) = open(cx, &dir.path().join("hugo.cleis"));
+    cx.run_until_parked();
+    act(cx, hh, |w, cx| {
+        w.click("new-password", cx);
+        w.input("another horse battery staple", cx);
+        w.click("confirm-password", cx);
+        w.input("another horse battery staple", cx);
+        w.click("create", cx);
+    });
+    act(cx, hh, |w, cx| w.click("recovery-key-done", cx));
+    act(cx, hh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, hh, |w, cx| w.click("set-Organization", cx));
+    let folder_text = shared.display().to_string();
+    act(cx, hh, |w, cx| {
+        w.click("org-address", cx);
+        w.input(&folder_text, cx);
+        w.click("org-code", cx);
+        w.input(&code, cx);
+    });
+    // "Join" is below the window's fold here.
+    hugo.update(cx, |a, cx| a.join_from_settings(cx));
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if session(cx, &hugo, |s| s.org.is_some() || s.join.error.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    session(cx, &hugo, |s| {
+        assert!(s.join.error.is_none(), "{:?}", s.join.error)
+    });
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        assert_eq!(st.me.name, "Hugo Bernard");
+    });
+    // Lea's app wraps the space key for him; Hugo receives the item.
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let f = s
+            .entries
+            .iter()
+            .find(|e| e.name == "Figma")
+            .expect("shared item");
+        assert_eq!(f.password, "figma-pass-2026");
+    });
+}
