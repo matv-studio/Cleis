@@ -1,0 +1,32 @@
+name: Notes
+
+# Writes a version's notes (docs/notes/vX.Y.Z.md, EN + FR) into its GitHub release, draft or
+# published, without touching anything else: push the branch `notes/vX.Y.Z` (the session cannot edit
+# a release itself). The branch is removed afterwards.
+
+on:
+  push:
+    branches: ["notes/v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: docs/notes
+      - name: Write the notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          tag="${BRANCH#notes/}"
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "docs/notes/$tag.md"
+      - name: Remove the request branch
+        if: always()
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: git push origin --delete "$BRANCH" || true
