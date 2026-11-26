@@ -274,7 +274,7 @@ function settingsNav(active, admin = true) {
   const it = (ico, n) => `<div class="side-item ${n === active ? 'is-active' : ''}">${i(ico)}<span>${n}</span></div>`;
   return `<nav class="settings-nav">
     <div class="side-group" style="padding-top:var(--s-1)">My account</div>
-    ${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences')}${it('fill', 'Autofill')}${it('sync', 'Sync & backups')}
+    ${it('cloud', 'Account')}${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences')}${it('fill', 'Autofill')}${it('sync', 'Sync & backups')}
     ${admin ? `<div class="side-group">Example Studio</div>
     ${it('users', 'Members')}${it('folder', 'Spaces')}${it('shield', 'Security policy')}${it('key', 'Encryption')}${it('server', 'Server')}${it('upload', 'Import & export')}` : ''}
   </nav>`;
@@ -1043,7 +1043,7 @@ function reglagesDeuxOrgs() {
   const it = (ico, n, active = false) => `<div class="side-item ${active ? 'is-active' : ''}">${i(ico)}<span>${n}</span></div>`;
   const nav = `<nav class="settings-nav">
     <div class="side-group" style="padding-top:var(--s-1)">My account</div>
-    ${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences', true)}${it('fill', 'Autofill')}${it('sync', 'Sync & backups')}
+    ${it('cloud', 'Account')}${it('user', 'Profile')}${it('lock', 'Security')}${it('laptop', 'Devices')}${it('gear', 'Preferences', true)}${it('fill', 'Autofill')}${it('sync', 'Sync & backups')}
     <div class="side-group">Example Studio</div>
     ${it('users', 'Members')}${it('folder', 'Spaces')}${it('shield', 'Security policy')}${it('key', 'Encryption')}${it('server', 'Server')}${it('upload', 'Import & export')}
     <div class="side-group">Acme Partners</div>
@@ -1300,6 +1300,118 @@ function politiqueOuverture() {
     </div>`, `<div class="menu" style="left:906px;top:236px;width:280px">${mi('key', 'Master password only')}${mi('check', 'Master password or Windows Hello')}${mi('', 'Anything, also nothing')}</div>`);
 }
 
+
+// ---------- 36. Version 0.2.2 (26/11/2026): colour wheel, account, contact photo, organization storage, PIN ----------
+// 36. A colour of one's own: "+" after the swatches opens the wheel.
+function roueCouleur() {
+  const sw = (c, on = false, label) => `<button class="swatch ${on ? 'on' : ''}" style="${c ? `background:${c}` : ''}" aria-label="${label}" title="${label}">${c ? '' : i('x')}</button>`;
+  const wheel = `<div class="cal" style="left:930px;top:318px;width:248px">
+    <div style="position:relative;width:216px;height:216px;margin:4px auto;border-radius:50%;background:conic-gradient(red,#ff0,lime,cyan,blue,#f0f,red)">
+      <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,#fff 0,rgba(255,255,255,0) 70%)"></div>
+      <span style="position:absolute;left:150px;top:56px;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgb(0 0 0 / .5)"></span>
+    </div>
+    <div title="Brightness" style="height:10px;border-radius:5px;background:linear-gradient(90deg,#000,#e06b9a)"></div>
+    <div style="display:flex;gap:8px;align-items:center"><span class="swatch on" style="background:#e06b9a"></span><div class="input input--sm" style="flex:1"><span class="grow code">#E06B9A</span></div><button class="btn btn--primary btn--sm">Use</button></div>
+  </div>`;
+  return settings('Preferences', `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Appearance')}
+      <div class="row"><span class="row-label">Theme</span><div class="segmented"><button role="radio" aria-checked="true">Dark</button><button role="radio" aria-checked="false">Light</button><button role="radio" aria-checked="false">System</button></div></div>
+      <div class="row"><span class="row-label">Logo</span><div class="segmented"><button role="radio" aria-checked="true">Light</button><button role="radio" aria-checked="false">Dark</button></div></div>
+      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', false, 'Ochre (default)')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#14b8a6', false, 'Teal')}${sw('#ef4444', false, 'Red')}<button class="swatch on" style="background:conic-gradient(red,#ff0,lime,cyan,blue,#f0f,red)" title="Your own color"></button></div></div>
+      <div class="row"><span class="row-label">Accent scope</span><div class="segmented"><button role="radio" aria-checked="false">Minimal</button><button role="radio" aria-checked="false">Standard</button><button role="radio" aria-checked="true">Extended</button></div></div>
+    </div>`, wheel);
+}
+
+// 36b. Account: sign in once, everything follows to the other computers (encrypted before it leaves).
+function compte() {
+  const prov = (ico, name, sub, on = false) => `<div class="choice ${on ? 'is-active' : ''}" style="padding:var(--s-3)"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">${name}</b><span>${sub}</span></div><span class="ico">${i(ico)}</span></div>`;
+  return settings('Account', `
+    <div class="page-head"><h1>Account</h1></div>
+    <div class="section">${sectionTitle('Sign in', 'Your vault, settings, backups and organizations follow you to your other computers. Everything is encrypted on this computer before it leaves: the provider sees only sealed files.')}
+      ${prov('laptop', 'Local', 'This computer only', true)}
+      ${prov('window', 'Microsoft', 'Personal, work or school account · OneDrive')}
+      ${prov('globe', 'Google', 'Google Drive')}
+      ${prov('repo', 'GitHub', 'A private repository')}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Sign in</button></div>
+    </div>`);
+}
+// 36c. Signed in: what follows, and the computers.
+function compteConnecte() {
+  const sync = (label, on, tip) => `<div class="row"><span class="row-label" ${tip ? `title="${tip}"` : ''}>${label}</span><span class="switch ${on ? 'on' : ''}"></span></div>`;
+  return settings('Account', `
+    <div class="page-head"><h1>Account</h1></div>
+    <div class="section">${sectionTitle('Microsoft')}
+      <div class="member"><span class="avatar" style="width:32px;height:32px">LM</span><div class="meta"><span style="font-weight:var(--weight-medium)">Lea Martin</span><span class="sub">lea@example-studio.com</span></div><span class="chip chip--ok" style="margin-left:auto" title="OneDrive › Apps › Cleis"><span class="dot"></span>Synced 2 min ago</span><button class="btn btn--ghost btn--sm">Sign out</button></div>
+    </div>
+    <div class="section">${sectionTitle('What follows you')}
+      ${sync('Vault', true, 'Items, folders, contacts')}${sync('Settings', true, 'Preferences, columns, shortcuts')}${sync('Backups', true, 'The dated copies')}${sync('Organizations', true, 'Your memberships; each server still asks for your PIN')}
+    </div>
+    <div class="section">${sectionTitle('Computers')}
+      <div class="row"><span class="row-label">${i('laptop')}MATV-PC</span><span style="color:var(--text-muted);font-size:var(--text-sm)">This computer</span></div>
+      <div class="row"><span class="row-label">${i('laptop')}MATV-LAPTOP</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Today 09:12</span><button class="btn btn--ghost btn--sm" title="It stops following; its copy stays sealed">Remove</button></div>
+    </div>`);
+}
+// 36d. A new computer: sign in, then the master password or the recovery key opens what came.
+function nouvelOrdinateur() {
+  return `<div class="app"><main class="main" style="margin:6px"><div class="center-stage">
+    <div class="card" style="width:460px">
+      <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>Welcome to Cleis</h1></div>
+      <div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">This computer only</b><span>Personal vault</span></div><span class="ico">${i('laptop')}</span></div>
+      <div class="choice is-active"><span class="radio on"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Sign in</b><span>My vault from my other computers</span>
+        <div style="display:flex;gap:8px;margin-top:var(--s-3)"><button class="btn btn--sm">${i('window')}Microsoft</button><button class="btn btn--sm">${i('globe')}Google</button><button class="btn btn--sm">${i('repo')}GitHub</button></div>
+      </div><span class="ico">${i('user')}</span></div>
+      <div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Join an organization</b><span>Shared spaces, on top of your personal vault</span></div><span class="ico">${i('server')}</span></div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary" title="Then the master password or the recovery key opens it">Continue</button></div>
+    </div></div></main></div>`;
+}
+
+// 36e. A contact's photo: hover the avatar, or its menu.
+function photoContact() {
+  const insp = contactInspector().replace('<span class="avatar avatar--lg">CD</span>',
+    `<span class="avatar avatar--lg" style="position:relative;overflow:hidden" title="Change photo">CD<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgb(0 0 0 / .55);color:#fff">${i('upload')}</span></span>`);
+  const m = ctx(1186, 96, `${mi('upload', 'Choose a photo…')}${mi('x', 'Remove photo')}`, 200);
+  return shell('Contacts', `<div class="work">${contactsSidebar()}<section class="center"><div class="table-wrap">${contactsTable()}</div></section>${insp}</div>${statusbar()}`, { primary: `${i('plus')}New contact`, overlay: m });
+}
+
+// 36f. Creating an organization: where its data lives (D-78).
+function stockageOrganisation() {
+  const ch = (ico, name, sub, on, extra = '') => `<div class="choice ${on ? 'is-active' : ''}"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">${name}</b><span>${sub}</span>${extra}</div><span class="ico">${i(ico)}</span></div>`;
+  const nas = `<div style="display:flex;gap:12px;margin-top:var(--s-3)"><div style="flex:1">${fld('NAS address', 'nas.example-studio.lan', true)}</div><div style="width:90px">${fld('SSH port', '22')}</div></div>
+    <div style="display:flex;gap:12px;margin-top:var(--s-2)"><div style="flex:1">${fld('Administrator', 'admin')}</div><div style="flex:1"><div class="field"><span class="label">Password</span><div class="input"><span class="grow dots">••••••••</span></div></div></div></div>
+    <div class="row" style="padding:var(--s-2) 0 0" title="Docker (Synology Container Manager, QNAP Container Station) or a Linux service"><span class="row-label" style="color:var(--text-muted)">Found</span><span class="chip chip--ok"><span class="dot"></span>Synology · Container Manager</span></div>`;
+  return settings('Organization', `
+    <div class="page-head"><h1>Organization</h1></div>
+    <div class="section">${sectionTitle('Create an organization')}
+      ${fld('Name', 'Example Studio')}
+      ${ch('server', 'Server on the NAS', 'Cleis installs it there · immediate access changes · reachable through your VPN', true, nas)}
+      ${ch('laptop', 'Server on this computer', 'Only while this computer is on')}
+      ${ch('folder', 'Shared folder', 'SharePoint or a NAS share · no server · access changes at the next sync')}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Install and create</button></div>
+    </div>`);
+}
+// 36g. Security policy: the organization's PIN.
+function politiquePin() {
+  return settings('Security policy', `
+    <div class="page-head"><h1>Security policy</h1></div>
+    <div class="section">${sectionTitle('Organization PIN', 'Asked before the organization’s spaces open, on top of the vault’s own unlock')}
+      <div class="row"><span class="row-label">PIN</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label">Length</span><div class="segmented"><button role="radio" aria-checked="false">4</button><button role="radio" aria-checked="true">6</button><button role="radio" aria-checked="false">8</button></div></div>
+      <div class="row"><span class="row-label" title="Then the PIN is asked again">Ask again after</span><div class="input select" style="width:160px"><span class="grow">8 hours</span></div></div>
+      <div class="row"><span class="row-label" title="The member's access is suspended until an admin resets it">Wrong tries before locking</span><div class="input select" style="width:160px"><span class="grow">5</span></div></div>
+    </div>`);
+}
+// 36h. A member opens the organization: its PIN.
+function saisiePin() {
+  const side = sidebarB({ active: 'Example Studio' }).replace(/(<div class="side-item side-section[^"]*">\s*<svg[\s\S]*?<\/svg><span>Example Studio)/, '$1');
+  const center = `<div class="center-stage" style="height:100%"><div class="card" style="width:340px">
+      <div class="card-head"><span class="logo logo--lg">${i('lock')}</span><h1>Example Studio</h1><span style="color:var(--text-muted)" title="Set by your organization">Organization PIN</span></div>
+      <div class="otp"><span>•</span><span>•</span><span>•</span><span class="is-focus"></span><span></span><span></span></div>
+      <button class="btn btn--primary" style="justify-content:center;height:32px">Open</button>
+    </div></div>`;
+  return frameB(center, { side });
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -1370,4 +1482,12 @@ export const SCREENS = {
   '35i-premier-lancement-protection': ['First launch — unlock with', premierLancementProtection],
   '35j-raccourcis-coffres': ['Preferences — shortcuts per vault', raccourcisCoffres],
   '35k-politique-ouverture': ['Security policy — opening Cleis', politiqueOuverture],
+  '36-roue-couleur': ['Preferences — your own accent color', roueCouleur],
+  '36b-compte': ['Account — sign in', compte],
+  '36c-compte-connecte': ['Account — signed in', compteConnecte],
+  '36d-nouvel-ordinateur': ['First launch — sign in on a new computer', nouvelOrdinateur],
+  '36e-photo-contact': ['Contact — photo', photoContact],
+  '36f-stockage-organisation': ['Create an organization — where it lives', stockageOrganisation],
+  '36g-politique-pin': ['Security policy — organization PIN', politiquePin],
+  '36h-saisie-pin': ['Organization PIN asked', saisiePin],
 };
