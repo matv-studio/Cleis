@@ -42,3 +42,11 @@ archive carries `THIRD_PARTY_LICENSES.txt` (the licence files of each crate buil
 | NSIS (Nullsoft Scriptable Install System), stub and plugins built into the Windows installer | installer (`packaging/windows/cleis.nsi`) | zlib/libpng |
 | `ring` (in `cleis-crypto`) | RS256 check of identity-provider tokens | ISC-style + OpenSSL notices |
 | Mullvad `windows-service` (Windows) | server as a Windows service | MIT OR Apache-2.0 |
+
+## QNAP QDK (build tool, D-78)
+
+The Cleis Server package for QNAP (`CleisServer_*.qpkg`) is assembled with QNAP's QDK
+(https://github.com/qnap-dev/QDK, GNU GPL). QDK is not part of this repository; the package it
+builds contains QDK's installer script (`qinstall.sh`, GPL) next to Cleis Server, as a separate
+program. `packaging/qnap/` (configuration, start script) is Cleis' own.
+

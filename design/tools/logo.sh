@@ -14,4 +14,10 @@ python3 -c "
 from PIL import Image
 im = Image.open('$tmp/32.png').convert('RGBA')
 open('$root/crates/cleis-app/assets/tray-32.rgba', 'wb').write(im.tobytes())"
+# QNAP App Center icons (D-78): 64 px, 80 px and a grey 64 px for "disabled", as GIF.
+rsvg-convert -w 64 -h 64 "$root/design/logo/cleis-light.svg" -o "$tmp/q64.png"
+rsvg-convert -w 80 -h 80 "$root/design/logo/cleis-light.svg" -o "$tmp/q80.png"
+convert "$tmp/q64.png" "$root/packaging/qnap/icons/CleisServer.gif"
+convert "$tmp/q80.png" "$root/packaging/qnap/icons/CleisServer_80.gif"
+convert "$tmp/q64.png" -colorspace Gray "$root/packaging/qnap/icons/CleisServer_gray.gif"
 rm -rf "$tmp"

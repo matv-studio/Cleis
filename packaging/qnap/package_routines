@@ -1,0 +1,24 @@
+# Cleis Server (D-78). The organization's data is NOT in the package folder (removed with the
+# package) but on the default volume: <volume>/.cleis-server (see CleisServer.sh).
+PKG_PRE_REMOVE="{
+    /etc/init.d/CleisServer.sh stop
+}"
+PKG_POST_REMOVE="{
+}"
+pkg_init(){
+    :
+}
+pkg_check_requirement(){
+    :
+}
+pkg_pre_install(){
+    # Upgrading: stop the running server first.
+    [ -x /etc/init.d/CleisServer.sh ] && /etc/init.d/CleisServer.sh stop
+    :
+}
+pkg_install(){
+    :
+}
+pkg_post_install(){
+    chmod 0755 "$SYS_QPKG_DIR/cleis-server" "$SYS_QPKG_DIR/CleisServer.sh"
+}

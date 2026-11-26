@@ -75,6 +75,138 @@ jobs:
             dist/${{ env.NAME }}.exe.sha256
           retention-days: 30
 
+  # Static (musl) server for any Linux: QNAP QTS, Synology DSM and old distributions have older
+  # C libraries than the build machine (D-78). ARM built on GitHub's ARM runner.
+  server-linux:
+    strategy:
+      matrix:
+        include:
+          - { arch: x64, qnap: x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { arch: arm64, qnap: arm_64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release -p cleis-server --locked --target ${{ matrix.target }}
+      - run: |
+          sha=$(echo "${{ github.sha }}" | cut -c1-7)
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          name="cleis-server-$ver-$sha-linux-${{ matrix.arch }}"
+          mkdir -p "dist/$name" bin
+          cp target/${{ matrix.target }}/release/cleis-server THIRD_PARTY.md "dist/$name/"
+          cp target/${{ matrix.target }}/release/cleis-server "bin/cleis-server-${{ matrix.qnap }}"
+          python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-server
+          cp -r deploy "dist/$name/deploy"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "NAME=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.tar.gz
+            dist/${{ env.NAME }}.tar.gz.sha256
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: server-bin-${{ matrix.qnap }}
+          path: bin/cleis-server-${{ matrix.qnap }}
+          retention-days: 1
+
+  # Cleis Server in QNAP's App Center (D-78): a QPKG per architecture, built with QNAP's QDK.
+  server-qnap:
+    needs: server-linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: server-bin-*
+          path: bin
+          merge-multiple: true
+      - name: QDK (QNAP's package builder)
+        run: |
+          curl -fsSL -o qdk.deb https://github.com/qnap-dev/QDK/releases/download/v2.5.3/qdk_2.5.3_amd64.deb
+          sudo apt-get install -y ./qdk.deb
+      - run: |
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          export PATH="$PATH:/usr/share/QDK/bin"
+          packaging/qnap/build.sh "$ver" x86_64=bin/cleis-server-x86_64 arm_64=bin/cleis-server-arm_64
+          (cd dist && for f in *.qpkg; do sha256sum "$f" > "$f.sha256"; done)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cleis-server-qnap
+          path: dist/*.qpkg*
+          retention-days: 30
+
+  macos:
+        description: Also build for macOS (consumes 10× minutes, unsigned)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # Audit X-7: CI already tests every push; a tag (a version) is tested again here.
+      - name: Tests
+        if: startsWith(github.ref, 'refs/tags/')
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release -p cleis-app -p cleis-server --locked
+      - name: Package (installer)
+        shell: pwsh
+        run: |
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $ver = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$ver") {
+            throw "Tag ${{ github.ref_name }} does not match the workspace version $ver"
+          }
+          $name = "Cleis-$ver-$sha-windows-x64-setup"
+          $files = "dist/files"
+          New-Item -ItemType Directory -Path $files -Force | Out-Null
+          Copy-Item target/release/cleis.exe "$files/Cleis.exe"
+          Copy-Item target/release/cleis-server.exe "$files/cleis-server.exe"
+          Copy-Item README.md, THIRD_PARTY.md "$files/"
+          # Audit X-1: the licence texts of every crate built in, and the typeface's.
+          python tools/licenses.py -o "$files/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
+          Copy-Item crates/cleis-app/assets/fonts/OFL.txt "$files/OFL.txt"
+          Copy-Item deploy/README.md "$files/SERVER.md"
+          # D-75: NSIS (not on the windows-2025 image: installed from Chocolatey); per-user
+          # installer, no administrator.
+          $nsis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $nsis) {
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw "NSIS not installed" }
+            $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          }
+          $src = (Resolve-Path $files).Path
+          $out = Join-Path (Resolve-Path dist).Path "$name.exe"
+          & $nsis /V2 "/DVERSION=$ver" "/DSRC=$src" "/DOUT=$out" packaging/windows/cleis.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+          Get-FileHash "dist/$name.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $name.exe" } | Out-File -Encoding ascii "dist/$name.exe.sha256"
+          "NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.exe
+            dist/${{ env.NAME }}.exe.sha256
+          retention-days: 30
+
   server-linux:
     runs-on: ubuntu-latest
     steps:
@@ -120,7 +252,7 @@ jobs:
 
   draft-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, server-linux]
+    needs: [windows, server-linux, server-qnap]
     runs-on: ubuntu-latest
     permissions:
       contents: write
