@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-77,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-79,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -64,7 +64,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `sync.rs` : fusion de deux copies sans déchiffrer (`changed`, `purged`), copie atomique ;
   `org.rs` : espaces d'organisation (`spaces.org`, `key_gen`, `records.pushed`), rechiffrement.
 - `crates/cleis-net` — client HTTPS du serveur (rustls, certificat épinglé, HTTP/1.1 minimal).
-- `crates/cleis-server` — serveur d'organisation (D-59, D-63) : `api.rs` (requêtes), `db.rs`
+- `crates/cleis-server` — serveur d'organisation (D-59, D-63) : `local.rs` (l'API rejouée dans
+  l'appli pour un dossier partagé : horloge et hasard de l'opération, D-78), `api.rs` (requêtes), `db.rs`
   (schéma, journal chaîné), `tls.rs` (certificat), `config.rs` (`cleis-server.toml`), `delivery.rs`
   (codes et invitations par
   e-mail / SMS), `oidc.rs` (jetons d'identité), `main.rs`
@@ -76,7 +77,10 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
   sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google /
   Microsoft par le navigateur), `screens/ctx.rs` (menus du clic droit, raccourcis d'un élément),
-  `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74), `opening.rs` (ouverture par
+  `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74), `nas.rs` (serveur installé
+  sur un NAS par SSH : QNAP .qpkg, systemd, D-78), `folder_org.rs` (organisation dans un dossier
+  partagé : opérations signées, copie locale rejouée par `cleis_server::local`, D-78),
+  `screens/wheel.rs` (roue chromatique), `opening.rs` (ouverture par
   Windows Hello ou sans rien, fichier `<coffre>.unlock`, D-76), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
@@ -138,5 +142,12 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   local : `makensis -DVERSION=x -DSRC=dossier -DOUT=setup.exe packaging/windows/cleis.nsi`.
 - Création d'un coffre (essais) : la clé de récupération s'affiche ensuite dans un dialogue qui
   couvre le centre : `w.click("recovery-key-done")` avant de cliquer ailleurs.
+- Paquet QNAP (D-78) : `packaging/qnap/` construit par la CI avec le QDK de QNAP (licence GPL,
+  hors dépôt) ; un .qpkg termine par le code 10 qu'il soit installé ou non : vérifier
+  `/etc/init.d/CleisServer.sh`. Serveur Linux statique (musl) : `musl-tools` +
+  `--target x86_64-unknown-linux-musl`.
+- Dossier partagé (D-78) : une opération est rejouée à sa date ; deux opérations à la même seconde
+  se départagent par la clé du signataire : l'appli date les siennes après la dernière appliquée.
+  Le registre des copies ouvertes est global au processus : sa clé est le dossier de la copie.
 - Barre du haut (fenêtre sans cadre) : sous Windows, tout contrôle posé dedans doit avoir
   `.occlude()`, sinon le clic part en déplacement de fenêtre.

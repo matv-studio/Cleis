@@ -1,5 +1,20 @@
 # Cleis — état
 
+## 26/11/2026 (suite : version 0.2.2 en cours, branche `feat/full-app`)
+- v0.2.1 : brouillon prêt (étiquette posée par Actions, D-77), à publier par l'utilisateur.
+- Fait : coin de l'onglet actif d'un seul tracé, survol des onglets, sens de l'animation des
+  onglets, transition de dossier, logo clair partout + réglage, menu clic droit des contacts,
+  alignements au pixel (hauteur de ligne 18 px, anneau d'accent 30 px), charte mise à jour
+  (projet claude.ai, section 10), roue chromatique (36), photo d'un contact (36e, vCard PHOTO),
+  code PIN d'organisation (36g/36h, D-79), création d'une organisation sur le NAS / cet ordinateur
+  / un dossier partagé (36f, 36i, D-78) : `nas.rs` (SSH, QNAP .qpkg, systemd, simple),
+  `packaging/qnap/` + CI (serveur musl x64 / arm64, paquets QPKG), `cleis_server::local` (API
+  rejouée), `folder_org.rs` (opérations signées dans le dossier, copie locale).
+- NAS de l'utilisateur : QNAP TS-863U-RP, AMD GX-420MC (x86-64), QTS 5.2.11, pas de Container
+  Station : le paquet .qpkg (App Center) est la voie retenue, sans Docker.
+- Reste pour la 0.2.2 : SFTP comme dossier partagé, connexion à un compte (36b–36d), essai réel
+  sur le QNAP, build Windows, notes, version.
+
 ## 26/11/2026 (version 0.2.1 en préparation, branche `feat/full-app`)
 - v0.2.0 publiée par l'utilisateur. Mises à jour depuis GitHub (D-74), installateur Windows et une
   seule copie de Cleis (D-75), barre du haut propre à Cleis (Windows : contrôles cliquables).
