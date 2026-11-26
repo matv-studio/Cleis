@@ -53,9 +53,14 @@ jobs:
           python tools/licenses.py -o "$files/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
           Copy-Item crates/cleis-app/assets/fonts/OFL.txt "$files/OFL.txt"
           Copy-Item deploy/README.md "$files/SERVER.md"
-          # D-75: NSIS is on the Windows runners; per-user installer, no administrator.
+          # D-75: NSIS (not on the windows-2025 image: installed from Chocolatey); per-user
+          # installer, no administrator.
           $nsis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
-          if (-not $nsis) { $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
+          if (-not $nsis) {
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw "NSIS not installed" }
+            $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          }
           $src = (Resolve-Path $files).Path
           $out = Join-Path (Resolve-Path dist).Path "$name.exe"
           & $nsis /V2 "/DVERSION=$ver" "/DSRC=$src" "/DOUT=$out" packaging/windows/cleis.nsi

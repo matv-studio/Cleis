@@ -515,8 +515,8 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 - **D-75 Installateur Windows et une seule copie de Cleis** (26/11/2026, demande de l'utilisateur
   après un doublon de la version portable) : à partir de la 0.2.1, Windows reçoit
   `Cleis-x.y.z-<commit>-windows-x64-setup.exe` à la place du zip portable.
-  - NSIS (`packaging/windows/cleis.nsi`) : présent sur les machines Windows de GitHub, licence
-    zlib, sans dépense. Écarté : Inno Setup (absent de l'image windows-2025, licence commerciale
+  - NSIS (`packaging/windows/cleis.nsi`) : licence zlib, sans dépense ; absent de l'image
+    windows-2025 de GitHub, installé par Chocolatey au moment de la construction. Écarté : Inno Setup (absent de l'image windows-2025, licence commerciale
     demandée aux entreprises), MSI/WiX (installation par machine plus lourde, UAC).
   - Installation par utilisateur, sans administrateur : `%LOCALAPPDATA%\Programs\Cleis`, raccourcis
     menu Démarrer et bureau, entrée « Applications installées » (HKCU), désinstalleur qui garde
