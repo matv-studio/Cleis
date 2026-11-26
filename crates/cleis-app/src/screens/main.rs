@@ -168,7 +168,7 @@ pub fn render(
         .when_some(super::places::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(update_dialog, |d, dlg| d.child(dlg))
         .when_some(super::ctx::outside(s, cx), |d, m| d.child(m))
-        .when_some(super::ctx::render(s, &t, cx), |d, m| d.child(m))
+        .when_some(super::ctx::render(s, &t, window, cx), |d, m| d.child(m))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
@@ -694,6 +694,7 @@ fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
                     super::ctx::on_right(super::ctx::CtxTarget::Entry(id), cx),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
                     if let Some(s) = this.session() {
                         s.selected = Some(id);
                         s.reveal = false;
@@ -745,7 +746,13 @@ fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .child(grid),
+            .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
+            )
+            .child(grid)
+            .test_support(),
     )
 }
 
@@ -875,16 +882,22 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         .text_size(TEXT_XS)
         .font_weight(W_MEDIUM)
         .text_color(t.text_muted);
+    // The column the list is sorted by (Sort by ▸ in the list's menu) carries the arrow.
+    let sorted = match s.prefs.sort_by {
+        cleis_core::settings::SortBy::Name => Some(("name", "↑")),
+        cleis_core::settings::SortBy::Price => Some(("price", "↓")),
+        cleis_core::settings::SortBy::Renewal => Some(("renewal", "↑")),
+        _ => None,
+    };
     for c in &cols {
+        let arrow = sorted.filter(|(id, _)| c.id.0 == *id).map(|(_, a)| a);
         head = head.child(
             cell_box(c)
-                .when(c.id.0 == "name", |d| {
+                .when_some(arrow, |d, a| {
                     d.text_color(t.text)
-                        .child(format!("{} ↑", crate::i18n::tr_owned(&c.name)))
+                        .child(format!("{} {a}", crate::i18n::tr_owned(&c.name)))
                 })
-                .when(c.id.0 != "name", |d| {
-                    d.child(crate::i18n::tr_owned(&c.name))
-                }),
+                .when(arrow.is_none(), |d| d.child(crate::i18n::tr_owned(&c.name))),
         );
     }
     let count = s.visible.len();
@@ -1050,6 +1063,10 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                     .flex()
                     .flex_col()
                     .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Right,
+                        super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
+                    )
                     .child(list)
                     .test_support(),
             )

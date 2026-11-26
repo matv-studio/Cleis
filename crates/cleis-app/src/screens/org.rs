@@ -3608,8 +3608,8 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 _ => {}
             }
         }
-        "ctx-entry" | "ctx-space" | "ctx-contact" | "ctx-member" | "confirm-transfer"
-        | "confirm-remove" => {
+        "ctx-entry" | "ctx-space" | "ctx-contact" | "ctx-member" | "ctx-list" | "ctx-sidebar"
+        | "confirm-transfer" | "confirm-remove" => {
             use super::ctx::{CtxMenu, CtxTarget, Sub};
             use gpui_kit::point;
             let Some(s) = app.session() else { return };
@@ -3618,6 +3618,10 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 .as_ref()
                 .and_then(|o| o.state.as_ref())
                 .and_then(|st| st.members.get(1).map(|m| m.id));
+            // The void menus are opened with nothing selected (the panel on the right closed).
+            if matches!(m, "ctx-list" | "ctx-sidebar") {
+                s.selected = None;
+            }
             let (target, at, sub) = match m {
                 "ctx-entry" => {
                     let id = s.visible.get(1).map(|i| s.entries[*i].id);
@@ -3645,6 +3649,16 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                     member.map(CtxTarget::Member),
                     point(px(640.), px(250.)),
                     Some(Sub::Role),
+                ),
+                "ctx-list" => (
+                    Some(CtxTarget::ListVoid),
+                    point(px(560.), px(640.)),
+                    Some(Sub::Sort),
+                ),
+                "ctx-sidebar" => (
+                    Some(CtxTarget::SidebarVoid),
+                    point(px(120.), px(560.)),
+                    None,
                 ),
                 _ => (None, point(px(0.), px(0.)), None),
             };

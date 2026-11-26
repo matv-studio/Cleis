@@ -1836,3 +1836,89 @@ fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
     assert!(!has(cx, "f-fav"));
 }
+
+/// Void menus (mockups 35, 35b): sort the list, switch to cards, hide a shortcut, customize.
+#[gpui_kit::test]
+fn void_menus_and_sort(cx: &mut TestAppContext) {
+    use cleis_core::settings::SortBy;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let names = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.visible
+                .iter()
+                .map(|i| s.entries[*i].name.clone())
+                .collect::<Vec<_>>()
+        })
+    };
+    let by_name = names(cx);
+    act(cx, h, |w, cx| void_right(w, "entries-void", cx));
+    act(cx, h, |w, cx| w.click("cx-sort", cx));
+    act(cx, h, |w, cx| w.click("cx-sort-Price", cx));
+    let prices = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.sort_by, SortBy::Price);
+        assert!(s.ctx.is_none());
+        s.visible
+            .iter()
+            .map(|i| s.entries[*i].price.as_ref().map_or(0, |m| m.yearly_cents()))
+            .collect::<Vec<_>>()
+    });
+    assert!(prices.windows(2).all(|w| w[0] >= w[1]), "{prices:?}");
+
+    // My order starts from what was shown, then follows the order kept.
+    act(cx, h, |w, cx| void_right(w, "entries-void", cx));
+    act(cx, h, |w, cx| w.click("cx-sort", cx));
+    act(cx, h, |w, cx| w.click("cx-sort-Manual", cx));
+    let mine = names(cx);
+    assert_ne!(mine, by_name);
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.sort_by, SortBy::Manual);
+        assert_eq!(s.prefs.item_order.len(), s.visible.len());
+    });
+
+    // Show as cards, and back from the cards' void.
+    act(cx, h, |w, cx| void_right(w, "entries-void", cx));
+    act(cx, h, |w, cx| w.click("cx-view", cx));
+    act(cx, h, |w, cx| void_right(w, "vault-cards", cx));
+    act(cx, h, |w, cx| w.click("cx-view", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.vault_cards);
+    });
+
+    // The sidebar: a tick keeps the menu open; Customize.
+    act(cx, h, |w, cx| void_right(w, "sidebar", cx));
+    act(cx, h, |w, cx| w.click("cx-sc-1", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.ctx.is_some());
+        assert_eq!(s.prefs.shortcuts.of("all"), [true, false, true]);
+    });
+    act(cx, h, |w, cx| w.click("cx-customize", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.customize && s.ctx.is_none());
+    });
+}
+
+/// A right-click far down an element, below its rows.
+fn void_right(w: &mut gpui_kit::Window, id: &str, cx: &mut gpui_kit::App) {
+    w.click_with_options(
+        gpui_kit::SharedString::from(id.to_owned()),
+        gpui_kit::test::ClickOptions::new()
+            .with_button(gpui_kit::MouseButton::Right)
+            .with_offset(gpui_kit::point(px(60.), px(600.))),
+        cx,
+    );
+}

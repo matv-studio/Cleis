@@ -198,6 +198,37 @@ impl VaultFilter {
 }
 
 impl Session {
+    /// The order chosen in the list's menu (Sort by ▸, 26/11/2026); by name within ties.
+    fn sort(&self, v: &mut [usize]) {
+        use cleis_core::settings::SortBy;
+        use std::cmp::Reverse;
+        let name = |i: &usize| cleis_core::text::fold(&self.entries[*i].name);
+        match self.prefs.sort_by {
+            SortBy::Name => v.sort_by_key(name),
+            SortBy::Edited => v.sort_by_key(|i| (Reverse(self.entries[*i].updated), name(i))),
+            SortBy::Price => v.sort_by_key(|i| {
+                let e = &self.entries[*i];
+                (Reverse(e.price.as_ref().map(|m| m.yearly_cents())), name(i))
+            }),
+            // The nearest renewal first; without a date, last.
+            SortBy::Renewal => v.sort_by_key(|i| {
+                let e = &self.entries[*i];
+                (e.renewal.is_none(), e.renewal.clone(), name(i))
+            }),
+            SortBy::Manual => {
+                let pos = |i: &usize| {
+                    let id = self.entries[*i].id;
+                    self.prefs
+                        .item_order
+                        .iter()
+                        .position(|x| *x == id)
+                        .unwrap_or(usize::MAX)
+                };
+                v.sort_by_key(|i| (pos(i), name(i)));
+            }
+        }
+    }
+
     pub fn refilter(&mut self) {
         let q = self.query.trim().to_owned();
         let mut v: Vec<usize> = self
@@ -224,7 +255,7 @@ impl Session {
             })
             .map(|(i, _)| i)
             .collect();
-        v.sort_by_key(|i| cleis_core::text::fold(&self.entries[*i].name));
+        self.sort(&mut v);
         self.visible = v;
         // The trash view has its own list: the vault selection waits for the return.
         if self.filter == Filter::Trash {

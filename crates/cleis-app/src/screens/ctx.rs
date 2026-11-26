@@ -21,6 +21,10 @@ pub enum CtxTarget {
     Space(SpaceId),
     Contact(ContactId),
     Member(MemberId),
+    /// The list (table or cards) outside any item (mockup 35).
+    ListVoid,
+    /// The sidebar outside any folder (mockup 35b).
+    SidebarVoid,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +33,7 @@ pub enum Sub {
     Copy,
     Role,
     Spaces,
+    Sort,
 }
 
 pub struct CtxMenu {
@@ -227,21 +232,37 @@ pub fn outside(s: &Session, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
     })
 }
 
-pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
+pub fn render(
+    s: &Session,
+    t: &Tokens,
+    window: &Window,
+    cx: &mut Context<CleisApp>,
+) -> Option<AnyElement> {
     let m = s.ctx.as_ref()?;
     let (main, sub) = match m.target {
         CtxTarget::Entry(id) => entry_menu(s, id, m.sub, t, cx)?,
         CtxTarget::Space(id) => (space_menu(s, id, t, cx)?, None),
         CtxTarget::Contact(id) => contact_menu(s, id, m.sub, t, cx)?,
         CtxTarget::Member(id) => member_menu(s, id, m.sub, t, cx)?,
+        CtxTarget::ListVoid => list_void_menu(s, m.sub, t, cx),
+        CtxTarget::SidebarVoid => (sidebar_void_menu(s, t, cx), None),
     };
-    let body = div()
-        .flex()
-        .items_start()
-        .child(main)
-        .when_some(sub, |d, (y, menu)| {
-            d.child(menu.relative().ml(px(-4.)).mt(px(y - PAD)))
-        });
+    // The submenu hangs off the menu without changing its size: opening it never moves the
+    // menu under the pointer (the window edge would push both up).
+    // Near the right edge, the submenu opens on the left.
+    let room = window.viewport_size().width - m.at.x;
+    let left = room < px(WIDTH + 240. + 16.);
+    // Near the bottom, it ends with the menu instead of starting at its row.
+    let up = window.viewport_size().height - m.at.y < px(340.);
+    let body = main.when_some(sub, |d, (y, menu)| {
+        d.child(
+            menu.absolute()
+                .when(!left, |d| d.left(px(WIDTH - 4.)))
+                .when(left, |d| d.right(px(WIDTH - 4.)))
+                .when(!up, |d| d.top(px(y - PAD)))
+                .when(up, |d| d.bottom(px(-1.))),
+        )
+    });
     Some(
         deferred(
             div()
@@ -270,6 +291,206 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Any
 }
 
 type Built = (Div, Option<(f32, Div)>);
+
+/// A row with a tick when `on` (Sort by, Shortcuts); the label stays aligned without it.
+fn check_item(id: impl Into<SharedString>, t: &Tokens, label: &str, on: bool) -> Stateful<Div> {
+    div()
+        .id(gpui_kit::ElementId::Name(id.into()))
+        .h(px(ROW))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(RADIUS_SM)
+        .cursor_pointer()
+        .text_color(t.text)
+        .hover(|d| d.bg(t.surface_hover))
+        .child(
+            div()
+                .size(px(14.))
+                .flex_none()
+                .when(on, |d| d.child(icon("check", 14., t.accent_text))),
+        )
+        .child(crate::i18n::tr_owned(label))
+}
+
+/// "New folder" in the personal vault, "New space" in an organization the member manages.
+fn new_folder_row(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
+    match &s.scope {
+        crate::app::Scope::Org(k) => {
+            let manage = s
+                .all_orgs()
+                .find(|o| o.m.key() == *k)
+                .is_some_and(|o| o.can(Perm::Manage));
+            let k = k.clone();
+            manage.then(|| {
+                act(
+                    item("cx-new-space", t, "folder", tr("New space"), None, false),
+                    cx,
+                    move |this, window, cx| {
+                        this.activate_org(&k);
+                        this.open_new_space(window, cx);
+                    },
+                )
+            })
+        }
+        _ => Some(act(
+            item("cx-new-folder", t, "folder", tr("New folder"), None, false),
+            cx,
+            |this, window, cx| this.open_new_folder(window, cx),
+        )),
+    }
+}
+
+/// Mockup 35: a right-click in the list outside any item.
+fn list_void_menu(s: &Session, sub: Option<Sub>, t: &Tokens, cx: &mut Context<CleisApp>) -> Built {
+    use cleis_core::settings::SortBy;
+    let mut r = Rows::new(t);
+    r.row(act(
+        item(
+            "cx-new-item",
+            t,
+            "plus",
+            tr("New item"),
+            Some(tr("Ctrl+N")),
+            false,
+        ),
+        cx,
+        |this, window, cx| this.new_entry(window, cx),
+    ));
+    if let Some(row) = new_folder_row(s, t, cx) {
+        r.row(row);
+    }
+    r.sep();
+    r.sub_y = r.y;
+    r.row(parent(
+        "cx-sort",
+        t,
+        "list",
+        "Sort by",
+        Sub::Sort,
+        sub == Some(Sub::Sort),
+        cx,
+    ));
+    r.row(act(
+        item("cx-columns", t, "columns", tr("Columns…"), None, false),
+        cx,
+        |this, _, cx| this.toggle_columns_menu(cleis_core::column::Table::Vault, cx),
+    ));
+    let cards = s.vault_cards;
+    r.row(act(
+        item(
+            "cx-view",
+            t,
+            if cards { "list" } else { "columns" },
+            if cards {
+                tr("Show as table")
+            } else {
+                tr("Show as cards")
+            },
+            None,
+            false,
+        ),
+        cx,
+        move |this, _, cx| {
+            if let Some(s) = this.session() {
+                s.vault_cards = !cards;
+            }
+            cx.notify();
+        },
+    ));
+    r.sep();
+    r.row(act(
+        item("cx-import", t, "upload", tr("Import…"), None, false),
+        cx,
+        |this, _, cx| {
+            if let Some(s) = this.session() {
+                s.tab = Tab::Settings;
+                s.settings_page = "Import & export";
+            }
+            cx.notify();
+        },
+    ));
+    let subm = (sub == Some(Sub::Sort)).then(|| {
+        let now = s.prefs.sort_by;
+        let mut m = menu_box(t).w(px(200.));
+        let opts = [
+            (SortBy::Name, "Name"),
+            (SortBy::Edited, "Last edited"),
+            (SortBy::Price, "Price"),
+            (SortBy::Renewal, "Renewal"),
+            (SortBy::Manual, "My order"),
+        ];
+        for (by, label) in opts {
+            if by == SortBy::Manual {
+                m = m.child(div().h(px(1.)).my(px(4.)).bg(t.line));
+            }
+            let el = check_item(format!("cx-sort-{by:?}"), t, label, now == by)
+                .when(by == SortBy::Manual, |d| {
+                    d.tooltip(tip(tr("Drag the items to put them in your order")))
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.close_ctx(cx);
+                    this.set_sort(by, cx);
+                }))
+                .test_support();
+            m = m.child(el);
+        }
+        (r.sub_y, m)
+    });
+    (r.menu, subm)
+}
+
+/// Mockup 35b: a right-click in the sidebar outside any folder.
+fn sidebar_void_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let mut r = Rows::new(t);
+    if let Some(row) = new_folder_row(s, t, cx) {
+        r.row(row);
+        r.sep();
+    }
+    r.row(
+        div()
+            .id("cx-shortcuts-head")
+            .h(px(24.))
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .text_size(TEXT_XS)
+            .font_weight(W_MEDIUM)
+            .text_color(t.text_muted)
+            .child(tr("Shortcuts"))
+            .tooltip(tip(tr(
+                "For this vault; Preferences › Vaults makes them the same everywhere",
+            ))),
+    );
+    let key = super::sidebar::shortcut_key(s);
+    let shown = s.prefs.shortcuts.of(&key);
+    for (ix, label) in ["All items", "Favorites", "Renew soon"]
+        .into_iter()
+        .enumerate()
+    {
+        let key = key.clone();
+        // A tick does not close the menu: several can be changed in a row.
+        r.row(
+            plain(check_item(format!("cx-sc-{ix}"), t, label, shown[ix]), cx)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let key = key.clone();
+                    this.update_prefs(|p| p.shortcuts.toggle(&key, ix), cx);
+                    if let Some(s) = this.session() {
+                        s.refilter();
+                    }
+                }))
+                .test_support(),
+        );
+    }
+    r.sep();
+    r.row(act(
+        item("cx-customize", t, "grip", tr("Customize"), None, false),
+        cx,
+        |this, _, cx| this.toggle_customize(cx),
+    ));
+    r.menu
+}
 
 fn entry_menu(
     s: &Session,
@@ -844,6 +1065,35 @@ impl CleisApp {
         });
         let focus = s.main_focus.clone();
         window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Sort by ▸ (mockup 35): kept in the preferences, the list sorted again at once.
+    pub fn set_sort(&mut self, by: cleis_core::settings::SortBy, cx: &mut Context<Self>) {
+        // "My order" keeps the order made before; items never placed follow, as shown now.
+        if let Some(s) = self.session()
+            && by == cleis_core::settings::SortBy::Manual
+            && s.prefs.sort_by != by
+        {
+            let mut order: Vec<EntryId> = s
+                .prefs
+                .item_order
+                .iter()
+                .copied()
+                .filter(|x| s.entries.iter().any(|e| e.id == *x))
+                .collect();
+            for i in &s.visible {
+                let id = s.entries[*i].id;
+                if !order.contains(&id) {
+                    order.push(id);
+                }
+            }
+            s.prefs.item_order = order;
+        }
+        self.update_prefs(|p| p.sort_by = by, cx);
+        if let Some(s) = self.session() {
+            s.refilter();
+        }
         cx.notify();
     }
 

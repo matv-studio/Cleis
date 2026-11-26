@@ -48,7 +48,7 @@ const SHORTCUTS: [(&str, &str, &str, Filter); 3] = [
     ("f-renew", "clock", "Renew soon", Filter::RenewSoon),
 ];
 
-pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Stateful<Div> {
+pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
     let editing = s.customize;
     let count = |f: &dyn Fn(&Entry) -> bool| {
         s.entries
@@ -69,7 +69,11 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::
         .p(px(8.))
         .flex()
         .flex_col()
-        .gap(px(2.));
+        .gap(px(2.))
+        .on_mouse_down(
+            gpui_kit::MouseButton::Right,
+            super::ctx::on_right(super::ctx::CtxTarget::SidebarVoid, cx),
+        );
     for (ix, (id, ico, label, filter)) in SHORTCUTS.into_iter().enumerate() {
         if !shown[ix] && !editing {
             continue;
@@ -236,29 +240,32 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::
         .tooltip(tip(tr("Customize: reorder and delete")))
         .on_click(cx.listener(|this, _, _, cx| this.toggle_customize(cx)))
         .test_support();
-    d.child(div().flex_1()).child(import).child(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(2.))
-            .child(
-                div().flex_1().min_w_0().child(
-                    row(
-                        s,
-                        t,
-                        "f-trash",
-                        "trash",
-                        tr("Trash").into(),
-                        (!s.trash.is_empty()).then_some(s.trash.len()),
-                        Filter::Trash,
-                        0.,
-                        cx,
-                    )
-                    .test_support(),
-                ),
-            )
-            .child(custom),
-    )
+    d.child(div().flex_1())
+        .child(import)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .child(
+                    div().flex_1().min_w_0().child(
+                        row(
+                            s,
+                            t,
+                            "f-trash",
+                            "trash",
+                            tr("Trash").into(),
+                            (!s.trash.is_empty()).then_some(s.trash.len()),
+                            Filter::Trash,
+                            0.,
+                            cx,
+                        )
+                        .test_support(),
+                    ),
+                )
+                .child(custom),
+        )
+        .test_support()
 }
 
 #[allow(clippy::too_many_arguments)]

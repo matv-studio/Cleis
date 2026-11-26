@@ -968,5 +968,15 @@
   "Delete folder": "Supprimer le dossier",
   "Every vault": "Tous les coffres",
   "Same for every vault": "Les mêmes pour tous les coffres",
-  "All items, Favorites and Renew soon at the top of the sidebar": "Tous les éléments, Favoris et À renouveler en haut de la barre latérale"
+  "All items, Favorites and Renew soon at the top of the sidebar": "Tous les éléments, Favoris et À renouveler en haut de la barre latérale",
+  "Sort by": "Trier par",
+  "Last edited": "Dernière modification",
+  "My order": "Mon ordre",
+  "Columns…": "Colonnes…",
+  "Show as table": "Afficher en tableau",
+  "Show as cards": "Afficher en cartes",
+  "Import…": "Importer…",
+  "Customize": "Personnaliser",
+  "Drag the items to put them in your order": "Glisser les éléments pour les mettre dans votre ordre",
+  "For this vault; Preferences › Vaults makes them the same everywhere": "Pour ce coffre ; Préférences › Coffres les rend identiques partout"
 }
