@@ -32,19 +32,29 @@ pub fn stage(t: &Tokens, card: impl IntoElement) -> Div {
         )
 }
 
+/// The Cleis logo (design/logo), in the version of the theme.
 pub fn logo(t: &Tokens, size: f32) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .size(px(size))
-        .rounded(px(if size > 30. { 10. } else { 6. }))
-        .bg(t.inverse)
-        .child(icon(
-            "key",
-            if size > 30. { 20. } else { 14. },
-            t.inverse_ink,
+    use std::sync::{Arc, LazyLock};
+    static DARK: LazyLock<Arc<gpui_kit::Image>> = LazyLock::new(|| {
+        Arc::new(gpui_kit::Image::from_bytes(
+            gpui_kit::ImageFormat::Png,
+            include_bytes!("../../assets/logo-dark.png").to_vec(),
         ))
+    });
+    static LIGHT: LazyLock<Arc<gpui_kit::Image>> = LazyLock::new(|| {
+        Arc::new(gpui_kit::Image::from_bytes(
+            gpui_kit::ImageFormat::Png,
+            include_bytes!("../../assets/logo-light.png").to_vec(),
+        ))
+    });
+    let image = match t.mode {
+        crate::theme::Mode::Dark => DARK.clone(),
+        crate::theme::Mode::Light => LIGHT.clone(),
+    };
+    div()
+        .flex_none()
+        .size(px(size))
+        .child(gpui_kit::img(image).size(px(size)))
 }
 
 pub fn render(

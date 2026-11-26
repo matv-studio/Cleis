@@ -1263,6 +1263,7 @@ dependencies = [
  "cleis-store",
  "data-encoding",
  "directories",
+ "embed-resource",
  "gpui-kit",
  "qrcode",
  "raw-window-handle",

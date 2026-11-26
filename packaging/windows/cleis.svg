@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- The app's logo (screens/unlock.rs `logo`): the key on the light inverse tile. -->
-  <rect x="8" y="8" width="240" height="240" rx="56" fill="#f2f2f2"/>
-  <g transform="translate(48 48) scale(10)" fill="none" stroke="#191919" stroke-width="1.5"
-     stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="5.5" cy="10.5" r="3"/>
-    <path d="M7.6 8.4 13.5 2.5M11.5 4.5l1.5 1.5M10 6l1.2 1.2"/>
-  </g>
-</svg>

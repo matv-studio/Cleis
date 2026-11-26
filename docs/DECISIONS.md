@@ -521,7 +521,9 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Installation par utilisateur, sans administrateur : `%LOCALAPPDATA%\Programs\Cleis`, raccourcis
     menu Démarrer et bureau, entrée « Applications installées » (HKCU), désinstalleur qui garde
     le coffre et retire l'ouverture à la connexion. Anglais et français. Icône :
-    `packaging/windows/cleis.ico` (tiré de `cleis.svg`, le logo de l'appli).
+    `packaging/windows/cleis.ico` (tiré du logo, voir `design/logo/README.md` ; le 26/11/2026 :
+    logos clair et sombre fournis, version claire pour l'exécutable, l'installateur et la zone de
+    notification, la version du thème dans l'appli ; icône de l'exécutable posée par `build.rs`).
   - Une seule copie par utilisateur (`instance.rs`) : verrou `instance.lock` dans le dossier de
     données ; la copie qui le tient écoute sur un port local, noté avec un jeton aléatoire dans
     `instance.port`. Un second lancement fait revenir la fenêtre puis s'arrête (au démarrage de
