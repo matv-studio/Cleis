@@ -40,9 +40,8 @@ ureq = { version = "3", default-features = false, features = ["rustls", "json"] 
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "2"
 tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
-# Updates (D-74): versions compared, the portable package opened.
+# Updates (D-74): versions compared.
 semver = "1"
-zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 # Reads window handles: Quick Access brought in front without GPUI's simulated Alt, main window

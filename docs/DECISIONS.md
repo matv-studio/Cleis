@@ -503,17 +503,34 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   « Version x.y.z » en haut à droite ; Preferences › Updates donne la version installée, l'option
   « Recevoir les préversions » (par défaut : oui, toutes les 0.x en sont) et « Rechercher les
   mises à jour ». Les brouillons ne comptent jamais.
-  - Installation (Windows, zip portable) : téléchargement du zip et de sa somme `.sha256`,
-    vérification, puis chaque fichier du dossier est renommé `<nom>.old` et remplacé (un
-    programme ouvert se renomme mais ne s'écrase pas) ; Cleis se relance, les `.old` sont
-    effacés au démarrage suivant. Un paquet sans `Cleis.exe` ou abîmé ne change rien. Dossier
-    non inscriptible (Program Files) : message d'erreur, rien n'est remplacé.
+  - Installation (Windows) : par l'installateur, voir D-75 (remplace le remplacement des fichiers
+    du zip portable, retiré avant toute version).
   - Ailleurs (macOS, Linux) : le bouton ouvre la page de la version.
   - Limite : la somme `.sha256` vient de la même version GitHub ; elle protège d'un
     téléchargement abîmé, pas d'un compte GitHub compromis. Signature des paquets (clé Ed25519
     dans les secrets du dépôt) : à décider, « En suspens » 16.
   - Jamais dans la démo, les captures ni les essais (`update.enabled` mis par `main.rs`).
     Captures : `--update 0.2.1 [--menu update]`.
+
+- **D-75 Installateur Windows et une seule copie de Cleis** (26/11/2026, demande de l'utilisateur
+  après un doublon de la version portable) : à partir de la 0.2.1, Windows reçoit
+  `Cleis-x.y.z-<commit>-windows-x64-setup.exe` à la place du zip portable.
+  - NSIS (`packaging/windows/cleis.nsi`) : présent sur les machines Windows de GitHub, licence
+    zlib, sans dépense. Écarté : Inno Setup (absent de l'image windows-2025, licence commerciale
+    demandée aux entreprises), MSI/WiX (installation par machine plus lourde, UAC).
+  - Installation par utilisateur, sans administrateur : `%LOCALAPPDATA%\Programs\Cleis`, raccourcis
+    menu Démarrer et bureau, entrée « Applications installées » (HKCU), désinstalleur qui garde
+    le coffre et retire l'ouverture à la connexion. Anglais et français. Icône :
+    `packaging/windows/cleis.ico` (tiré de `cleis.svg`, le logo de l'appli).
+  - Une seule copie par utilisateur (`instance.rs`) : verrou `instance.lock` dans le dossier de
+    données ; la copie qui le tient écoute sur un port local, noté avec un jeton aléatoire dans
+    `instance.port`. Un second lancement fait revenir la fenêtre puis s'arrête (au démarrage de
+    session : s'arrête seulement) ; `Cleis --quit` ferme la copie ouverte (le serveur qu'elle a
+    lancé s'arrête avec elle). Le verrou part avec le processus : un plantage ne bloque rien.
+    La démo et les captures n'y participent pas.
+  - Mises à jour (D-74) : Cleis télécharge l'installateur et sa somme, le lance avec `/S /UPDATE` et
+    se ferme ; l'installateur attend sa fermeture, installe, relance Cleis. Le remplacement des
+    fichiers en place (zip portable) est retiré.
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

@@ -120,6 +120,27 @@ impl CleisApp {
         }
     }
 
+    /// D-75: the other launches of Cleis bring this one in front; the installer makes it quit.
+    pub fn serve_instance(&mut self, g: crate::instance::Guard, cx: &mut Context<Self>) {
+        use crate::instance::Request;
+        let (tx, rx) = async_channel::unbounded();
+        g.serve(move |r| {
+            let _ = tx.try_send(r);
+        });
+        cx.spawn(async move |this, cx| {
+            while let Ok(r) = rx.recv().await {
+                let done = this.update(cx, |app, cx| match r {
+                    Request::Show => app.show_main(cx),
+                    Request::Quit => cx.quit(),
+                });
+                if done.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     /// Main window back in front (tray, shortcut while locked).
     pub fn show_main(&mut self, cx: &mut Context<Self>) {
         match self.main_hwnd {

@@ -1,7 +1,7 @@
 name: Build
 
 # Release builds of the desktop app.
-# - Push to a `build/**` branch or run by hand: Windows portable zip as a workflow artifact.
+# - Push to a `build/**` branch or run by hand: Windows installer (D-75) as a workflow artifact.
 # - Push a `v*` tag: same, attached to a DRAFT release that a person reviews and publishes.
 # macOS only on demand (macOS runners cost 10× the minutes; no Apple signing yet).
 
@@ -35,7 +35,7 @@ jobs:
         run: cargo test --workspace
       - name: Release build
         run: cargo build --release -p cleis-app -p cleis-server --locked
-      - name: Package (portable)
+      - name: Package (installer)
         shell: pwsh
         run: |
           $sha = "${{ github.sha }}".Substring(0, 7)
@@ -43,24 +43,31 @@ jobs:
           if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$ver") {
             throw "Tag ${{ github.ref_name }} does not match the workspace version $ver"
           }
-          $name = "Cleis-$ver-$sha-windows-x64-portable"
-          New-Item -ItemType Directory -Path "dist/$name" | Out-Null
-          Copy-Item target/release/cleis.exe "dist/$name/Cleis.exe"
-          Copy-Item target/release/cleis-server.exe "dist/$name/cleis-server.exe"
-          Copy-Item README.md, THIRD_PARTY.md "dist/$name/"
+          $name = "Cleis-$ver-$sha-windows-x64-setup"
+          $files = "dist/files"
+          New-Item -ItemType Directory -Path $files -Force | Out-Null
+          Copy-Item target/release/cleis.exe "$files/Cleis.exe"
+          Copy-Item target/release/cleis-server.exe "$files/cleis-server.exe"
+          Copy-Item README.md, THIRD_PARTY.md "$files/"
           # Audit X-1: the licence texts of every crate built in, and the typeface's.
-          python tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
-          Copy-Item crates/cleis-app/assets/fonts/OFL.txt "dist/$name/OFL.txt"
-          Copy-Item deploy/README.md "dist/$name/SERVER.md"
-          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
-          Get-FileHash "dist/$name.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $name.zip" } | Out-File -Encoding ascii "dist/$name.zip.sha256"
+          python tools/licenses.py -o "$files/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
+          Copy-Item crates/cleis-app/assets/fonts/OFL.txt "$files/OFL.txt"
+          Copy-Item deploy/README.md "$files/SERVER.md"
+          # D-75: NSIS is on the Windows runners; per-user installer, no administrator.
+          $nsis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $nsis) { $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
+          $src = (Resolve-Path $files).Path
+          $out = Join-Path (Resolve-Path dist).Path "$name.exe"
+          & $nsis /V2 "/DVERSION=$ver" "/DSRC=$src" "/DOUT=$out" packaging/windows/cleis.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+          Get-FileHash "dist/$name.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $name.exe" } | Out-File -Encoding ascii "dist/$name.exe.sha256"
           "NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.NAME }}
           path: |
-            dist/${{ env.NAME }}.zip
-            dist/${{ env.NAME }}.zip.sha256
+            dist/${{ env.NAME }}.exe
+            dist/${{ env.NAME }}.exe.sha256
           retention-days: 30
 
   server-linux:

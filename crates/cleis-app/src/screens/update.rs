@@ -108,8 +108,7 @@ impl CleisApp {
             if demo {
                 return Err("demo".to_owned());
             }
-            update::install(&r)?;
-            update::restart()
+            update::install(&r)
         });
         cx.spawn(async move |this, cx| {
             let r = task.await;

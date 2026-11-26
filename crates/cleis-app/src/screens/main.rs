@@ -246,7 +246,7 @@ fn topbar(
                 this.open_tab(tab, scope.clone(), cx);
             }));
         el = if active {
-            // The outline is drawn by a frame that stops 9 px above the bottom; the corners take
+            // The outline is drawn by a frame that stops 7 px above the bottom; the corners take
             // over from there (a parent's own border would paint over its children).
             el.h(px(33.))
                 .mb(px(-1.))
@@ -254,21 +254,23 @@ fn topbar(
                 .bg(t.bg)
                 .rounded_t(px(8.))
                 .text_color(t.accent_text)
+                // Corners first, then the frame over them: its side lines run 2 px into the
+                // corners' arcs (vertical there too), so no gap opens at 125 or 150 % scale.
+                .child(tab_corner(t, true))
+                .child(tab_corner(t, false))
                 .child(
                     div()
                         .absolute()
                         .top_0()
                         .left_0()
                         .right_0()
-                        .bottom(px(9.))
+                        .bottom(px(7.))
                         .border_t_1()
                         .border_l_1()
                         .border_r_1()
                         .border_color(t.stage_line)
                         .rounded_t(px(8.)),
                 )
-                .child(tab_corner(t, true))
-                .child(tab_corner(t, false))
         } else {
             el.text_color(t.text_muted)
         };

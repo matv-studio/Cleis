@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-74,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-75,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -73,7 +73,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   connexion), `org.rs` (organisation : adhésion, synchronisation, actions admin, rapports d'activité,
   sauvegardes), `host.rs` (serveur hébergé sur cet ordinateur), `remote.rs` / `sftp.rs` (places GitHub, SFTP), `oidc.rs` (connexion Google /
   Microsoft par le navigateur), `screens/ctx.rs` (menus du clic droit, raccourcis d'un élément),
-  `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74),
+  `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74), `instance.rs` (une seule
+  copie, D-75), installateur `packaging/windows/` (NSIS),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
   `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,
@@ -127,5 +128,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Menus : tout menu flottant doit être dans `deferred(...)` : la couche « clic ailleurs »
   (`ctx::outside`) est sous les menus différés et au-dessus du reste.
 - Licences des archives : `python3 tools/licenses.py -o FICHIER cleis-app cleis-server`.
-- `target/debug/build/<crate>/` garde les anciennes compilations : supprimer les dossiers de plus
-  d'une heure si le disque se remplit.
+- `target/debug/build/<crate>/<hash>/` garde les anciennes compilations : si le disque se remplit,
+  `find target/debug/build -mindepth 2 -maxdepth 2 -type d -mmin +30 -exec rm -rf {} +`.
+- Installateur Windows (D-75) : `makensis` existe aussi sous Linux (`apt install nsis`) ; essai
+  local : `makensis -DVERSION=x -DSRC=dossier -DOUT=setup.exe packaging/windows/cleis.nsi`.
+- Barre du haut (fenêtre sans cadre) : sous Windows, tout contrôle posé dedans doit avoir
+  `.occlude()`, sinon le clic part en déplacement de fenêtre.

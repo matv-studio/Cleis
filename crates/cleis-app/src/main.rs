@@ -70,10 +70,34 @@ fn main() {
     let import = value("--import").filter(|_| unlocked);
     let review = flag("--review");
     let background = flag("--background");
-    if !demo {
-        // The files the previous update renamed `*.old` (D-74).
-        std::thread::spawn(cleis_app::update::clean_up);
+    // D-75: one Cleis per user. The installer's `--quit` closes the running copy; another launch
+    // brings it in front (not at login: it is already there). The demo and the screenshots run
+    // beside it.
+    use cleis_app::instance::{self, Request};
+    if flag("--quit") {
+        if instance::ask(Request::Quit) {
+            instance::wait_gone(std::time::Duration::from_secs(15));
+        }
+        return;
     }
+    let single = if demo {
+        None
+    } else {
+        match instance::claim() {
+            Ok(Some(g)) => Some(g),
+            Ok(None) => {
+                if !background {
+                    instance::ask(Request::Show);
+                }
+                return;
+            }
+            // The lock cannot be taken (unusual profile): Cleis runs anyway.
+            Err(e) => {
+                eprintln!("cleis: single instance: {e}");
+                None
+            }
+        }
+    };
     let restore = flag("--restore");
     let no_org = flag("--no-org");
     // D-69 captures: a second organization, the vaults in their own tabs.
@@ -266,6 +290,9 @@ fn main() {
                     }
                     if !(demo && !try_autofill) {
                         app.install_tray(cx);
+                    }
+                    if let Some(g) = single {
+                        app.serve_instance(g, cx);
                     }
                     app
                 });

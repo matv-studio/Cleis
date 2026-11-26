@@ -9,6 +9,9 @@ computer, and shared spaces through an organization server. Rust, GPU-rendered i
 - `crates/cleis-core`, `cleis-crypto`, `cleis-store`, `cleis-net`, `cleis-autofill` — model,
   encryption, vault file, server client, system autofill.
 
+Windows: `Cleis-x.y.z-…-windows-x64-setup.exe` (Releases) installs Cleis for the current user, no
+administrator (`%LOCALAPPDATA%\Programs\Cleis`); later versions are offered in the app.
+
 ```sh
 cargo test --workspace
 cargo run -p cleis-app -- --demo --unlocked

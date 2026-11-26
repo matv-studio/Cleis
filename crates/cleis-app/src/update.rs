@@ -1,11 +1,8 @@
-//! Updates (D-74): the newest version published on GitHub, downloaded, checked and put in place
-//! of the running copy, then Cleis starts again.
-//!
-//! The portable folder is replaced file by file: a running program cannot be overwritten on
-//! Windows but can be renamed, so each old file becomes `<name>.old` (erased at the next start)
-//! before the new one takes its name. Network and files: call off the interface thread.
+//! Updates (D-74): the newest version published on GitHub. On Windows its installer (D-75) is
+//! downloaded, checked against its published checksum and started silently with `/UPDATE`: it
+//! asks this copy to quit (`--quit`), installs, then starts Cleis again. Elsewhere the release page
+//! opens. Network and files: call off the interface thread.
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Where versions are published (public repository).
@@ -36,7 +33,7 @@ pub fn current() -> &'static str {
 /// the release page opens instead).
 fn package_suffix() -> Option<&'static str> {
     if cfg!(all(windows, target_arch = "x86_64")) {
-        Some("-windows-x64-portable.zip")
+        Some("-windows-x64-setup.exe")
     } else {
         None
     }
@@ -125,14 +122,6 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("download: {e}"))
 }
 
-/// The folder of the running copy.
-fn folder() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    exe.parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "no folder".to_owned())
-}
-
 /// Checks the package against its published checksum (`<hex>  <name>`).
 pub fn verify(package: &[u8], sums: &str) -> Result<(), String> {
     let want = sums
@@ -151,81 +140,20 @@ pub fn verify(package: &[u8], sums: &str) -> Result<(), String> {
     }
 }
 
-/// Puts the package's files in `dir` (the running copy's folder): an existing file is renamed
-/// `<name>.old` first. Only plain files at the package's top level are taken.
-pub fn install_into(package: &[u8], dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(package)).map_err(|e| e.to_string())?;
-    // Everything read first: nothing is replaced if the package is damaged.
-    let mut files = Vec::new();
-    for i in 0..zip.len() {
-        let mut f = zip.by_index(i).map_err(|e| e.to_string())?;
-        if f.is_dir() {
-            continue;
-        }
-        let Some(name) = f.enclosed_name().filter(|p| p.components().count() == 1) else {
-            continue;
-        };
-        let mut bytes = Vec::with_capacity(f.size() as usize);
-        std::io::copy(&mut f, &mut bytes).map_err(|e| e.to_string())?;
-        files.push((name, bytes));
-    }
-    if !files
-        .iter()
-        .any(|(n, _)| n.to_string_lossy().eq_ignore_ascii_case(exe_name()))
-    {
-        return Err("the package holds no Cleis program".into());
-    }
-    let mut placed = Vec::new();
-    for (name, bytes) in files {
-        let target = dir.join(&name);
-        let new = dir.join(format!("{}.new", name.display()));
-        std::fs::write(&new, &bytes).map_err(|e| format!("{}: {e}", new.display()))?;
-        if target.exists() {
-            let old = dir.join(format!("{}.old", name.display()));
-            let _ = std::fs::remove_file(&old);
-            std::fs::rename(&target, &old).map_err(|e| format!("{}: {e}", target.display()))?;
-        }
-        std::fs::rename(&new, &target).map_err(|e| format!("{}: {e}", target.display()))?;
-        placed.push(target);
-    }
-    Ok(placed)
-}
-
-fn exe_name() -> &'static str {
-    if cfg!(windows) { "Cleis.exe" } else { "cleis" }
-}
-
-/// Downloads, checks and puts the new version in place (network and files).
+/// Downloads and checks the installer, then starts it silently (network and files); the caller
+/// then quits, the installer waits for it.
 pub fn install(r: &Release) -> Result<(), String> {
     let (url, sum_url) = r.package.as_ref().ok_or("no package for this computer")?;
-    let package = download(url)?;
+    let setup = download(url)?;
     let sums = String::from_utf8(download(sum_url)?).map_err(|e| e.to_string())?;
-    verify(&package, &sums)?;
-    install_into(&package, &folder()?)?;
-    Ok(())
-}
-
-/// Starts the new copy (the caller then quits).
-pub fn restart() -> Result<(), String> {
-    let exe = folder()?.join(exe_name());
-    std::process::Command::new(exe)
+    verify(&setup, &sums)?;
+    let path = std::env::temp_dir().join(format!("Cleis-{}-setup.exe", r.version));
+    std::fs::write(&path, &setup).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::process::Command::new(&path)
+        .args(["/S", "/UPDATE"])
         .spawn()
         .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-/// At start: the files left by the previous update.
-pub fn clean_up() {
-    let Ok(dir) = folder() else { return };
-    let Ok(list) = std::fs::read_dir(&dir) else {
-        return;
-    };
-    for e in list.flatten() {
-        let p = e.path();
-        if p.extension().is_some_and(|x| x == "old") {
-            let _ = std::fs::remove_file(p);
-        }
-    }
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]
@@ -239,10 +167,10 @@ mod tests {
             "tag_name": tag, "prerelease": pre, "draft": draft,
             "html_url": format!("https://github.com/matv-studio/Cleis/releases/tag/{tag}"),
             "assets": [
-                {"name": format!("Cleis-{v}-abc1234-windows-x64-portable.zip"),
-                 "browser_download_url": format!("https://example-dl.com/{v}.zip")},
-                {"name": format!("Cleis-{v}-abc1234-windows-x64-portable.zip.sha256"),
-                 "browser_download_url": format!("https://example-dl.com/{v}.zip.sha256")},
+                {"name": format!("Cleis-{v}-abc1234-windows-x64-setup.exe"),
+                 "browser_download_url": format!("https://example-dl.com/{v}.exe")},
+                {"name": format!("Cleis-{v}-abc1234-windows-x64-setup.exe.sha256"),
+                 "browser_download_url": format!("https://example-dl.com/{v}.exe.sha256")},
             ]
         })
     }
@@ -255,15 +183,15 @@ mod tests {
             rel("v0.2.5", false, false),
             rel("v0.4.0", false, true),
         ]);
-        let suffix = Some("-windows-x64-portable.zip");
+        let suffix = Some("-windows-x64-setup.exe");
         let r = pick(&list, "0.2.0", true, suffix).unwrap();
         assert_eq!(r.version, "0.3.0");
         assert!(r.prerelease);
         assert_eq!(
             r.package,
             Some((
-                "https://example-dl.com/0.3.0.zip".into(),
-                "https://example-dl.com/0.3.0.zip.sha256".into()
+                "https://example-dl.com/0.3.0.exe".into(),
+                "https://example-dl.com/0.3.0.exe.sha256".into()
             ))
         );
         // Without pre-releases: the stable one; the draft never.
@@ -285,44 +213,5 @@ mod tests {
             .collect();
         assert!(verify(data, &format!("{}  x.zip\r\n", hex.to_uppercase())).is_ok());
         assert!(verify(b"other", &format!("{hex}  x.zip")).is_err());
-    }
-
-    #[test]
-    fn replaces_the_files_and_keeps_the_old_ones() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(exe_name()), b"old program").unwrap();
-        std::fs::write(dir.path().join("keep.txt"), b"mine").unwrap();
-        let mut buf = std::io::Cursor::new(Vec::new());
-        {
-            let mut z = zip::ZipWriter::new(&mut buf);
-            let o = zip::write::SimpleFileOptions::default();
-            z.start_file(exe_name(), o).unwrap();
-            z.write_all(b"new program").unwrap();
-            z.start_file("README.md", o).unwrap();
-            z.write_all(b"readme").unwrap();
-            z.start_file("../escape.txt", o).unwrap();
-            z.write_all(b"no").unwrap();
-            z.finish().unwrap();
-        }
-        let placed = install_into(buf.get_ref(), dir.path()).unwrap();
-        assert_eq!(placed.len(), 2);
-        let read = |n: &str| std::fs::read(dir.path().join(n)).unwrap();
-        assert_eq!(read(exe_name()), b"new program");
-        assert_eq!(read(&format!("{}.old", exe_name())), b"old program");
-        assert_eq!(read("README.md"), b"readme");
-        assert_eq!(read("keep.txt"), b"mine");
-        assert!(!dir.path().parent().unwrap().join("escape.txt").exists());
-        // A package without the program changes nothing.
-        let mut bad = std::io::Cursor::new(Vec::new());
-        {
-            let mut z = zip::ZipWriter::new(&mut bad);
-            z.start_file("README.md", zip::write::SimpleFileOptions::default())
-                .unwrap();
-            z.write_all(b"x").unwrap();
-            z.finish().unwrap();
-        }
-        assert!(install_into(bad.get_ref(), dir.path()).is_err());
-        assert_eq!(read("README.md"), b"readme");
     }
 }
