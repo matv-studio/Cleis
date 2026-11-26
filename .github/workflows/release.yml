@@ -24,6 +24,8 @@ env:
 
 jobs:
   windows:
+    # D-78: the installer carries Cleis Server for a NAS (QNAP packages, Linux servers).
+    needs: server-qnap
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -35,6 +37,15 @@ jobs:
         run: cargo test --workspace
       - name: Release build
         run: cargo build --release -p cleis-app -p cleis-server --locked
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: server-bin-*
+          path: dist/files/server
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cleis-server-qnap
+          path: dist/files/server
       - name: Package (installer)
         shell: pwsh
         run: |

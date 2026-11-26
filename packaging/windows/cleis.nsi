@@ -115,6 +115,10 @@ Section "Cleis" SecMain
   File "${SRC}\THIRD_PARTY_LICENSES.txt"
   File "${SRC}\OFL.txt"
   File "cleis.ico"
+  ; D-78: Cleis Server for a NAS (QNAP packages, static Linux servers), sent there by Cleis.
+  SetOutPath "$INSTDIR\server"
+  File /nonfatal "${SRC}\server\*.*"
+  SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall Cleis.exe"
 
   CreateShortcut "$SMPROGRAMS\Cleis.lnk" "$INSTDIR\Cleis.exe" "" "$INSTDIR\cleis.ico"
@@ -153,6 +157,7 @@ Section "Uninstall"
   Delete "$INSTDIR\OFL.txt"
   Delete "$INSTDIR\cleis.ico"
   Delete "$INSTDIR\*.old"
+  RMDir /r "$INSTDIR\server"
   Delete "$INSTDIR\Uninstall Cleis.exe"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\Cleis.lnk"

@@ -12,8 +12,11 @@
   rejouée), `folder_org.rs` (opérations signées dans le dossier, copie locale).
 - NAS de l'utilisateur : QNAP TS-863U-RP, AMD GX-420MC (x86-64), QTS 5.2.11, pas de Container
   Station : le paquet .qpkg (App Center) est la voie retenue, sans Docker.
-- Reste pour la 0.2.2 : SFTP comme dossier partagé, connexion à un compte (36b–36d), essai réel
-  sur le QNAP, build Windows, notes, version.
+- Aussi : SFTP comme dossier partagé (`folder_store.rs`), compte (36b–36d, D-80 : GitHub ;
+  Microsoft / Google grisés jusqu'à l'enregistrement OAuth), installateur portant Cleis Server pour
+  NAS (`server/`), version 0.2.2, notes `docs/notes/v0.2.2.md`.
+- Reste : essai par l'utilisateur (installateur, création sur le QNAP par SSH, dossier SharePoint),
+  puis étiquette v0.2.2 (D-77) quand il valide.
 
 ## 26/11/2026 (version 0.2.1 en préparation, branche `feat/full-app`)
 - v0.2.0 publiée par l'utilisateur. Mises à jour depuis GitHub (D-74), installateur Windows et une

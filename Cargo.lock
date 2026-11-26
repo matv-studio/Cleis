@@ -1250,7 +1250,7 @@ checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 
 [[package]]
 name = "cleis-app"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "cleis-autofill"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "arboard",
  "cleis-core",
@@ -1303,7 +1303,7 @@ dependencies = [
 
 [[package]]
 name = "cleis-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cleis-crypto",
  "csv",
@@ -1322,7 +1322,7 @@ dependencies = [
 
 [[package]]
 name = "cleis-crypto"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "cleis-net"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cleis-core",
  "cleis-crypto",
@@ -1355,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "cleis-server"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "cleis-core",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "cleis-store"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cleis-core",
  "cleis-crypto",
