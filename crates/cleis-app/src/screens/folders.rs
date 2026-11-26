@@ -58,7 +58,17 @@ pub fn menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) ->
 
 /// The "⋯" button of a folder row, shown on hover.
 pub fn more_button(id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
-    icon_button(SharedString::from(format!("fmore-{id}")), t, "more", true)
+    let (muted, text) = (t.text_muted, t.text);
+    div()
+        .id(SharedString::from(format!("fmore-{id}")))
+        .size(CONTROL_SM)
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .text_color(muted)
+        .hover(move |s| s.text_color(text))
+        .child(icon("more", 16., muted))
         .tooltip(tip(tr("Folder")))
         .on_click(cx.listener(move |this, _, _, cx| {
             if let Some(s) = this.session() {

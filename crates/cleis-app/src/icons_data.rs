@@ -119,6 +119,22 @@ pub const ICONS: &[(&str, &[u8])] = &[
     ),
     ("icons/x.svg", include_bytes!("../assets/icons/x.svg")),
     (
+        "icons/winMin.svg",
+        include_bytes!("../assets/icons/winMin.svg"),
+    ),
+    (
+        "icons/winMax.svg",
+        include_bytes!("../assets/icons/winMax.svg"),
+    ),
+    (
+        "icons/winRestore.svg",
+        include_bytes!("../assets/icons/winRestore.svg"),
+    ),
+    (
+        "icons/winClose.svg",
+        include_bytes!("../assets/icons/winClose.svg"),
+    ),
+    (
         "icons/arrowR.svg",
         include_bytes!("../assets/icons/arrowR.svg"),
     ),

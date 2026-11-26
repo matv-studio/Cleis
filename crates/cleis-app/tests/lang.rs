@@ -47,6 +47,18 @@ fn switch_to_french(cx: &mut TestAppContext) {
         w.press("enter", cx);
     });
     assert!(!cleis_app::i18n::is_french());
+    // The first item (a subscription with a monthly price) opens in the panel.
+    let first = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries[s.visible[0]].id
+    });
+    act(cx, &|w, cx| {
+        w.click_at(
+            format!("row-{first}"),
+            gpui_kit::point(px(30.), px(10.)),
+            cx,
+        )
+    });
     let price = |cx: &mut TestAppContext| {
         app.read_with(cx, |a, cx| {
             let Phase::Main(s) = &a.phase else { panic!() };

@@ -3,7 +3,8 @@
 use crate::theme::*;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, Div, ElementId, FontWeight, Hsla, SharedString, Stateful, div, px, svg,
+    AnyElement, Div, ElementId, FontWeight, Hsla, MouseButton, MouseMoveEvent, SharedString,
+    Stateful, Window, WindowControlArea, div, px, svg,
 };
 
 pub const W_REGULAR: FontWeight = FontWeight(400.);
@@ -435,3 +436,134 @@ pub fn hint(id: &str, t: &Tokens, text: impl Into<SharedString>) -> Stateful<Div
                 .build(window, cx)
         })
 }
+
+thread_local! {
+    /// A press on the bar's free part, not yet a move (Linux, macOS).
+    static BAR_PRESSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The window's top bar (charter §5: the frame is the top bar), in place of gpui-component's
+/// `TitleBar`: it moves the window and carries window buttons drawn like the charter's icon
+/// buttons (Windows, Linux; macOS keeps its traffic lights). On Windows the bar is a caption
+/// area for the system (drag, double-click, snap); every control in `content` must call
+/// [`NoDrag::no_drag`], or its click becomes a window move.
+pub fn title_bar(t: &Tokens, window: &Window, content: impl IntoElement) -> Stateful<Div> {
+    let windows = cfg!(target_os = "windows");
+    let macos = cfg!(target_os = "macos");
+    let maximized = window.is_maximized();
+    let control = |id: &'static str, icon_name: &'static str, close: bool| {
+        let (hover_bg, hover_fg) = if close {
+            (t.danger_solid, t.primary_ink)
+        } else {
+            (t.surface_hover, t.text)
+        };
+        let muted = t.text_muted;
+        div()
+            .id(id)
+            .group(id)
+            .flex_none()
+            .size(CONTROL_MD)
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(RADIUS_MD)
+            .text_color(muted)
+            .hover(move |s| s.bg(hover_bg).text_color(hover_fg))
+            .child(
+                svg()
+                    .path(SharedString::from(format!("icons/{icon_name}.svg")))
+                    .size(px(16.))
+                    .text_color(muted)
+                    .group_hover(id, move |s| s.text_color(hover_fg)),
+            )
+    };
+    let buttons = (!macos).then(|| {
+        let min = control("win-min", "winMin", false);
+        let max = control(
+            "win-max",
+            if maximized { "winRestore" } else { "winMax" },
+            false,
+        );
+        let close = control("win-close", "winClose", true);
+        let (min, max, close) = if windows {
+            // The system answers these areas itself (clicks, Windows 11 snap layouts).
+            (
+                min.window_control_area(WindowControlArea::Min),
+                max.window_control_area(WindowControlArea::Max),
+                close.window_control_area(WindowControlArea::Close),
+            )
+        } else {
+            (
+                min.no_drag()
+                    .on_click(|_, window, _| window.minimize_window()),
+                max.no_drag().on_click(|_, window, _| window.zoom_window()),
+                close
+                    .no_drag()
+                    .on_click(|_, window, _| window.remove_window()),
+            )
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .pl(px(8.))
+            .child(min)
+            .child(max)
+            .child(close)
+    });
+    let bar = div()
+        .id("title-bar")
+        .flex_none()
+        .h(TOPBAR_H)
+        .w_full()
+        .flex()
+        .items_center()
+        .bg(t.chrome)
+        // macOS: room for the traffic lights.
+        .when(macos, |d| d.pl(px(78.)))
+        .when(!macos, |d| d.pl(px(12.)).pr(px(8.)))
+        .child(
+            div()
+                .id("title-drag")
+                .flex_1()
+                .h_full()
+                .flex()
+                .when(windows, |d| d.window_control_area(WindowControlArea::Drag))
+                .child(content),
+        )
+        .children(buttons);
+    if windows {
+        return bar;
+    }
+    bar.on_mouse_down(MouseButton::Left, |_, window, _| {
+        BAR_PRESSED.set(!window.default_prevented());
+    })
+    .on_mouse_up(MouseButton::Left, |_, _, _| BAR_PRESSED.set(false))
+    .on_mouse_move(|e: &MouseMoveEvent, window, _| {
+        if e.pressed_button != Some(MouseButton::Left) {
+            BAR_PRESSED.set(false);
+        } else if BAR_PRESSED.get() {
+            BAR_PRESSED.set(false);
+            window.start_window_move();
+        }
+    })
+    .on_click(move |e, window, _| {
+        if e.click_count() == 2 {
+            if macos {
+                window.titlebar_double_click();
+            } else {
+                window.zoom_window();
+            }
+        }
+    })
+}
+
+/// A control inside [`title_bar`]: its press stays a click (not a window move).
+pub trait NoDrag: InteractiveElement + Sized {
+    fn no_drag(self) -> Self {
+        self.occlude()
+            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+    }
+}
+
+impl<E: InteractiveElement> NoDrag for E {}

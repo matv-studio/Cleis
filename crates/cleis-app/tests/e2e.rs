@@ -1657,3 +1657,100 @@ fn server_address_and_activity_tab(cx: &mut TestAppContext) {
         assert!(!s.prefs.tabs.activity);
     });
 }
+
+/// Scenario (26/11/2026): a click below the rows lets go of the item and closes its panel, the
+/// panel's "×" too; "My vault" lists the whole personal vault, its folders included; "Saved"
+/// leaves after 1.5 s.
+#[gpui_kit::test]
+fn deselect_close_and_personal_section(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let read = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            (s.selected, s.visible.len(), s.toast.clone())
+        })
+    };
+    let (figma, home) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        (
+            s.entries.iter().find(|e| e.name == "Figma").unwrap().id,
+            s.vault.home_space(),
+        )
+    });
+    act(cx, h, |w, cx| {
+        w.click_at(
+            format!("row-{figma}"),
+            gpui_kit::point(px(30.), px(10.)),
+            cx,
+        )
+    });
+    assert_eq!(read(cx).0, Some(figma));
+    // Far below the last row.
+    act(cx, h, |w, cx| {
+        w.click_at("entries-void", gpui_kit::point(px(400.), px(700.)), cx)
+    });
+    assert_eq!(read(cx).0, None);
+    act(cx, h, |w, cx| {
+        w.click_at(
+            format!("row-{figma}"),
+            gpui_kit::point(px(30.), px(10.)),
+            cx,
+        )
+    });
+    act(cx, h, |w, cx| w.click("close-inspector", cx));
+    assert_eq!(read(cx).0, None);
+
+    // A personal item put in a folder still shows under "My vault".
+    let banking = app.update(cx, |a, cx| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        let banking = s.spaces.iter().find(|x| x.name == "Banking").unwrap().id;
+        let mut e = cleis_core::Entry::new(banking, "Bank card");
+        e.touch(None);
+        s.vault.put_entry(&e).unwrap();
+        s.entries.push(e);
+        s.refilter();
+        cx.notify();
+        banking
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click(format!("sp-{home}"), cx));
+    let personal = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.filter, cleis_app::app::Filter::Personal);
+        s.visible
+            .iter()
+            .map(|i| s.entries[*i].space)
+            .collect::<Vec<_>>()
+    });
+    assert!(personal.contains(&home) && personal.contains(&banking));
+
+    // "Saved" goes after 1.5 s.
+    let first = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries[s.visible[0]].id
+    });
+    act(cx, h, |w, cx| {
+        w.click_at(
+            format!("row-{first}"),
+            gpui_kit::point(px(30.), px(10.)),
+            cx,
+        )
+    });
+    act(cx, h, |w, cx| w.click("fav", cx));
+    assert!(read(cx).2.is_some());
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1600));
+    cx.run_until_parked();
+    assert_eq!(read(cx).2, None);
+}

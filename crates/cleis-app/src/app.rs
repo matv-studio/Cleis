@@ -37,6 +37,8 @@ pub enum Filter {
     Favorites,
     RenewSoon,
     Space(cleis_core::SpaceId),
+    /// "My vault": the whole personal vault, its folders included (a section, not a folder).
+    Personal,
     Trash,
 }
 
@@ -195,6 +197,7 @@ impl Session {
                 Filter::Favorites => e.favorite,
                 Filter::RenewSoon => e.subscription == cleis_core::Subscription::RenewSoon,
                 Filter::Space(s) => e.space == s,
+                Filter::Personal => self.scope_has(&Scope::Personal, e.space),
                 Filter::Trash => false,
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
@@ -212,10 +215,16 @@ impl Session {
         if self.filter == Filter::Trash {
             return;
         }
+        // An item no longer listed is let go; nothing is chosen in its place (the panel on the
+        // right opens on a click or a search, 26/11/2026).
         if self
             .selected
-            .is_none_or(|s| !self.visible.iter().any(|i| self.entries[*i].id == s))
+            .is_some_and(|s| !self.visible.iter().any(|i| self.entries[*i].id == s))
         {
+            self.selected = None;
+        }
+        // A search shows its best match.
+        if self.selected.is_none() && !q.is_empty() {
             self.selected = self.visible.first().map(|i| self.entries[*i].id);
         }
     }
@@ -335,6 +344,8 @@ pub struct CleisApp {
     pub demo: bool,
     /// Published versions (D-74).
     pub update: crate::screens::update::UpdateState,
+    /// The message at the bottom whose removal is planned (see [`Self::watch_toast`]).
+    toast_seen: Option<SharedString>,
     _ticker: Task<()>,
     pub(crate) _subs: Vec<Subscription>,
 }
@@ -406,6 +417,7 @@ impl CleisApp {
                 pre: true,
                 ..Default::default()
             },
+            toast_seen: None,
             _ticker: ticker,
             _subs: vec![],
         };
@@ -421,6 +433,16 @@ impl CleisApp {
             app.show_welcome(window, cx);
         }
         app
+    }
+
+    /// No item selected: the inspector closes (click in the void, its "×").
+    pub fn deselect(&mut self, cx: &mut Context<Self>) {
+        if let Some(s) = self.session()
+            && s.selected.take().is_some()
+        {
+            s.reveal = false;
+            cx.notify();
+        }
     }
 
     pub fn tokens<'a>(&self, cx: &'a App) -> &'a Tokens {
@@ -842,16 +864,36 @@ impl CleisApp {
         };
         let msg: SharedString = crate::i18n::tr_dynamic(&msg.into()).into();
         s.toast = Some(msg.clone());
+        self.clear_toast_after(msg, Duration::from_secs(secs), cx);
+    }
+
+    /// Plans the removal of a message set directly in `Session::toast` (render calls it): a
+    /// confirmation such as "Saved" goes after 1.5 s, anything else after 4 s.
+    pub fn watch_toast(&mut self, cx: &mut Context<Self>) {
+        let Phase::Main(s) = &self.phase else { return };
+        let Some(msg) = s.toast.clone() else {
+            self.toast_seen = None;
+            return;
+        };
+        if self.toast_seen.as_ref() == Some(&msg) {
+            return;
+        }
+        let short = [tr("Saved"), tr("Copied")].contains(&msg.as_ref());
+        let after = Duration::from_millis(if short { 1500 } else { 4000 });
+        self.clear_toast_after(msg, after, cx);
+    }
+
+    fn clear_toast_after(&mut self, msg: SharedString, after: Duration, cx: &mut Context<Self>) {
+        self.toast_seen = Some(msg.clone());
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_secs(secs))
-                .await;
+            cx.background_executor().timer(after).await;
             this.update(cx, |this, cx| {
                 if let Phase::Main(s) = &mut this.phase
                     && s.toast.as_ref() == Some(&msg)
                 {
                     s.toast = None;
+                    this.toast_seen = None;
                 }
                 cx.notify();
             })
@@ -972,12 +1014,7 @@ impl Render for CleisApp {
             .flex()
             .flex_col()
             .bg(t.chrome)
-            .child(
-                gpui_kit::component::TitleBar::new()
-                    .h(crate::theme::TOPBAR_H)
-                    .bg(t.chrome)
-                    .border_b_0(),
-            )
+            .child(crate::ui::title_bar(&t, window, gpui_kit::div()))
             .child(gpui_kit::div().flex_1().min_h_0().child(screen))
             .into_any_element()
     }

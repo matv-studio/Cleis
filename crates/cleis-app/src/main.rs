@@ -167,6 +167,10 @@ fn main() {
                             if !no_org {
                                 cleis_app::demo::org(s);
                             }
+                            // Screenshots: the first item open in the panel on the right.
+                            if s.selected.is_none() {
+                                s.selected = s.visible.first().map(|i| s.entries[*i].id);
+                            }
                             if let Some(l) = &lang {
                                 s.prefs.language = l.clone();
                                 cleis_app::i18n::set_language(l);

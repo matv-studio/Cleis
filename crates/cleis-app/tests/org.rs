@@ -309,6 +309,14 @@ fn organization_admin_and_member(cx: &mut TestAppContext) {
     let figma = session(cx, &hugo, |s| {
         s.entries.iter().find(|e| e.name == "Figma").unwrap().id
     });
+    // Its row first: the copy buttons show on the selected row.
+    act(cx, hh, |w, cx| {
+        w.click_at(
+            format!("row-{figma}"),
+            gpui_kit::point(px(30.), px(10.)),
+            cx,
+        )
+    });
     act(cx, hh, |w, cx| w.click(format!("cu-{figma}"), cx));
     cx.run_until_parked();
 

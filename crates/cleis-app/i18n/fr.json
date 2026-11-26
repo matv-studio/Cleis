@@ -161,6 +161,7 @@
   "Client": "Client",
   "Clipboard": "Presse-papiers",
   "Clipboard, cleared right after": "Presse-papiers, vidé juste après",
+  "Close": "Fermer",
   "Code": "Code",
   "Code asked each time Cleis opens, on top of the master password. This computer only: an organization's two-step verification is in Profile.": "Code demandé à chaque ouverture de Cleis, en plus du mot de passe maître. Cet ordinateur seulement : la vérification en deux étapes d'une organisation est dans Profil.",
   "Code not asked until {}": "Code non demandé jusqu'au {}",

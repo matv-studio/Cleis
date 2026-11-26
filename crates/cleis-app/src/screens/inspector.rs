@@ -58,7 +58,9 @@ pub fn strength(t: &Tokens, password: &str) -> Div {
 /// A field's box, with a red border and its message when the value was refused.
 fn boxed(t: &Tokens, ed: &EntryEditor, f: Field, input: impl IntoElement) -> Div {
     let err = ed.errors.get(&f).cloned();
+    // `min_w_0`: in a row the message wraps inside the panel instead of widening it.
     div()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap(px(4.))
@@ -177,6 +179,12 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                         .test_support(),
                 )
                 .when(more_open, |d| d.child(gpui_kit::deferred(more_menu))),
+        )
+        .child(
+            icon_button("close-inspector", t, "x", false)
+                .tooltip(tip(tr("Close")))
+                .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+                .test_support(),
         );
 
     let tab = |label: &'static str, on: bool, cx: &mut Context<CleisApp>| {
@@ -379,19 +387,23 @@ fn details(
     let kv = |label: &str, f: Field, cx: &mut Context<CleisApp>| -> AnyElement {
         let _ = cx;
         match input(f) {
+            // Label level with the box, even when a message opens below it.
             Some(st) => div()
                 .flex()
-                .items_center()
+                .items_start()
                 .gap(px(8.))
                 .text_size(TEXT_SM)
                 .child(
                     div()
                         .w(px(96.))
+                        .h(CONTROL_SM)
+                        .flex()
+                        .items_center()
                         .text_color(t.text_muted)
                         .child(crate::i18n::tr_owned(label)),
                 )
                 .child(
-                    div().flex_1().child(boxed(
+                    div().flex_1().min_w_0().child(boxed(
                         t,
                         ed,
                         f,

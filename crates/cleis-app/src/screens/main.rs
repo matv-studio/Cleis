@@ -10,7 +10,6 @@ use cleis_core::column::{ColumnDef, ColumnKind};
 use cleis_core::totp::Totp;
 use cleis_core::{Entry, EntryId};
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Div, SharedString, Window, div, px, uniform_list};
@@ -22,6 +21,7 @@ pub fn render(
 ) -> impl IntoElement {
     let t = app.tokens(cx).clone();
     app.refresh_language(window, cx);
+    app.watch_toast(cx);
     app.ensure_editor(window, cx);
     app.ensure_contact_editor(window, cx);
     app.ensure_org_inputs(window, cx);
@@ -156,7 +156,7 @@ pub fn render(
                     )
                 }),
         )
-        .child(topbar(s, update_button, &t, cx))
+        .child(topbar(s, update_button, &t, window, cx))
         .when_some(s.confirm.as_ref(), |d, c| {
             d.child(super::trash::dialog(c, &t, cx))
         })
@@ -178,8 +178,9 @@ fn topbar(
     s: &Session,
     update: Option<AnyElement>,
     t: &Tokens,
+    window: &Window,
     cx: &mut Context<CleisApp>,
-) -> TitleBar {
+) -> impl IntoElement {
     use crate::app::Scope;
     // D-69: with Preferences › Vaults › "Personal vault in its own tab", the personal vault comes
     // first, then one tab per organization; otherwise a single Vault tab shows them all.
@@ -239,9 +240,8 @@ fn topbar(
             .items_center()
             .font_weight(W_MEDIUM)
             .cursor_pointer()
-            // Windows: the top bar moves the window (caption hit test) except over a control,
-            // which must block the bar beneath it, or its click becomes a window move.
-            .occlude()
+            // The top bar moves the window except over a control (ui::title_bar).
+            .no_drag()
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_tab(tab, scope.clone(), cx);
             }));
@@ -330,7 +330,7 @@ fn topbar(
                 .child(sync_status(s, t, cx))
                 .child(
                     icon_button("lock", t, "lock", false)
-                        .occlude()
+                        .no_drag()
                         .tooltip(|window, cx| {
                             gpui_kit::component::tooltip::Tooltip::new(tr("Lock (Ctrl+L)"))
                                 .build(window, cx)
@@ -341,7 +341,7 @@ fn topbar(
                 .when_some(primary, |d, (id, label)| {
                     d.child(
                         button(id, t, BtnKind::Primary, false)
-                            .occlude()
+                            .no_drag()
                             .child(icon("plus", 16., t.primary_ink))
                             .child(crate::i18n::tr_owned(label))
                             .on_click(cx.listener(move |this, _, window, cx| {
@@ -355,12 +355,7 @@ fn topbar(
                     )
                 }),
         );
-    TitleBar::new()
-        .h(TOPBAR_H)
-        .bg(t.chrome)
-        .border_b_0()
-        .pr(px(8.))
-        .child(bar)
+    title_bar(t, window, bar)
 }
 
 /// Top bar: where the vault lives and whether it is in step (mockup: "Synced").
@@ -403,7 +398,7 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
     let tip_text: SharedString = tip_text.into();
     div()
         .id("sync-status")
-        .occlude()
+        .no_drag()
         .flex()
         .items_center()
         .gap(px(6.))
@@ -569,7 +564,19 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     }
     let home = s.vault.home_space();
     for sp in personal {
-        let n = s.entries.iter().filter(|e| e.space == sp.id).count();
+        // "My vault" is the personal section: every personal item, folders included.
+        let section = sp.id == home;
+        let n = s
+            .entries
+            .iter()
+            .filter(|e| {
+                if section {
+                    s.scope_has(&Scope::Personal, e.space)
+                } else {
+                    e.space == sp.id
+                }
+            })
+            .count();
         let gname = SharedString::from(format!("pf-{}", sp.id));
         let menu_open = s.folder_menu == Some(sp.id);
         d = d.child(
@@ -583,19 +590,25 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 )
                 .child(item(
                     &format!("sp-{}", sp.id),
-                    if sp.id == home { "user" } else { "folder" },
+                    if section { "user" } else { "folder" },
                     crate::i18n::space(&sp.name),
                     Some(n),
-                    Filter::Space(sp.id),
+                    if section {
+                        Filter::Personal
+                    } else {
+                        Filter::Space(sp.id)
+                    },
                     cx,
                 ))
                 .child(
+                    // The "⋯" alone, centred on the row (no tile behind it).
                     div()
                         .absolute()
-                        .top(px(4.))
+                        .top_0()
+                        .bottom_0()
                         .right(px(4.))
-                        .rounded(RADIUS_SM)
-                        .bg(t.surface)
+                        .flex()
+                        .items_center()
                         .when(!menu_open, |d| {
                             d.invisible().group_hover(gname.clone(), |s| s.visible())
                         })
@@ -1252,6 +1265,8 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                                 super::ctx::on_right(super::ctx::CtxTarget::Entry(id), cx),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
+                                // The list below must not take it as a click in the void.
+                                cx.stop_propagation();
                                 if let Some(s) = this.session() {
                                     s.selected = Some(id);
                                     s.reveal = false;
@@ -1344,7 +1359,20 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 .child(div().flex_1())
                 .child(view_toggle(s.vault_cards, t, cx)),
         )
-        .when(!s.vault_cards, |d| d.child(head).child(list))
+        .when(!s.vault_cards, |d| {
+            d.child(head).child(
+                // A click below the rows lets go of the item and closes the panel on the right.
+                div()
+                    .id("entries-void")
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+                    .child(list)
+                    .test_support(),
+            )
+        })
         .when(s.vault_cards, |d| d.child(vault_cards(s, t, cx)))
         .child(
             div()
