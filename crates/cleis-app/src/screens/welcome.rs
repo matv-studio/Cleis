@@ -212,11 +212,11 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
 }
 
-fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
+pub(crate) fn choice(t: &Tokens, active: bool, title: &str, sub: &str, ico: &str) -> Div {
     choice_with(t, active, title, sub, ico, None)
 }
 
-fn choice_with(
+pub(crate) fn choice_with(
     t: &Tokens,
     active: bool,
     title: &str,

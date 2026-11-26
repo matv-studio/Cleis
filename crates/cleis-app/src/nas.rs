@@ -326,6 +326,33 @@ rm -rf {tmp}"
     })
 }
 
+/// The file to send (`Found::package`): from `CLEIS_SERVER_PACKAGES` (a folder, for tests and
+/// development builds), beside the app (`server/`), or this version's release on GitHub, checked
+/// against its published checksum.
+pub fn package_bytes(file: &str) -> Result<Vec<u8>, String> {
+    let local = std::env::var_os("CLEIS_SERVER_PACKAGES")
+        .map(std::path::PathBuf::from)
+        .into_iter()
+        .chain(
+            std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("server"))),
+        )
+        .map(|d| d.join(file))
+        .find(|p| p.is_file());
+    if let Some(p) = local {
+        return std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()));
+    }
+    let base = format!(
+        "https://github.com/matv-studio/Cleis/releases/download/v{}/",
+        env!("CARGO_PKG_VERSION")
+    );
+    let bytes = crate::update::download(&format!("{base}{file}"))?;
+    let sums = crate::update::download(&format!("{base}{file}.sha256"))?;
+    crate::update::verify(&bytes, &String::from_utf8_lossy(&sums))?;
+    Ok(bytes)
+}
+
 /// Whether the server answers on the NAS (after its start).
 pub fn answers(host: &str) -> bool {
     use std::net::ToSocketAddrs;

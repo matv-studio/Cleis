@@ -110,7 +110,7 @@ pub fn check(pre: bool) -> Result<Option<Release>, String> {
     Ok(pick(&list, current(), pre, package_suffix()))
 }
 
-fn download(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn download(url: &str) -> Result<Vec<u8>, String> {
     agent()
         .get(url)
         .call()

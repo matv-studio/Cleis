@@ -99,6 +99,7 @@ jobs:
           mkdir -p "dist/$name" bin
           cp target/${{ matrix.target }}/release/cleis-server THIRD_PARTY.md "dist/$name/"
           cp target/${{ matrix.target }}/release/cleis-server "bin/cleis-server-${{ matrix.qnap }}"
+          (cd bin && sha256sum "cleis-server-${{ matrix.qnap }}" > "cleis-server-${{ matrix.qnap }}.sha256")
           python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-server
           cp -r deploy "dist/$name/deploy"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
@@ -114,8 +115,8 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: server-bin-${{ matrix.qnap }}
-          path: bin/cleis-server-${{ matrix.qnap }}
-          retention-days: 1
+          path: bin/cleis-server-${{ matrix.qnap }}*
+          retention-days: 30
 
   # Cleis Server in QNAP's App Center (D-78): a QPKG per architecture, built with QNAP's QDK.
   server-qnap:

@@ -67,7 +67,31 @@ pub struct JoinForm {
     pub org_name: Option<Entity<InputState>>,
     /// Your name as the new organization's first member (audit L-10).
     pub creator: Option<Entity<InputState>>,
+    /// Server on the NAS: the commands to run by hand instead (no SSH).
     pub elsewhere: bool,
+    /// Where the organization lives (D-78, mockup 36f).
+    pub place: OrgPlace,
+    pub nas: Option<NasForm>,
+}
+
+/// Where a new organization lives (D-78).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OrgPlace {
+    #[default]
+    Nas,
+    Here,
+    Folder,
+}
+
+/// Server on the NAS: how Cleis signs in to it, and what it found there.
+pub struct NasForm {
+    pub address: Entity<InputState>,
+    pub port: Entity<InputState>,
+    pub user: Entity<InputState>,
+    pub password: Entity<InputState>,
+    pub found: Option<crate::nas::Found>,
+    /// What is being done (sending, creating), while it runs.
+    pub step: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -2058,62 +2082,131 @@ pub fn join_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
 }
 
-/// Create an organization (mockup 25b): the server runs on this computer, or the commands to run
-/// it on another machine.
+/// Create an organization (mockups 25b, 36f, 36i, D-78): on the NAS (Cleis installs its server
+/// there over SSH), on this computer, or in a shared folder.
 fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    use super::welcome::choice_with;
     let Some(name) = &j.org_name else {
         return div();
     };
-    let pick: Pick = Rc::new(|this, i, cx| {
-        if let Some(j) = this.join_form_mut() {
-            j.elsewhere = i == 1;
-        }
-        cx.notify();
-    });
-    let org = name.read(cx).value().trim().to_owned();
-    let org = if org.is_empty() {
-        tr("Example Studio").to_owned()
-    } else {
-        org
+    let nas_extra = (j.place == OrgPlace::Nas).then(|| nas_fields(j, t, cx));
+    let folder_extra = (j.place == OrgPlace::Folder).then(|| folder_places(t, cx));
+    let opt = |id: &'static str,
+               p: OrgPlace,
+               title: &str,
+               sub: &str,
+               ico: &str,
+               extra: Option<Div>,
+               cx: &mut Context<CleisApp>| {
+        div()
+            .id(id)
+            .cursor_pointer()
+            .child(choice_with(t, j.place == p, title, sub, ico, extra))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(j) = this.join_form_mut() {
+                    j.place = p;
+                    j.error = None;
+                }
+                cx.notify();
+            }))
+            .test_support()
     };
-    let cmds = [
-        crate::trf!("cleis-server init --org \"{}\"", org),
-        "cleis-server install".to_owned(),
-    ];
-    let mut d = section(t)
-        .child(titled(
-            t,
-            tr("Create an organization"),
-            Some(tr(
-                "Shared spaces for a team: Cleis runs its server for you.",
-            )),
-        ))
+    let busy = j.busy;
+    let label = match (j.place, busy, j.nas.as_ref().and_then(|n| n.step)) {
+        (_, true, Some(step)) => crate::i18n::tr_owned(step),
+        (_, true, None) => tr("Creating…").to_owned(),
+        (OrgPlace::Nas, false, _) if !j.elsewhere => tr("Install and create").to_owned(),
+        _ => tr("Create").to_owned(),
+    };
+    let planned = j.place == OrgPlace::Folder;
+    let by_hand = j.place == OrgPlace::Nas && j.elsewhere;
+    section(t)
+        .child(titled(t, tr("Create an organization"), None))
         .child(field(t, tr("Name"), Input::new(name).id("create-name")))
-        .when_some(j.creator.as_ref().filter(|_| !j.elsewhere), |d, c| {
+        .when_some(j.creator.as_ref().filter(|_| !by_hand), |d, c| {
             d.child(field(t, tr("Your name"), Input::new(c).id("create-me")))
         })
-        .child(
-            div()
-                .id("create-where")
-                .tooltip(tip(if j.elsewhere {
-                    "Linux, Windows, macOS or Docker"
-                } else {
-                    "Runs while Cleis runs; can start with the system"
-                }))
-                .child(field(
-                    t,
-                    "Server",
-                    segment(
-                        "create-where",
-                        t,
-                        &[tr("This computer"), tr("Another machine")],
-                        usize::from(j.elsewhere),
-                        pick,
-                        cx,
-                    ),
-                )),
-        );
+        .child(opt(
+            "create-nas",
+            OrgPlace::Nas,
+            "Server on the NAS",
+            "Cleis installs it there · immediate access changes · reachable through your VPN",
+            "server",
+            nas_extra,
+            cx,
+        ))
+        .child(opt(
+            "create-here",
+            OrgPlace::Here,
+            "Server on this computer",
+            "Only while this computer is on",
+            "laptop",
+            None,
+            cx,
+        ))
+        .child(opt(
+            "create-folder",
+            OrgPlace::Folder,
+            "Shared folder",
+            "No server · access changes at the next sync",
+            "folder",
+            folder_extra,
+            cx,
+        ))
+        .when_some(
+            j.error.clone().map(|e| crate::i18n::tr_dynamic(&e)),
+            |d, e| d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e)),
+        )
+        .when(!by_hand, |d| {
+            d.child(
+                div().flex().justify_end().child(
+                    button("create-org", t, BtnKind::Primary, false)
+                        .when(busy || planned, |b| b.opacity(0.6))
+                        .when(planned, |b| b.tooltip(tip(tr("Coming in this version"))))
+                        .child(label)
+                        .when(!planned, |b| {
+                            b.on_click(cx.listener(|this, _, _, cx| this.create_org_clicked(cx)))
+                        })
+                        .test_support(),
+                ),
+            )
+        })
+}
+
+/// Server on the NAS: address, SSH port, administrator and password (used once, never kept);
+/// what was found there; or the commands to run by hand.
+fn nas_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let org = j
+        .org_name
+        .as_ref()
+        .map(|n| n.read(cx).value().trim().to_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| tr("Example Studio").to_owned());
+    let toggle = div()
+        .id("create-by-hand")
+        .text_size(TEXT_SM)
+        .text_color(t.text_muted)
+        .cursor_pointer()
+        .hover(|d| d.text_color(t.text))
+        .child(tr(if j.elsewhere {
+            "Let Cleis install it"
+        } else {
+            "Install it by hand"
+        }))
+        .tooltip(tip(tr("Linux, Windows, macOS or Docker")))
+        .on_click(cx.listener(|this, _, _, cx| {
+            if let Some(j) = this.join_form_mut() {
+                j.elsewhere = !j.elsewhere;
+            }
+            cx.notify();
+        }))
+        .test_support();
     if j.elsewhere {
+        let cmds = [
+            crate::trf!("cleis-server init --org \"{}\"", org),
+            "cleis-server install".to_owned(),
+        ];
+        let mut d = div().flex().flex_col().gap(px(8.));
         for (n, c) in cmds.into_iter().enumerate() {
             let copy = c.clone();
             d = d.child(
@@ -2128,56 +2221,118 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     ),
             );
         }
-        d.child(hint(
-            "create-then",
-            t,
-            "Then join below with the code it prints and the machine's address.",
-        ))
-    } else {
-        d.child(
-            div().flex().justify_end().child(
-                button("create-org", t, BtnKind::Primary, false)
-                    .when(j.busy, |b| b.opacity(0.6))
-                    .child(if j.busy {
-                        tr("Creating…")
-                    } else {
-                        tr("Create")
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let Some(name) = this.join_form_mut().and_then(|j| j.org_name.clone())
-                        else {
-                            return;
-                        };
-                        let n = name.read(cx).value().trim().to_owned();
-                        let me = this
-                            .join_form_mut()
-                            .and_then(|j| j.creator.clone())
-                            .map(|c| c.read(cx).value().trim().to_owned())
-                            .unwrap_or_default();
-                        let missing = if n.is_empty() {
-                            Some(tr("Name the organization"))
-                        } else if me.is_empty() {
-                            Some(tr("Enter your name"))
-                        } else {
-                            None
-                        };
-                        if let Some(why) = missing {
-                            if let Some(j) = this.join_form_mut() {
-                                j.error = Some(why.into());
-                            }
-                            cx.notify();
-                            return;
-                        }
-                        if this.demo {
-                            this.toast(tr("Not in the demo"), cx);
-                            return;
-                        }
-                        this.org_create_here(n, me, cx);
-                    }))
-                    .test_support(),
-            ),
-        )
+        return d
+            .child(hint(
+                "create-then",
+                t,
+                "Then join below with the code it prints and the machine's address.",
+            ))
+            .child(toggle);
     }
+    let Some(n) = j.nas.as_ref() else {
+        return div().child(toggle);
+    };
+    let found = n.found.as_ref().map(|f| {
+        let what = match f.system {
+            crate::nas::System::Qnap => tr("QNAP · App Center").to_owned(),
+            crate::nas::System::Systemd => tr("Linux · service").to_owned(),
+            crate::nas::System::Plain => tr("Linux · not started with the NAS").to_owned(),
+        };
+        row(t, false)
+            .child(div().flex_1().text_color(t.text_muted).child(tr("Found")))
+            .child(
+                div()
+                    .id("nas-found")
+                    .tooltip(tip(crate::trf!("SSH key {}", f.host_key)))
+                    .child(chip(
+                        t,
+                        if f.system == crate::nas::System::Plain {
+                            Tone::Warn
+                        } else {
+                            Tone::Ok
+                        },
+                        what,
+                        true,
+                    )),
+            )
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .flex()
+                .gap(px(12.))
+                .child(div().flex_1().child(field(
+                    t,
+                    tr("NAS address"),
+                    Input::new(&n.address).id("nas-address"),
+                )))
+                .child(div().w(px(90.)).child(field(
+                    t,
+                    tr("SSH port"),
+                    Input::new(&n.port).id("nas-port"),
+                ))),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(12.))
+                .child(div().flex_1().child(field(
+                    t,
+                    tr("Administrator"),
+                    Input::new(&n.user).id("nas-user"),
+                )))
+                .child(div().flex_1().child(field(
+                    t,
+                    tr("Password"),
+                    Input::new(&n.password).id("nas-password").mask_toggle(),
+                ))),
+        )
+        .children(found)
+        .child(toggle)
+}
+
+/// Shared folder (mockup 36i): SharePoint, Google shared drive, NAS share or SFTP.
+fn folder_places(t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let _ = cx;
+    let place = |ico: &str, name: &str, sub: &str| {
+        row(t, false)
+            .gap(px(10.))
+            .child(icon(ico, 16., t.text_muted))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(crate::i18n::tr_owned(name))
+                    .child(
+                        div()
+                            .text_size(TEXT_SM)
+                            .text_color(t.text_muted)
+                            .child(crate::i18n::tr_owned(sub)),
+                    ),
+            )
+    };
+    div()
+        .px(px(12.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD)
+        .child(place(
+            "cloud",
+            "SharePoint",
+            "Library synced by the OneDrive app",
+        ))
+        .child(place(
+            "cloud",
+            "Google shared drive",
+            "Folder kept by Google Drive for desktop",
+        ))
+        .child(place("folder", "NAS share", "Network folder"))
+        .child(place("server", "SFTP", "An SSH server"))
 }
 
 /// Address, invitation code, and name/e-mail when the invitation has none.
@@ -3481,6 +3636,20 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
     let email = make("", window, cx);
     let org_name = make("Example Studio", window, cx);
     let creator = make("Lea Martin", window, cx);
+    let valued = |v: &str, window: &mut Window, cx: &mut Context<CleisApp>| {
+        let v = v.to_owned();
+        let st = cx.new(|cx| InputState::new(window, cx));
+        st.update(cx, |i, cx| i.set_value(v, window, cx));
+        st
+    };
+    let nas = NasForm {
+        address: make("nas.example-studio.lan", window, cx),
+        port: valued("22", window, cx),
+        user: valued("admin", window, cx),
+        password: cx.new(|cx| InputState::new(window, cx).masked(true)),
+        found: None,
+        step: None,
+    };
     let subs = [&address, &code]
         .into_iter()
         .map(|e| {
@@ -3499,6 +3668,7 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
             email: Some(email),
             org_name: Some(org_name),
             creator: Some(creator),
+            nas: Some(nas),
             ..Default::default()
         },
         subs,
@@ -3583,6 +3753,7 @@ impl CleisApp {
         if joining && s.join.address.is_none() {
             let (mut join, subs) = join_form(window, cx);
             join.elsewhere = s.join.elsewhere;
+            join.place = s.join.place;
             if let Some(s) = self.session() {
                 s.join = join;
                 s.join_subs = subs;
@@ -3692,6 +3863,47 @@ impl CleisApp {
     }
 
     /// The join form shown: first launch or Settings › Organization.
+    /// "Create" / "Install and create" (D-78): checks the boxes, then creates where chosen.
+    pub fn create_org_clicked(&mut self, cx: &mut Context<Self>) {
+        let Some(j) = self.join_form_mut() else {
+            return;
+        };
+        if j.busy {
+            return;
+        }
+        let read = |e: &Option<Entity<InputState>>, cx: &Context<Self>| {
+            e.as_ref()
+                .map(|i| i.read(cx).value().trim().to_owned())
+                .unwrap_or_default()
+        };
+        let (org, creator, place) = (j.org_name.clone(), j.creator.clone(), j.place);
+        let n = read(&org, cx);
+        let me = read(&creator, cx);
+        let missing = if n.is_empty() {
+            Some(tr("Name the organization"))
+        } else if me.is_empty() {
+            Some(tr("Enter your name"))
+        } else {
+            None
+        };
+        if let Some(why) = missing {
+            if let Some(j) = self.join_form_mut() {
+                j.error = Some(why.into());
+            }
+            cx.notify();
+            return;
+        }
+        if self.demo {
+            self.toast(tr("Not in the demo"), cx);
+            return;
+        }
+        match place {
+            OrgPlace::Here => self.org_create_here(n, me, cx),
+            OrgPlace::Nas => self.org_create_on_nas(n, me, cx),
+            OrgPlace::Folder => {}
+        }
+    }
+
     pub(crate) fn join_form_mut(&mut self) -> Option<&mut JoinForm> {
         match &mut self.phase {
             crate::app::Phase::Welcome(w) => Some(&mut w.join),

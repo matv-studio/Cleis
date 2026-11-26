@@ -558,6 +558,8 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Organization", cx));
     act(cx, h, |w, cx| {
+        // D-78: the server on this computer, not on a NAS.
+        w.click("create-here", cx);
         w.click("create-name", cx);
         w.input("Example Studio", cx);
         w.click("create-me", cx);

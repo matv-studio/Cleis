@@ -493,6 +493,13 @@ pub struct PinPrompt {
     pub locked: bool,
 }
 
+/// Progress of "Server on the NAS", from its background task.
+enum NasEvent {
+    Step(&'static str),
+    Found(crate::nas::Found),
+    Done(Result<Membership, String>),
+}
+
 /// The organization as this session knows it.
 pub struct OrgSession {
     pub m: Membership,
@@ -804,6 +811,106 @@ impl CleisApp {
             .ok();
         })
         .detach();
+        cx.notify();
+    }
+
+    /// Server on the NAS (D-78): signs in over SSH, finds the system, sends Cleis Server, creates
+    /// the organization there and joins it as its first administrator.
+    pub fn org_create_on_nas(&mut self, name: String, me: String, cx: &mut Context<Self>) {
+        let Some(j) = self.join_form_mut() else {
+            return;
+        };
+        let Some(n) = j.nas.as_ref() else { return };
+        let value = |e: &Entity<InputState>| e.read(cx).value().trim().to_owned();
+        let host = value(&n.address);
+        let port = value(&n.port).parse::<u16>().unwrap_or(22);
+        let user = value(&n.user);
+        let password = n.password.read(cx).value().to_string();
+        if host.is_empty() || user.is_empty() {
+            j.error = Some(tr("Enter the NAS address and its administrator").into());
+            cx.notify();
+            return;
+        }
+        j.busy = true;
+        j.error = None;
+        let nas = crate::nas::Nas {
+            host: host.clone(),
+            port,
+            user,
+            secret: crate::remote::Secret {
+                token: password,
+                key: String::new(),
+            },
+        };
+        let Some(s) = self.session() else { return };
+        let public = s.vault.account_public().0;
+        let signing = SigningKeyPair::from_secret_bytes(*s.vault.signing_key().secret_bytes());
+        let (tx, rx) = async_channel::unbounded::<NasEvent>();
+        cx.background_spawn(async move {
+            let run = || -> Result<Membership, String> {
+                let _ = tx.send_blocking(NasEvent::Step("Looking at the NAS"));
+                let found = crate::nas::probe(&nas)?;
+                let _ = tx.send_blocking(NasEvent::Found(found.clone()));
+                let _ = tx.send_blocking(NasEvent::Step("Getting Cleis Server"));
+                let file = found.package(env!("CARGO_PKG_VERSION"));
+                let bytes = crate::nas::package_bytes(&file)?;
+                let code = crate::nas::install(&nas, &found, name.trim(), &bytes, |s| {
+                    let _ = tx.send_blocking(NasEvent::Step(s));
+                })?;
+                let _ = tx.send_blocking(NasEvent::Step("Starting the server"));
+                let up = (0..30).any(|_| {
+                    if crate::nas::answers(&nas.host) {
+                        return true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    false
+                });
+                if !up {
+                    return Err(crate::trf!(
+                        "The server does not answer on {}:{}",
+                        nas.host,
+                        crate::nas::PORT
+                    ));
+                }
+                let addr = format!("{}:{}", nas.host, crate::nas::PORT);
+                join(&addr, &code, &me, "", public, &signing)
+            };
+            let r = run();
+            let _ = tx.send_blocking(NasEvent::Done(r));
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            while let Ok(ev) = rx.recv().await {
+                let done = matches!(ev, NasEvent::Done(_));
+                this.update(cx, |app, cx| {
+                    match ev {
+                        NasEvent::Step(s) => {
+                            if let Some(n) = app.join_form_mut().and_then(|j| j.nas.as_mut()) {
+                                n.step = Some(s);
+                            }
+                        }
+                        NasEvent::Found(f) => {
+                            if let Some(n) = app.join_form_mut().and_then(|j| j.nas.as_mut()) {
+                                n.found = Some(f);
+                            }
+                        }
+                        NasEvent::Done(r) => {
+                            if let Some(n) = app.join_form_mut().and_then(|j| j.nas.as_mut()) {
+                                n.step = None;
+                            }
+                            app.org_joined(r, cx);
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+                if done {
+                    break;
+                }
+            }
+        })
+        .detach();
+        let _ = host;
         cx.notify();
     }
 
