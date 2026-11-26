@@ -1147,6 +1147,159 @@ function confirmRetrait() {
     <div class="dialog-actions"><button class="btn" style="outline:2px solid var(--focus);outline-offset:1px">Cancel</button><button class="btn btn--danger">Remove</button></div>`));
 }
 
+
+// ---------- 35. Lot B (26/11/2026): void menus, drag and drop, columns, customize, calendar, unlocking ----------
+// The current sidebar: shortcuts, the personal section and its folders, the organization, Import and Trash.
+function sidebarB({ active = 'All items', drop = null, line = null, edit = false, hidden = [] } = {}) {
+  const grip = edit ? `<span class="grip-h" title="Drag to reorder">${i('grip')}</span>` : '';
+  const rm = (on) => (edit && on ? `<button class="rm-badge" aria-label="Delete" title="Delete">${i('x')}</button>` : '');
+  const eye = (on) => (edit ? `<button class="icon-btn icon-btn--sm" style="margin-left:auto" title="${on ? 'Hide' : 'Show'}">${i('eye')}</button>` : '');
+  const it = (ico, label, count, { folder = false, cls = '' } = {}) => {
+    const off = hidden.includes(label);
+    return `<div class="side-item ${label === active ? 'is-active' : ''} ${label === drop ? 'is-drop' : ''} ${edit && folder ? 'wiggle' : ''} ${off ? 'is-off' : ''} ${cls}">${folder ? grip : ''}${i(ico)}<span>${label}</span>${edit && !folder ? eye(!off) : count !== undefined ? `<span class="count">${count}</span>` : ''}${rm(folder)}</div>${line === label ? '<div class="drop-line"></div>' : ''}`;
+  };
+  // A vault is a section: clicking its name lists all of it, its folders below.
+  const section = (ico, label, count, add) => `<div class="side-item side-section ${label === active ? 'is-active' : ''}">${i(ico)}<span>${label}</span><span class="count">${count}</span><button class="icon-btn icon-btn--sm" aria-label="${add}" title="${add}">${i('plus')}</button></div>`;
+  return `<aside class="sidebar pane ${edit ? 'is-editing' : ''}">
+    ${it('list', 'All items', 15)}${it('star', 'Favorites', 3)}${it('clock', 'Renew soon', 1)}
+    <div style="height:var(--s-3)"></div>
+    ${section('user', 'My vault', 3, 'New folder')}
+    ${it('folder', 'Banking', 1, { folder: true, cls: 'sub' })}${it('folder', 'Shopping', 1, { folder: true, cls: 'sub' })}
+    <div style="height:var(--s-2)"></div>
+    ${section('users', 'Example Studio', 12, 'New space')}
+    ${it('folder', 'General', 4, { folder: true, cls: 'sub' })}${it('folder', 'Design', 3, { folder: true, cls: 'sub' })}${it('lock', 'Accounting', 2, { folder: true, cls: 'sub' })}${it('folder', 'Dev', 3, { folder: true, cls: 'sub' })}
+    <div style="flex:1"></div>
+    <div class="side-item">${i('upload')}<span>Import</span></div>
+    <div class="side-row"><div class="side-item" style="flex:1">${i('trash')}<span>Trash</span></div><button class="icon-btn icon-btn--sm ${edit ? 'is-on' : ''}" aria-label="Customize" title="Customize: reorder and delete">${i('grip')}</button></div>
+  </aside>`;
+}
+const frameB = (center, { inspector: insp = false, overlay = '', side = sidebarB() } = {}) => shell('Vault', `
+    <div class="work ${insp ? '' : 'work--no-inspector'}">${side}
+      <section class="center" style="position:relative">${center}</section>
+      ${insp ? inspector() : ''}
+    </div>${statusbar()}`, { overlay });
+
+// 35. Right-click in the void of the list (no item selected: the panel on the right is closed).
+function menuVideListe() {
+  const m = ctx(560, 560, `${mi('plus', 'New item', 'Ctrl+N')}${mi('folder', 'New folder')}${sep}${mi('list', 'Sort by', '', { sub: true, hover: true })}${mi('columns', 'Columns…')}${mi('eye', 'Show as cards')}${sep}${mi('upload', 'Import…')}`, 220)
+    + ctx(784, 642, `${mi('check', 'Name')}${mi('', 'Last edited')}${mi('', 'Price')}${mi('', 'Renewal')}${sep}${mi('grip', 'My order', '', {})}`, 190);
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div>${m}`);
+}
+
+// 35b. Right-click in the void of the sidebar.
+function menuVideLaterale() {
+  const opt = (label, on) => `<div class="menu-item"><span class="check ${on ? 'on' : ''}">${on ? i('check') : ''}</span><span>${label}</span></div>`;
+  const m = ctx(150, 520, `${mi('folder', 'New folder')}${sep}<div class="menu-head" title="For this vault; Preferences › Vaults makes it the same everywhere">Shortcuts</div>${opt('All items', true)}${opt('Favorites', true)}${opt('Renew soon', false)}${sep}${mi('grip', 'Customize')}`, 220);
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div>`, { overlay: m });
+}
+
+// 35c. Drag an item onto a folder.
+function glisserVersDossier() {
+  const ghost = `<div class="drag-ghost" style="left:132px;top:214px"><span class="site-ico">F</span>Figma</div>`;
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: 'Figma' }).replace('<tr class="is-selected', '<tr class="is-dragging is-selected')}</div>`,
+    { side: sidebarB({ drop: 'Banking' }), overlay: ghost });
+}
+
+// 35d. Reorder: folders in the sidebar, items in "My order".
+function reorganiser() {
+  const ghost = `<div class="drag-ghost" style="left:70px;top:318px">${i('folder')}Dev</div>`;
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null }).replace('<th style="width:190px" class="sorted">Name <span class="sort">↑</span></th>', '<th style="width:190px">Name</th>')}</div>`,
+    { side: sidebarB({ line: 'General' }), overlay: ghost });
+}
+
+// 35e. Column width: the edge between two headings.
+function largeurColonnes() {
+  const t = vaultTable({ selected: null }).replace('<th>Username</th>', '<th class="is-resizing">Username<span class="col-grip"></span></th>');
+  const tip = `<div class="tooltip" style="left:640px;top:126px">Drag to resize · double-click to fit</div>`;
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${t}</div>${tip}`);
+}
+
+// 35f. Customize: handles to reorder, quick delete, shortcuts shown or hidden.
+function personnaliser() {
+  const t = vaultTable({ selected: null })
+    .replace(/<td><span class="site">/g, `<td><span class="site"><span class="grip-h">${i('grip')}</span>`)
+    .replace(/<tr class=" "/g, '<tr class="wiggle-row"');
+  const bar = `<div class="edit-bar"><span style="color:var(--text-muted)" title="Drag the handles; the cross moves to the trash">${i('grip')}</span><span class="sp"></span><button class="btn btn--primary btn--sm">Done</button></div>`;
+  return frameB(`${bar}<div class="table-wrap">${t.replace(/<span class="site-name">/g, '<button class="rm-badge rm-badge--row" aria-label="Move to trash" title="Move to trash">' + i('x') + '</button><span class="site-name">')}</div>`,
+    { side: sidebarB({ edit: true, hidden: ['Renew soon'] }) });
+}
+
+// 35g. Dates: type it, or pick it in the calendar.
+function calendrier() {
+  const days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => `<span class="cal-dow">${d}</span>`).join('');
+  let cells = '';
+  for (let k = 0; k < 1; k++) cells += '<span class="cal-day is-out"></span>';
+  for (let d = 1; d <= 31; d++) cells += `<span class="cal-day ${d === 3 ? 'is-on' : ''}">${d}</span>`;
+  const pop = `<div class="cal" style="left:1170px;top:286px">
+    <div class="cal-head"><button class="icon-btn icon-btn--sm" aria-label="Previous month" title="Previous month" style="transform:rotate(90deg)">${i('chevron')}</button><span class="sp" style="text-align:center;font-weight:var(--weight-medium)">December 2026</span><button class="icon-btn icon-btn--sm" aria-label="Next month" title="Next month" style="transform:rotate(-90deg)">${i('chevron')}</button></div>
+    <div class="cal-grid">${days}${cells}</div>
+    <div class="cal-foot"><button class="btn btn--ghost btn--sm" title="One month from today">+1 month</button><button class="btn btn--ghost btn--sm" title="One year from today">+1 year</button><span class="sp"></span><button class="btn btn--ghost btn--sm">Clear</button></div>
+  </div>`;
+  const insp = inspector().replace(/<div class="inspector-body"[\s\S]*<\/aside>/, `<div class="inspector-body" style="padding-top:var(--s-3)">
+      <div class="sub-box">
+        <div class="kv"><span>Price</span><div class="input input--sm"><span class="grow">€15.00 / month</span></div></div>
+        <div class="kv"><span>Licenses</span><div class="input input--sm"><span class="grow">4</span></div></div>
+        <div class="kv"><span>Yearly cost</span><b style="margin-left:auto">€720.00</b></div>
+        <div class="kv"><span>Renewal</span><div class="input input--sm is-focus"><span class="grow">2026-12-03</span><span class="act" title="Pick a date">${i('calendar')}</span></div></div>
+      </div></div></aside>`);
+  return shell('Vault', `<div class="work">${sidebarB({ active: 'Design' })}<section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable()}</div></section>${insp}</div>${statusbar()}`, { overlay: pop });
+}
+
+// 35h. Opening Cleis: master password, Windows Hello, or nothing on this computer.
+function ouverture() {
+  return settings('Security', `
+    <div class="page-head"><h1>Security</h1></div>
+    <div class="section">${sectionTitle('Opening Cleis', 'How this computer opens your vault. On another computer, or after reinstalling Windows: the master password or the recovery key.')}
+      <div class="row"><span class="row-label">Unlock with</span>
+        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">${i('key')}Master password</button><button role="radio" aria-checked="true" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">${i('laptop')}Nothing</button></div></div>
+      <div class="row"><span class="row-label" title="Opens your vault anywhere; keep it outside Cleis">Recovery key</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Saved Nov 26, 2026</span><button class="btn">Show</button></div>
+      <div class="row"><span class="row-label">Master password</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Changed Oct 2, 2026</span><button class="btn">Change</button><button class="btn btn--ghost" title="The recovery key then opens your vault on another computer">Remove</button></div>
+    </div>
+    <div class="section">${sectionTitle('Example Studio', 'Set by the organization')}
+      <div class="row"><span class="row-label" style="color:var(--inherit-text)">Unlock with</span>${inherited('Master password or Windows Hello')}</div>
+    </div>`);
+}
+
+// 35i. First launch: how this computer opens the vault.
+function premierLancementProtection() {
+  return `<div class="app"><main class="main" style="margin:6px"><div class="center-stage">
+    <div class="card" style="width:460px">
+      <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>Welcome to Cleis</h1></div>
+      <div class="choice is-active"><span class="radio on"></span><div class="txt"><b style="font-weight:var(--weight-medium)">This computer only</b><span>Personal vault</span></div><span class="ico">${i('laptop')}</span></div>
+      <div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Join an organization</b><span>Shared spaces, on top of your personal vault</span></div><span class="ico">${i('server')}</span></div>
+      <div class="section" style="gap:var(--s-3)">
+        <div class="row" style="padding:0"><span class="row-label">Unlock with</span>
+          <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">Password</button><button role="radio" aria-checked="true">Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">Nothing</button></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <button class="btn btn--ghost">${i('sync')}Restore my vault</button>
+        <button class="btn btn--primary" title="A recovery key is shown next: it opens the vault on another computer">Create vault</button>
+      </div>
+    </div></div></main></div>`;
+}
+
+// 35j. Preferences › Vaults: the shortcuts of each vault, or the same everywhere.
+function raccourcisCoffres() {
+  const tg = (label, on) => `<button class="tag-toggle ${on ? 'on' : ''}">${on ? i('check') : ''}${label}</button>`;
+  return settings('Preferences', `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Vaults')}
+      <div class="row"><span class="row-label">Personal vault in its own tab</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label" title="All items, Favorites, Renew soon at the top of the sidebar">Shortcuts</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Same for every vault</span><span class="switch"></span></div>
+      <div class="row"><span class="row-label" style="padding-left:var(--s-4)">${i('user')}My vault</span>${tg('All items', true)}${tg('Favorites', true)}${tg('Renew soon', false)}</div>
+      <div class="row"><span class="row-label" style="padding-left:var(--s-4)">${i('users')}Example Studio</span>${tg('All items', true)}${tg('Favorites', false)}${tg('Renew soon', true)}</div>
+    </div>`);
+}
+
+// 35k. Security policy: how members may open Cleis.
+function politiqueOuverture() {
+  return settings('Security policy', `
+    <div class="page-head"><h1>Security policy</h1></div>
+    <div class="section">${sectionTitle('Opening Cleis', 'Applies to every member whose vault holds Example Studio')}
+      <div class="row"><span class="row-label">Unlock with</span><div class="input select" style="width:280px"><span class="grow">Master password or Windows Hello</span></div></div>
+    </div>`, `<div class="menu" style="left:906px;top:236px;width:280px">${mi('key', 'Master password only')}${mi('check', 'Master password or Windows Hello')}${mi('', 'Anything, also nothing')}</div>`);
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -1206,4 +1359,15 @@ export const SCREENS = {
   '28-espaces': ['Spaces', espaces],
   '28b-renommer-espace': ['Rename a space', renommerEspace],
   '28c-supprimer-espace': ['Delete a space', supprimerEspace],
+  '35-menu-vide-liste': ['Right-click — list void', menuVideListe],
+  '35b-menu-vide-laterale': ['Right-click — sidebar void', menuVideLaterale],
+  '35c-glisser-dossier': ['Drag an item onto a folder', glisserVersDossier],
+  '35d-reorganiser': ['Reorder folders and items', reorganiser],
+  '35e-largeur-colonnes': ['Column width', largeurColonnes],
+  '35f-personnaliser': ['Customize', personnaliser],
+  '35g-calendrier': ['Date — calendar', calendrier],
+  '35h-ouverture': ['Security — opening Cleis', ouverture],
+  '35i-premier-lancement-protection': ['First launch — unlock with', premierLancementProtection],
+  '35j-raccourcis-coffres': ['Preferences — shortcuts per vault', raccourcisCoffres],
+  '35k-politique-ouverture': ['Security policy — opening Cleis', politiqueOuverture],
 };
