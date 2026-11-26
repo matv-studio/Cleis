@@ -1,5 +1,18 @@
 # Cleis — état
 
+## 26/11/2026 (version 0.2.1 en préparation, branche `feat/full-app`)
+- v0.2.0 publiée par l'utilisateur. Mises à jour depuis GitHub (D-74), installateur Windows et une
+  seule copie de Cleis (D-75), barre du haut propre à Cleis (Windows : contrôles cliquables).
+- Lot A (retours d'essai) : erreurs lisibles, boutons de fenêtre à la charte, clic dans le vide qui
+  désélectionne, « × » des panneaux, « Saved » 1,5 s, section « My vault ».
+- Lot B (maquettes 35 à 35k validées) : barre latérale en sections, raccourcis par coffre ; menus
+  du clic droit dans le vide ; tris dont « My order » ; glisser-déposer (élément → dossier, dossiers
+  et éléments réordonnés) ; largeur des colonnes ; mode Personnaliser ; calendrier des dates ;
+  ouverture de Cleis par mot de passe, Windows Hello ou rien, clé de récupération, règle de
+  l'organisation (D-76) ; animations courtes (aucune si Windows les coupe).
+- Nouveau logo (clair / sombre) : appli, exécutable, installateur, zone de notification.
+- Essais : 21 + 28 de bout en bout + 4 organisation dans `cleis-app`, plus les crates.
+
 ## 25/11/2026 (organisation, branche `feat/full-app`)
 - `cleis-server` (D-59) et `cleis-net` (client HTTPS épinglé) : invitation, connexion par clé de compte
   et code, droits par rôle, versions, journal signé et chaîné, révocation, rechiffrement, sauvegarde /
@@ -50,13 +63,13 @@
   Preferences, captures `UI_LANG=fr design/tools/appshots.sh`). L'audit est terminé.
 
 ## Prochaines étapes
-1. Version `v0.2.0` : étiquette posée par l'utilisateur sur `6a9c726` (script
-   `C:\MATV_LOCAL\_Interne\Cleis\etiquette-v0.2.0.bat`), brouillon construit (zip Windows, serveur
-   Linux, sommes `.sha256`). Reste à l'utilisateur : coller les notes (`notes-v0.2.0.md`, même dossier)
-   et publier. La session ne peut ni poser d'étiquette ni modifier une version.
-2. Essais sur machines réelles : e-mail SMTP (codes et invitations), passerelle SMS, clients OAuth
-   Google / Microsoft, service Windows installé depuis Program Files.
-3. Format monétaire régional en français (`69,99 €`, « En suspens » 15).
+1. Version `v0.2.1` : build Windows vérifié sur `build/full-app`, installateur posé sur le PC de
+   l'utilisateur pour essai ; script d'étiquette et notes EN + FR préparés dans
+   `C:\MATV_LOCAL\_Interne\Cleis\`. L'utilisateur décide quand la pousser.
+2. Essayer Windows Hello sur une vraie machine (D-76 : seulement compilé ici).
+3. Discussion : une seule appli (bureau) sans serveur à installer.
+4. Essais sur machines réelles : e-mail SMTP, passerelle SMS, clients OAuth Google / Microsoft.
+5. Format monétaire régional en français (`69,99 €`, « En suspens » 15).
 
 ## Historique
 
