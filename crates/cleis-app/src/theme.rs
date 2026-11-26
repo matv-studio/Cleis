@@ -14,6 +14,8 @@ pub enum Mode {
 #[derive(Clone, Debug)]
 pub struct Tokens {
     pub mode: Mode,
+    /// The dark version of the logo (Preferences; the light one by default).
+    pub dark_logo: bool,
     pub bg: Hsla,
     pub surface: Hsla,
     pub chrome: Hsla,
@@ -62,6 +64,7 @@ impl Tokens {
         let text = c(rgb(0xededed));
         Self {
             mode: Mode::Dark,
+            dark_logo: false,
             bg: c(rgb(0x191919)),
             surface: c(rgb(0x1f1f1f)),
             chrome: c(rgb(0x2a2a2a)),
@@ -101,6 +104,7 @@ impl Tokens {
         let text = c(rgb(0x1a1a1a));
         Self {
             mode: Mode::Light,
+            dark_logo: false,
             bg: c(rgb(0xefefef)),
             surface: c(rgb(0xffffff)),
             chrome: c(rgb(0xe3e3e3)),
@@ -242,6 +246,7 @@ pub fn parse_hex(s: &str) -> Option<Rgba> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub mode: Mode,
+    pub dark_logo: bool,
     pub accent: Option<Rgba>,
     pub scope: AccentScope,
 }
@@ -262,6 +267,7 @@ impl Appearance {
             },
             accent: p.accent.as_deref().and_then(parse_hex),
             scope: p.accent_scope,
+            dark_logo: p.dark_logo,
         }
     }
 }
@@ -290,7 +296,8 @@ pub const FONT_MONO: &str = "Geist Mono";
 /// scrollbars and popovers follow the charter too.
 pub fn apply(appearance: &Appearance, cx: &mut App) {
     let mode = appearance.mode;
-    let t = Tokens::for_mode(mode).with_accent(appearance.accent, appearance.scope);
+    let mut t = Tokens::for_mode(mode).with_accent(appearance.accent, appearance.scope);
+    t.dark_logo = appearance.dark_logo;
     Theme::change(
         match mode {
             Mode::Dark => ThemeMode::Dark,

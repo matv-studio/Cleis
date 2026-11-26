@@ -32,8 +32,14 @@ pub fn stage(t: &Tokens, card: impl IntoElement) -> Div {
         )
 }
 
-/// The Cleis logo (design/logo), in the version of the theme.
+/// The Cleis logo (design/logo): the light version in both themes, unless Preferences say
+/// otherwise (26/11/2026).
 pub fn logo(t: &Tokens, size: f32) -> Div {
+    logo_version(t.dark_logo, size)
+}
+
+/// One version of the logo (Preferences show both).
+pub fn logo_version(dark: bool, size: f32) -> Div {
     use std::sync::{Arc, LazyLock};
     static DARK: LazyLock<Arc<gpui_kit::Image>> = LazyLock::new(|| {
         Arc::new(gpui_kit::Image::from_bytes(
@@ -47,10 +53,7 @@ pub fn logo(t: &Tokens, size: f32) -> Div {
             include_bytes!("../../assets/logo-light.png").to_vec(),
         ))
     });
-    let image = match t.mode {
-        crate::theme::Mode::Dark => DARK.clone(),
-        crate::theme::Mode::Light => LIGHT.clone(),
-    };
+    let image = if dark { DARK.clone() } else { LIGHT.clone() };
     div()
         .flex_none()
         .size(px(size))

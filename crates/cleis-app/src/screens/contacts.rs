@@ -180,7 +180,7 @@ fn group_head(t: &Tokens, label: &str) -> Div {
         .child(div().flex_1().child(crate::i18n::tr_owned(label)))
 }
 
-fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Stateful<Div> {
     let ui = &s.contacts_ui;
     let f = &ui.filter;
     let set = |filter: ContactFilter| {
@@ -196,6 +196,11 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         }
     };
     let mut side = div()
+        .id("contacts-sidebar")
+        .on_mouse_down(
+            gpui_kit::MouseButton::Right,
+            super::ctx::on_right(super::ctx::CtxTarget::ContactsSidebar, cx),
+        )
         .w(SIDEBAR_W)
         .flex_none()
         .h_full()
@@ -600,7 +605,11 @@ fn table(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)));
+        .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)))
+        .on_mouse_down(
+            gpui_kit::MouseButton::Right,
+            super::ctx::on_right(super::ctx::CtxTarget::ContactsVoid, cx),
+        );
     for c in list {
         let id = c.id;
         let selected = sel == Some(id);
@@ -720,7 +729,12 @@ fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context
             .min_h_0()
             .overflow_y_scroll()
             .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)))
-            .child(grid),
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                super::ctx::on_right(super::ctx::CtxTarget::ContactsVoid, cx),
+            )
+            .child(grid)
+            .test_support(),
     )
 }
 
@@ -1971,7 +1985,7 @@ impl CleisApp {
         }
     }
 
-    fn start_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn start_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let st = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Folder name")));
         st.update(cx, |st, cx| st.focus(window, cx));
         let sub = cx.subscribe_in(

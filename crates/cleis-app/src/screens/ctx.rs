@@ -25,6 +25,10 @@ pub enum CtxTarget {
     ListVoid,
     /// The sidebar outside any folder (mockup 35b).
     SidebarVoid,
+    /// The contacts (table or cards) outside any contact (26/11/2026, as mockup 35).
+    ContactsVoid,
+    /// The contacts' sidebar outside any folder.
+    ContactsSidebar,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -247,6 +251,23 @@ pub fn render(
         CtxTarget::Member(id) => member_menu(s, id, m.sub, t, cx)?,
         CtxTarget::ListVoid => list_void_menu(s, m.sub, t, cx),
         CtxTarget::SidebarVoid => (sidebar_void_menu(s, t, cx), None),
+        CtxTarget::ContactsVoid => (contacts_void_menu(s, t, cx), None),
+        CtxTarget::ContactsSidebar => {
+            let mut r = Rows::new(t);
+            r.row(act(
+                item(
+                    "cx-new-contact-folder",
+                    t,
+                    "folder",
+                    tr("New folder"),
+                    None,
+                    false,
+                ),
+                cx,
+                |this, window, cx| this.start_new_folder(window, cx),
+            ));
+            (r.menu, None)
+        }
     };
     // The submenu hangs off the menu without changing its size: opening it never moves the
     // menu under the pointer (the window edge would push both up).
@@ -440,6 +461,83 @@ fn list_void_menu(s: &Session, sub: Option<Sub>, t: &Tokens, cx: &mut Context<Cl
         (r.sub_y, m)
     });
     (r.menu, subm)
+}
+
+/// A right-click among the contacts outside any contact (as mockup 35 for the vault).
+fn contacts_void_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let mut r = Rows::new(t);
+    r.row(act(
+        item(
+            "cx-new-contact",
+            t,
+            "plus",
+            tr("New contact"),
+            Some(tr("Ctrl+N")),
+            false,
+        ),
+        cx,
+        |this, window, cx| this.new_contact(window, cx),
+    ));
+    r.row(act(
+        item(
+            "cx-new-contact-folder",
+            t,
+            "folder",
+            tr("New folder"),
+            None,
+            false,
+        ),
+        cx,
+        |this, window, cx| this.start_new_folder(window, cx),
+    ));
+    r.sep();
+    r.row(act(
+        item(
+            "cx-contact-columns",
+            t,
+            "columns",
+            tr("Columns…"),
+            None,
+            false,
+        ),
+        cx,
+        |this, _, cx| this.toggle_columns_menu(cleis_core::column::Table::Contacts, cx),
+    ));
+    let cards = s.contacts_ui.cards;
+    r.row(act(
+        item(
+            "cx-contact-view",
+            t,
+            if cards { "list" } else { "columns" },
+            if cards {
+                tr("Show as table")
+            } else {
+                tr("Show as cards")
+            },
+            None,
+            false,
+        ),
+        cx,
+        move |this, _, cx| {
+            if let Some(s) = this.session() {
+                s.contacts_ui.cards = !cards;
+            }
+            cx.notify();
+        },
+    ));
+    r.sep();
+    r.row(act(
+        item("cx-contact-import", t, "upload", tr("Import…"), None, false),
+        cx,
+        |this, _, cx| {
+            if let Some(s) = this.session() {
+                s.tab = Tab::Settings;
+                s.settings_page = "Import & export";
+            }
+            cx.notify();
+        },
+    ));
+    r.menu
 }
 
 /// Mockup 35b: a right-click in the sidebar outside any folder.

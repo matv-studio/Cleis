@@ -132,8 +132,9 @@ pub fn render(
                 .relative()
                 .flex()
                 .flex_col()
-                .child(crate::ui::page_in(
-                    format!("page-{tab:?}"),
+                .child(crate::ui::tab_in(
+                    format!("page-{tab:?}-{:?}", s.scope),
+                    s.tab_dir,
                     div().flex_1().min_h_0().flex().flex_col().child(page),
                 ))
                 .when_some(toast, |d, msg| {
@@ -235,8 +236,17 @@ fn topbar(
         tr("Settings").into(),
     ));
     let mut nav = div().flex().items_end().h(TOPBAR_H);
-    for (tab, scope, id, label) in tabs {
-        let active = s.tab == tab && scope.as_ref().is_none_or(|sc| *sc == s.scope);
+    let is_active = |tab: Tab, scope: &Option<crate::app::Scope>| {
+        s.tab == tab && scope.as_ref().is_none_or(|sc| *sc == s.scope)
+    };
+    let shown_ix = tabs
+        .iter()
+        .position(|(tab, scope, _, _)| is_active(*tab, scope))
+        .unwrap_or(0);
+    for (ix, (tab, scope, id, label)) in tabs.into_iter().enumerate() {
+        let active = is_active(tab, &scope);
+        // The page comes from the side of the tab clicked (26/11/2026).
+        let dir = (ix as f32 - shown_ix as f32).signum();
         let mut el = div()
             .id(SharedString::from(id))
             .h(px(32.))
@@ -248,36 +258,24 @@ fn topbar(
             // The top bar moves the window except over a control (ui::title_bar).
             .no_drag()
             .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.tab_dir = dir;
+                }
                 this.open_tab(tab, scope.clone(), cx);
             }));
         el = if active {
-            // The outline is drawn by a frame that stops 7 px above the bottom; the corners take
-            // over from there (a parent's own border would paint over its children).
+            // The tab and its outline are one drawn shape (26/11/2026): no seam between pieces at
+            // 125 or 150 % scale, where separate boxes and arcs landed on different pixels.
             el.h(px(33.))
                 .mb(px(-1.))
                 .relative()
-                .bg(t.bg)
-                .rounded_t(px(8.))
                 .text_color(t.accent_text)
-                // Corners first, then the frame over them: its side lines run 2 px into the
-                // corners' arcs (vertical there too), so no gap opens at 125 or 150 % scale.
-                .child(tab_corner(t, true))
-                .child(tab_corner(t, false))
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .bottom(px(7.))
-                        .border_t_1()
-                        .border_l_1()
-                        .border_r_1()
-                        .border_color(t.stage_line)
-                        .rounded_t(px(8.)),
-                )
+                .child(tab_shape(t))
         } else {
+            // Hover (26/11/2026): the tab lights up under the pointer.
             el.text_color(t.text_muted)
+                .rounded_t(px(8.))
+                .hover(|d| d.bg(t.surface_hover).text_color(t.text))
         };
         nav = nav.child(el.child(crate::i18n::tr_owned(&label)).test_support());
     }
@@ -1172,11 +1170,25 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                         gpui_kit::MouseButton::Right,
                         super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
                     )
-                    .child(list)
+                    // Another folder or section: its items come in (26/11/2026).
+                    .child(crate::ui::page_in(
+                        format!("rows-{:?}-{:?}", s.filter, s.scope),
+                        div().flex_1().min_h_0().flex().flex_col().child(list),
+                    ))
                     .test_support(),
             )
         })
-        .when(s.vault_cards, |d| d.child(vault_cards(s, t, cx)))
+        .when(s.vault_cards, |d| {
+            d.child(crate::ui::page_in(
+                format!("cards-{:?}-{:?}", s.filter, s.scope),
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(vault_cards(s, t, cx)),
+            ))
+        })
         .child(
             div()
                 .h(ROW_H)
@@ -1222,38 +1234,51 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         .child(statusbar(s, t))
 }
 
-/// Concave 8 px corner joining the active tab to the stage outline, like an index divider
-/// (charter §5): a 9 × 9 px stage-coloured square, clipped, showing a quarter of a chrome-coloured
-/// circle centred on its outer top corner; the circle's border is the outline that leaves the
-/// stage top, curves up and follows the tab. (A rounded corner cannot be used: GPUI caps a radius
-/// at half the box.)
-fn tab_corner(t: &Tokens, left: bool) -> Div {
-    let disc = div()
-        .absolute()
-        .top(px(-9.))
-        .size(px(18.))
-        .rounded_full()
-        .bg(t.chrome)
-        .border_1()
-        .border_color(t.stage_line);
-    let disc = if left {
-        disc.left(px(-9.))
-    } else {
-        disc.right(px(-9.))
-    };
-    let sq = div()
-        .absolute()
-        .bottom_0()
-        .size(px(9.))
-        .overflow_hidden()
-        .bg(t.bg)
-        .child(disc);
-    // The square's last column is the tab's first one, where the frame's side line ends.
-    if left {
-        sq.left(px(-8.))
-    } else {
-        sq.right(px(-8.))
-    }
+/// The active tab (charter §5, like an index divider): its fill flares into the stage with two
+/// concave 8 px corners, and one outline runs from the stage's top line, up the tab, over its
+/// rounded top and back down. Drawn as two paths over the tab's box widened by 8 px each side.
+fn tab_shape(t: &Tokens) -> impl IntoElement {
+    let (fill, line) = (t.bg, t.stage_line);
+    gpui_kit::canvas(
+        |_, _, _| (),
+        move |b, _, window, _| {
+            use gpui_kit::{PathBuilder, point};
+            let r = 8.;
+            let (x0, y0) = (f32::from(b.origin.x), f32::from(b.origin.y));
+            let (w, h) = (f32::from(b.size.width), f32::from(b.size.height));
+            // The stage's top line is the box's last pixel row: the outline meets it there.
+            let base = y0 + h - 0.5;
+            let (l, rt) = (x0 + r + 0.5, x0 + w - r - 0.5);
+            let top = y0 + 0.5;
+            let p = |x: f32, y: f32| point(px(x), px(y));
+            let outline = |mut pb: PathBuilder| {
+                pb.move_to(p(x0, base));
+                pb.curve_to(p(l, base - r), p(l, base));
+                pb.line_to(p(l, top + r));
+                pb.curve_to(p(l + r, top), p(l, top));
+                pb.line_to(p(rt - r, top));
+                pb.curve_to(p(rt, top + r), p(rt, top));
+                pb.line_to(p(rt, base - r));
+                pb.curve_to(p(x0 + w, base), p(rt, base));
+                pb
+            };
+            let mut area = outline(PathBuilder::fill());
+            area.line_to(p(x0 + w, y0 + h));
+            area.line_to(p(x0, y0 + h));
+            area.close();
+            if let Ok(path) = area.build() {
+                window.paint_path(path, fill);
+            }
+            if let Ok(path) = outline(PathBuilder::stroke(px(1.))).build() {
+                window.paint_path(path, line);
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .bottom_0()
+    .left(px(-8.))
+    .right(px(-8.))
 }
 
 fn statusbar(s: &Session, t: &Tokens) -> Div {

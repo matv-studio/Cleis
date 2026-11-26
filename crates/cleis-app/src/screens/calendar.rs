@@ -282,23 +282,7 @@ pub fn render(
 
 /// Below its box, right edges aligned; above it when the window has no room below.
 pub fn popup(cal: impl IntoElement, box_h: gpui_kit::Pixels) -> impl IntoElement {
-    // A line as tall as the box on its right edge: the calendar hangs from its bottom.
-    let target = gpui_kit::Bounds::new(
-        gpui_kit::point(px(0.), px(0.)),
-        gpui_kit::size(px(0.), box_h),
-    );
-    div().absolute().top_0().right_0().w(px(0.)).h(box_h).child(
-        gpui_kit::deferred(
-            gpui_kit::anchored()
-                .position_mode(gpui_kit::AnchoredPositionMode::Local)
-                .anchor(gpui_kit::Anchor::TopRight)
-                .attach(target, gpui_kit::Anchor::BottomRight)
-                .offset(gpui_kit::point(px(0.), px(4.)))
-                .snap_to_window_with_margin(px(8.))
-                .child(cal),
-        )
-        .with_priority(2),
-    )
+    crate::ui::popup_below(cal, box_h)
 }
 
 impl CleisApp {

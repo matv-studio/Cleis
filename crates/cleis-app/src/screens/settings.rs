@@ -393,6 +393,39 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
     d
 }
 
+/// The logo shown in the app: light (default) or dark, whatever the theme (26/11/2026).
+fn logo_buttons(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    div()
+        .p(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD)
+        .flex()
+        .gap(px(2.))
+        .children([(false, "Light"), (true, "Dark")].map(|(dark, label)| {
+            let on = p.dark_logo == dark;
+            div()
+                .id(SharedString::from(format!("logo-{label}")))
+                .h(px(22.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(RADIUS_SM)
+                .font_weight(W_MEDIUM)
+                .cursor_pointer()
+                .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
+                .when(!on, |d| d.text_color(t.text_muted))
+                .child(super::unlock::logo_version(dark, 16.))
+                .child(crate::i18n::tr_owned(label))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.update_prefs(move |p| p.dark_logo = dark, cx);
+                }))
+                .test_support()
+        }))
+}
+
 fn preferences(
     s: &Session,
     p: &Preferences,
@@ -462,6 +495,11 @@ fn preferences(
                             .rounded(RADIUS_MD)
                             .child(theme_btns),
                     ),
+                )
+                .child(
+                    row(t, false)
+                        .child(div().flex_1().child(tr("Logo")))
+                        .child(logo_buttons(p, t, cx)),
                 )
                 .child(
                     row(t, false)
@@ -633,7 +671,7 @@ fn pref_select(
         .find(|o| o.2)
         .map(|o| o.1)
         .unwrap_or_default();
-    let mut menu = menu_box(t).top(px(32.)).right_0().w(px(220.));
+    let mut menu = menu_box(t).relative().w(px(220.));
     for (value, name, on) in options {
         menu = menu.child(
             menu_item(format!("{id}-{value}"), t, None, name, false)
@@ -671,7 +709,8 @@ fn pref_select(
                 }))
                 .test_support(),
         )
-        .when(open, |d| d.child(gpui_kit::deferred(menu)))
+        // Below the box, or above it near the window's bottom (26/11/2026).
+        .when(open, |d| d.child(popup_below(menu, px(28.))))
 }
 
 /// Accent swatches (`.swatches`): "None" then the palette; the ring marks the current one.

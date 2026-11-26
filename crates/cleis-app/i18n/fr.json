@@ -1056,5 +1056,6 @@
   "This computer has no key for this vault": "Cet ordinateur n'a pas de clé pour ce coffre",
   "Canceled": "Annulé",
   "Windows Hello is not available": "Windows Hello n'est pas disponible",
-  "Windows Hello refused": "Windows Hello a refusé"
+  "Windows Hello refused": "Windows Hello a refusé",
+  "Logo": "Logo"
 }

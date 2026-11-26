@@ -200,6 +200,9 @@ pub struct Session {
     pub resize: Option<crate::screens::dnd::Resize>,
     /// The calendar open below a date box (mockup 35g).
     pub calendar: Option<crate::screens::calendar::Calendar>,
+    /// Where the last tab clicked was, relative to the one shown before (-1 left, +1 right): the
+    /// page slides from that side (26/11/2026).
+    pub tab_dir: f32,
     /// How this computer opens the vault (D-76).
     pub opening: crate::opening::Mode,
     /// Chosen while the vault had no master password: applied once it is set.
@@ -1089,6 +1092,7 @@ impl CleisApp {
             customize: false,
             resize: None,
             calendar: None,
+            tab_dir: 0.,
             opening: crate::opening::mode(&self.path),
             after_password: None,
             password_due: false,
@@ -1384,6 +1388,7 @@ fn save_appearance(p: &Preferences) {
         "accent_scope": p.accent_scope,
         "language": p.language,
         "update_prereleases": p.update_prereleases,
+        "dark_logo": p.dark_logo,
     });
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);

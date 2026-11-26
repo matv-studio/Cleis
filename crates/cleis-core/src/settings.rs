@@ -184,6 +184,8 @@ pub struct Preferences {
     pub vault_tabs: bool,
     /// Updates (D-74): pre-releases offered too (every 0.x version is one).
     pub update_prereleases: bool,
+    /// The dark version of the logo in the app (26/11/2026: the light one by default, both themes).
+    pub dark_logo: bool,
     /// Sidebar shortcuts per vault (26/11/2026).
     pub shortcuts: SidebarShortcuts,
     /// Order of the folders and spaces in the sidebar (dragged); the others follow by name.
@@ -213,6 +215,7 @@ impl Default for Preferences {
             org_backup_key_saved: None,
             vault_tabs: false,
             update_prereleases: true,
+            dark_logo: false,
             shortcuts: SidebarShortcuts::default(),
             space_order: Vec::new(),
             sort_by: SortBy::Name,
