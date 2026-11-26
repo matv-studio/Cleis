@@ -76,6 +76,19 @@ pub struct JoinForm {
     pub folder: Option<(usize, std::path::PathBuf)>,
     /// A folder chosen to join, put in the address box at the next render.
     pub address_fill: Option<String>,
+    /// Shared folder on an SSH server: where, and how to sign in.
+    pub sftp: Option<SftpForm>,
+    /// Join an organization whose folder is on an SSH server (`sftp://…` address): its password.
+    pub sftp_password: Option<Entity<InputState>>,
+}
+
+/// A shared folder on an SSH server (D-78).
+pub struct SftpForm {
+    pub host: Entity<InputState>,
+    pub port: Entity<InputState>,
+    pub user: Entity<InputState>,
+    pub password: Entity<InputState>,
+    pub path: Entity<InputState>,
 }
 
 /// Where a new organization lives (D-78).
@@ -2367,11 +2380,56 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 ),
         );
     }
+    let on = j.folder.as_ref().is_some_and(|(k, _)| *k == 3);
+    let fields = j.sftp.as_ref().filter(|_| on).map(|f| {
+        div()
+            .pb(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(12.))
+                    .child(div().flex_1().child(field(
+                        t,
+                        tr("Server"),
+                        Input::new(&f.host).id("sftp-host"),
+                    )))
+                    .child(div().w(px(90.)).child(field(
+                        t,
+                        tr("SSH port"),
+                        Input::new(&f.port).id("sftp-port"),
+                    ))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(12.))
+                    .child(div().flex_1().child(field(
+                        t,
+                        tr("User"),
+                        Input::new(&f.user).id("sftp-user"),
+                    )))
+                    .child(div().flex_1().child(field(
+                        t,
+                        tr("Password"),
+                        Input::new(&f.password).id("sftp-password").mask_toggle(),
+                    ))),
+            )
+            .child(field(t, tr("Folder"), Input::new(&f.path).id("sftp-path")))
+    });
     list.child(
         row(t, true)
             .gap(px(10.))
-            .opacity(0.45)
-            .child(div().flex_none().size(px(12.)))
+            .child(
+                div()
+                    .flex_none()
+                    .size(px(12.))
+                    .rounded_full()
+                    .border(px(if on { 4. } else { 1.5 }))
+                    .border_color(if on { t.accent_text } else { t.text_faint }),
+            )
             .child(icon("server", 16., t.text_muted))
             .child(
                 div().flex_1().flex().flex_col().child(tr("SFTP")).child(
@@ -2381,15 +2439,22 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .child(tr("An SSH server")),
                 ),
             )
-            .child(
-                div()
-                    .id("folder-sftp")
-                    .tooltip(tip(tr("Coming next")))
-                    .child(
-                        button("folder-pick-sftp", t, BtnKind::Default, true).child(tr("Set up")),
-                    ),
-            ),
+            .when(!on, |d| {
+                d.child(
+                    button("folder-pick-sftp", t, BtnKind::Default, true)
+                        .child(tr("Set up"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(j) = this.join_form_mut() {
+                                j.folder = Some((3, std::path::PathBuf::from("sftp://")));
+                                j.place = OrgPlace::Folder;
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+            }),
     )
+    .children(fields)
 }
 
 /// Address, invitation code, and name/e-mail when the invitation has none.
@@ -2432,6 +2497,18 @@ pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div 
                                 .test_support(),
                         ),
                 )),
+        )
+        .when(
+            address.read(cx).value().trim().starts_with("sftp://"),
+            |d| {
+                d.when_some(j.sftp_password.as_ref(), |d, p| {
+                    d.child(field(
+                        t,
+                        tr("SFTP password"),
+                        Input::new(p).id("org-sftp-password").mask_toggle(),
+                    ))
+                })
+            },
         )
         .child(field(
             t,
@@ -3710,6 +3787,14 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
         st.update(cx, |i, cx| i.set_value(v, window, cx));
         st
     };
+    let sftp = SftpForm {
+        host: make("files.example-studio.lan", window, cx),
+        port: valued("22", window, cx),
+        user: make("lea", window, cx),
+        password: cx.new(|cx| InputState::new(window, cx).masked(true)),
+        path: make("/home/lea/cleis", window, cx),
+    };
+    let sftp_password = cx.new(|cx| InputState::new(window, cx).masked(true));
     let nas = NasForm {
         address: make("nas.example-studio.lan", window, cx),
         port: valued("22", window, cx),
@@ -3737,6 +3822,8 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
             org_name: Some(org_name),
             creator: Some(creator),
             nas: Some(nas),
+            sftp: Some(sftp),
+            sftp_password: Some(sftp_password),
             ..Default::default()
         },
         subs,
@@ -3974,10 +4061,46 @@ impl CleisApp {
             OrgPlace::Here => self.org_create_here(n, me, cx),
             OrgPlace::Nas => self.org_create_on_nas(n, me, cx),
             OrgPlace::Folder => {
-                let Some((_, folder)) = self.join_form_mut().and_then(|j| j.folder.clone()) else {
+                let Some((kind, folder)) = self.join_form_mut().and_then(|j| j.folder.clone())
+                else {
                     return;
                 };
-                self.org_create_in_folder(n, me, folder, cx);
+                if kind != 3 {
+                    self.org_create_in_folder(n, me, folder, None, cx);
+                    return;
+                }
+                let Some(f) = self.join_form_mut().and_then(|j| j.sftp.as_ref()) else {
+                    return;
+                };
+                let v = |e: &Entity<InputState>| e.read(cx).value().trim().to_owned();
+                let place = crate::folder_store::SftpPlace {
+                    host: v(&f.host),
+                    port: v(&f.port).parse().unwrap_or(22),
+                    user: v(&f.user),
+                    path: format!("/{}", v(&f.path).trim_start_matches('/')),
+                };
+                let password = f.password.read(cx).value().to_string();
+                if place.host.is_empty() || place.user.is_empty() {
+                    if let Some(j) = self.join_form_mut() {
+                        j.error = Some(tr("Enter the server and the user").into());
+                    }
+                    cx.notify();
+                    return;
+                }
+                let secret = crate::org::SftpSecret {
+                    secret: crate::remote::Secret {
+                        token: password,
+                        key: String::new(),
+                    },
+                    host_key: String::new(),
+                };
+                self.org_create_in_folder(
+                    n,
+                    me,
+                    std::path::PathBuf::from(place.url()),
+                    Some(secret),
+                    cx,
+                );
             }
         }
     }
@@ -4115,7 +4238,26 @@ impl CleisApp {
         // D-78: a shared folder holding an organization, in the place of a server address.
         let folder = std::path::PathBuf::from(address.trim());
         if folder.join(crate::folder_org::ORG_FILE).is_file() {
-            self.org_join_folder(folder, code, name, email, cx);
+            self.org_join_folder(folder, None, code, name, email, cx);
+            cx.notify();
+            return;
+        }
+        // An organization's folder on an SSH server: `sftp://user@host:port/path`.
+        if crate::folder_store::SftpPlace::parse(address.trim()).is_some() {
+            let password = s
+                .join
+                .sftp_password
+                .as_ref()
+                .map(|p| p.read(cx).value().to_string())
+                .unwrap_or_default();
+            let secret = crate::org::SftpSecret {
+                secret: crate::remote::Secret {
+                    token: password,
+                    key: String::new(),
+                },
+                host_key: String::new(),
+            };
+            self.org_join_folder(folder, Some(secret), code, name, email, cx);
             cx.notify();
             return;
         }

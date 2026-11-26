@@ -1131,5 +1131,8 @@
   "Not with an organization in a shared folder": "Impossible avec une organisation dans un dossier partagé",
   "The change was not applied": "Le changement n'a pas été appliqué",
   "Not signed by this member.": "Pas signé par ce membre.",
-  "App Center did not install Cleis Server": "L'App Center n'a pas installé Cleis Server"
+  "App Center did not install Cleis Server": "L'App Center n'a pas installé Cleis Server",
+  "Enter the server and the user": "Saisissez le serveur et l'utilisateur",
+  "SFTP password": "Mot de passe SFTP",
+  "Enter the SFTP password": "Saisissez le mot de passe SFTP"
 }

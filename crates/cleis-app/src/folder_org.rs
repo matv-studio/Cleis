@@ -7,6 +7,7 @@
 //! number) through the server's own API (`cleis_server::local`): the same checks of rights, the
 //! same results on every copy. The app talks to it as to a server (`cleis_net::Local`).
 
+use crate::folder_store::{LocalStore, Store};
 use cleis_core::MemberId;
 use cleis_crypto::{SigningKeyPair, VerifyingKey, sha256, verify};
 use cleis_net::{Local, LocalApi, Response};
@@ -102,14 +103,15 @@ const NOT_HERE: [&str; 10] = [
 ];
 
 pub struct Engine {
-    folder: PathBuf,
+    store: Box<dyn Store>,
+    label: String,
     replica: PathBuf,
     me: Option<MemberId>,
     device: String,
     signing: SigningKeyPair,
     app: Option<Arc<cleis_server::App>>,
     applied: Vec<OpKey>,
-    cache: HashMap<PathBuf, OpFile>,
+    cache: HashMap<String, OpFile>,
 }
 
 fn answer(status: u16, error: &str, message: &str) -> Answer {
@@ -128,7 +130,7 @@ fn hex_key(k: &[u8; 32]) -> String {
 }
 
 impl Engine {
-    /// A folder that already holds an organization.
+    /// A folder of this computer that already holds an organization.
     pub fn open(
         folder: &Path,
         replica: &Path,
@@ -136,11 +138,31 @@ impl Engine {
         device: &str,
         signing: SigningKeyPair,
     ) -> Result<Engine, String> {
-        if !folder.join(ORG_FILE).is_file() || !folder.join(GENESIS).is_file() {
-            return Err(crate::trf!("No Cleis organization in {}", folder.display()));
+        Engine::open_store(
+            Box::new(LocalStore(folder.to_owned())),
+            &folder.display().to_string(),
+            replica,
+            me,
+            device,
+            signing,
+        )
+    }
+
+    /// A folder (of this computer, or on an SSH server) that already holds an organization.
+    pub fn open_store(
+        mut store: Box<dyn Store>,
+        label: &str,
+        replica: &Path,
+        me: Option<MemberId>,
+        device: &str,
+        signing: SigningKeyPair,
+    ) -> Result<Engine, String> {
+        if store.read(ORG_FILE)?.is_none() || store.read(GENESIS)?.is_none() {
+            return Err(crate::trf!("No Cleis organization in {}", label));
         }
         let mut e = Engine {
-            folder: folder.to_owned(),
+            store,
+            label: label.to_owned(),
             replica: replica.to_owned(),
             me,
             device: device.to_owned(),
@@ -155,7 +177,11 @@ impl Engine {
     }
 
     pub fn org_file(folder: &Path) -> Option<OrgFile> {
-        serde_json::from_slice(&std::fs::read(folder.join(ORG_FILE)).ok()?).ok()
+        Engine::org_file_in(&mut LocalStore(folder.to_owned()))
+    }
+
+    pub fn org_file_in(store: &mut dyn Store) -> Option<OrgFile> {
+        serde_json::from_slice(&store.read(ORG_FILE).ok()??).ok()
     }
 
     /// Creates the organization `org` in `folder` (empty, or new) with its first administrator:
@@ -169,13 +195,33 @@ impl Engine {
         signing: SigningKeyPair,
         device: &str,
     ) -> Result<(Engine, uuid::Uuid, MemberId), String> {
-        if folder.join(ORG_FILE).exists() {
-            return Err(crate::trf!(
-                "{} already holds an organization",
-                folder.display()
-            ));
-        }
         std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
+        Engine::create_in(
+            Box::new(LocalStore(folder.to_owned())),
+            &folder.display().to_string(),
+            replica,
+            org,
+            name,
+            account_public,
+            signing,
+            device,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_in(
+        mut store: Box<dyn Store>,
+        label: &str,
+        replica: &Path,
+        org: &str,
+        name: &str,
+        account_public: [u8; 32],
+        signing: SigningKeyPair,
+        device: &str,
+    ) -> Result<(Engine, uuid::Uuid, MemberId), String> {
+        if store.read(ORG_FILE)?.is_some() {
+            return Err(crate::trf!("{} already holds an organization", label));
+        }
         let _ = std::fs::remove_dir_all(replica);
         let code = cleis_server::App::init(replica, org, &[]).map_err(|e| e.to_string())?;
         let app = cleis_server::App::open(replica).map_err(|e| e.to_string())?;
@@ -210,60 +256,63 @@ impl Engine {
         let reply: cleis_core::org::JoinReply =
             serde_json::from_slice(&a.body).map_err(|e| e.to_string())?;
         // The copy as it is now becomes everyone's start.
-        let tmp = folder.join(format!("{GENESIS}.tmp"));
-        let _ = std::fs::remove_file(&tmp);
+        let snap = replica.with_extension("genesis");
+        let _ = std::fs::remove_file(&snap);
         {
             let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
-            conn.execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])
+            conn.execute("VACUUM INTO ?1", [snap.to_string_lossy().as_ref()])
                 .map_err(|e| e.to_string())?;
         }
-        std::fs::rename(&tmp, folder.join(GENESIS)).map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&snap).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&snap);
+        store.write(GENESIS, &bytes)?;
         let info = OrgFile {
             id: reply.org.id,
             name: reply.org.name.clone(),
             version: 1,
         };
-        write_atomic(
-            &folder.join(ORG_FILE),
+        store.write(
+            ORG_FILE,
             &serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?,
         )?;
         drop(app);
-        let e = Engine::open(folder, replica, Some(reply.member), device, signing)?;
+        let e = Engine::open_store(store, label, replica, Some(reply.member), device, signing)?;
         Ok((e, reply.org.id, reply.member))
     }
 
-    fn my_dir(&self) -> PathBuf {
-        self.folder
-            .join("ops")
-            .join(hex_key(&self.signing.verifying_key().0))
+    fn my_dir(&self) -> String {
+        format!("ops/{}", hex_key(&self.signing.verifying_key().0))
     }
 
     /// Every operation in the folder, sorted (files being written are skipped till complete).
     fn scan(&mut self) -> Vec<OpFile> {
         let mut out = vec![];
-        let Ok(dirs) = std::fs::read_dir(self.folder.join("ops")) else {
+        let Ok(dirs) = self.store.list("ops") else {
             return out;
         };
-        for d in dirs.flatten() {
-            let Ok(files) = std::fs::read_dir(d.path()) else {
+        for d in dirs {
+            let Ok(files) = self.store.list(&format!("ops/{d}")) else {
                 continue;
             };
-            for f in files.flatten() {
-                let p = f.path();
-                if p.extension().and_then(|x| x.to_str()) != Some("json") {
+            for f in files {
+                if !f.ends_with(".json") {
                     continue;
                 }
-                if let Some(op) = self.cache.get(&p) {
+                let rel = format!("ops/{d}/{f}");
+                if let Some(op) = self.cache.get(&rel) {
                     out.push(op.clone());
                     continue;
                 }
-                let Some(op) = std::fs::read(&p)
+                let Some(op) = self
+                    .store
+                    .read(&rel)
                     .ok()
+                    .flatten()
                     .and_then(|b| serde_json::from_slice::<OpFile>(&b).ok())
                 else {
                     continue;
                 };
-                self.cache.insert(p, op.clone());
+                self.cache.insert(rel, op.clone());
                 out.push(op);
             }
         }
@@ -276,11 +325,12 @@ impl Engine {
         self.app = None;
         let _ = std::fs::remove_dir_all(&self.replica);
         std::fs::create_dir_all(&self.replica).map_err(|e| e.to_string())?;
-        std::fs::copy(
-            self.folder.join(GENESIS),
-            self.replica.join(cleis_server::DB_FILE),
-        )
-        .map_err(|e| e.to_string())?;
+        let genesis = self
+            .store
+            .read(GENESIS)?
+            .ok_or_else(|| crate::trf!("No Cleis organization in {}", self.label))?;
+        std::fs::write(self.replica.join(cleis_server::DB_FILE), genesis)
+            .map_err(|e| e.to_string())?;
         self.app = Some(cleis_server::App::open(&self.replica).map_err(|e| e.to_string())?);
         self.applied.clear();
         Ok(())
@@ -360,21 +410,13 @@ impl Engine {
     /// A change: signed into this member's subfolder, then replayed with the others'.
     fn write_op(&mut self, method: &str, path: &str, body: &[u8]) -> Answer {
         let dir = self.my_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            return answer(500, "folder", &e.to_string());
-        }
-        let seq = std::fs::read_dir(&dir)
-            .map(|r| {
-                r.flatten()
-                    .filter_map(|f| {
-                        f.path()
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .and_then(|s| s.parse::<u64>().ok())
-                    })
-                    .max()
-                    .unwrap_or(0)
-            })
+        let seq = self
+            .store
+            .list(&dir)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|f| f.strip_suffix(".json").and_then(|s| s.parse::<u64>().ok()))
+            .max()
             .unwrap_or(0)
             + 1;
         let seed: [u8; 32] = cleis_crypto::random_bytes().unwrap_or([0; 32]);
@@ -395,9 +437,9 @@ impl Engine {
             sig: String::new(),
         };
         op.sig = B64.encode(&self.signing.sign(OP_DOMAIN, &op.signed()));
-        let file = dir.join(format!("{seq:010}.json"));
+        let file = format!("{dir}/{seq:010}.json");
         let bytes = serde_json::to_vec(&op).unwrap_or_default();
-        if let Err(e) = write_atomic(&file, &bytes) {
+        if let Err(e) = self.store.write(&file, &bytes) {
             return answer(500, "folder", &e);
         }
         let key = op.key();
@@ -409,7 +451,7 @@ impl Engine {
         let a = mine.unwrap_or_else(|| answer(500, "folder", "The change was not applied"));
         if a.status >= 400 {
             // Refused here, so refused on every copy: nothing to keep.
-            let _ = std::fs::remove_file(&file);
+            self.store.remove(&file);
             self.cache.remove(&file);
             self.applied.retain(|k| *k != key);
         }
@@ -445,12 +487,6 @@ impl Engine {
             body.to_vec(),
         )
     }
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 /// The engine as the network client's API.

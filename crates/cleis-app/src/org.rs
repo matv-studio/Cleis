@@ -98,6 +98,19 @@ pub struct FolderSpec {
     pub folder: Option<PathBuf>,
     pub replica: PathBuf,
     pub member: Option<MemberId>,
+    /// SFTP folder: how this vault signs in there (kept sealed in the vault).
+    pub sftp: Option<SftpSecret>,
+}
+
+/// An SFTP shared folder's sign-in and the server's key, sealed in the vault (D-78).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SftpSecret {
+    pub secret: crate::remote::Secret,
+    pub host_key: String,
+}
+
+pub fn sftp_setting(key: &str) -> String {
+    format!("org_sftp:{key}")
 }
 
 /// This computer's file for the organization `key` (one per organization, D-69); the first
@@ -227,8 +240,15 @@ pub fn folder_api(
     let folder = f.folder.as_ref().ok_or_else(|| {
         NetError::Unreachable(tr("Choose the organization's shared folder").into())
     })?;
-    let engine = crate::folder_org::Engine::open(
+    let store = crate::folder_store::store_for(
         folder,
+        f.sftp.as_ref().map(|s| &s.secret),
+        f.sftp.as_ref().map_or("", |s| s.host_key.as_str()),
+    )
+    .map_err(NetError::Unreachable)?;
+    let engine = crate::folder_org::Engine::open_store(
+        store,
+        &folder.display().to_string(),
         &f.replica,
         f.member,
         device,
@@ -883,6 +903,7 @@ impl CleisApp {
         name: String,
         me: String,
         folder: PathBuf,
+        sftp: Option<SftpSecret>,
         cx: &mut Context<Self>,
     ) {
         let path = self.path.clone();
@@ -894,8 +915,29 @@ impl CleisApp {
         let task = cx.background_spawn(async move {
             // The copy is made under a temporary name: the organization's id is not known yet.
             let tmp = replica_dir(&path, &format!("new-{}", uuid::Uuid::new_v4()));
-            let (engine, org, member) = crate::folder_org::Engine::create(
-                &folder,
+            let mut sftp = sftp;
+            let store: Box<dyn crate::folder_store::Store> =
+                match crate::folder_store::SftpPlace::parse(&folder.to_string_lossy()) {
+                    Some(place) => {
+                        let sec = sftp.clone().unwrap_or_default();
+                        let mut st =
+                            crate::folder_store::SftpStore::new(place, sec.secret, sec.host_key)?;
+                        // The server's key, kept from this first connection.
+                        use crate::folder_store::Store;
+                        st.list("")?;
+                        if let Some(s) = sftp.as_mut() {
+                            s.host_key = st.host_key.clone();
+                        }
+                        Box::new(st)
+                    }
+                    None => {
+                        std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+                        Box::new(crate::folder_store::LocalStore(folder.clone()))
+                    }
+                };
+            let (engine, org, member) = crate::folder_org::Engine::create_in(
+                store,
+                &folder.display().to_string(),
                 &tmp,
                 name.trim(),
                 me.trim(),
@@ -915,33 +957,44 @@ impl CleisApp {
                 pins: vec![],
                 member,
             };
-            Ok::<_, String>((m, folder))
+            Ok::<_, String>((m, folder, sftp))
         });
         cx.spawn(async move |this, cx| {
             let r = task.await;
-            this.update(cx, |app, cx| {
-                let path = app.path.clone();
-                match r {
-                    Ok((m, folder)) => {
-                        let key = m.key();
-                        let mut local = load_local(&path, &key);
-                        local.folder = Some(folder);
-                        save_local(&path, &key, &local);
-                        app.org_joined(Ok(m), cx);
-                    }
-                    Err(e) => app.org_joined(Err(e), cx),
-                }
-            })
-            .ok();
+            this.update(cx, |app, cx| app.folder_joined(r, cx)).ok();
         })
         .detach();
         cx.notify();
+    }
+
+    /// A shared-folder organization created or joined: where its folder is on this computer and,
+    /// for SFTP, how to sign in there (sealed in the vault).
+    fn folder_joined(
+        &mut self,
+        r: Result<(Membership, PathBuf, Option<SftpSecret>), String>,
+        cx: &mut Context<Self>,
+    ) {
+        let path = self.path.clone();
+        match r {
+            Ok((m, folder, sftp)) => {
+                let key = m.key();
+                let mut local = load_local(&path, &key);
+                local.folder = Some(folder);
+                save_local(&path, &key, &local);
+                if let (Some(sec), Some(s)) = (sftp, self.session()) {
+                    let _ = s.vault.set_org_setting(&sftp_setting(&key), &sec);
+                }
+                self.org_joined(Ok(m), cx);
+            }
+            Err(e) => self.org_joined(Err(e), cx),
+        }
     }
 
     /// Shared folder (D-78): joins the organization in `folder` with an invitation code.
     pub fn org_join_folder(
         &mut self,
         folder: PathBuf,
+        sftp: Option<SftpSecret>,
         code: String,
         name: String,
         email: String,
@@ -954,8 +1007,23 @@ impl CleisApp {
         s.join.busy = true;
         s.join.error = None;
         let task = cx.background_spawn(async move {
-            let info = crate::folder_org::Engine::org_file(&folder)
-                .ok_or_else(|| crate::trf!("No Cleis organization in {}", folder.display()))?;
+            let mut sftp = sftp;
+            let info = {
+                let mut store =
+                    crate::folder_store::store_for(&folder, sftp.as_ref().map(|s| &s.secret), "")?;
+                crate::folder_org::Engine::org_file_in(store.as_mut())
+                    .ok_or_else(|| crate::trf!("No Cleis organization in {}", folder.display()))?
+            };
+            if let (Some(sec), Some(place)) = (
+                sftp.as_mut(),
+                crate::folder_store::SftpPlace::parse(&folder.to_string_lossy()),
+            ) {
+                let mut st =
+                    crate::folder_store::SftpStore::new(place, sec.secret.clone(), String::new())?;
+                use crate::folder_store::Store;
+                st.list("")?;
+                sec.host_key = st.host_key.clone();
+            }
             let replica = replica_dir(&path, &info.id.to_string());
             let key = replica.display().to_string();
             let spec = FolderSpec {
@@ -963,6 +1031,7 @@ impl CleisApp {
                 folder: Some(folder.clone()),
                 replica,
                 member: None,
+                sftp: sftp.clone(),
             };
             let device = device_name();
             let mut client = Client::new(FOLDER, Trust::Pinned(vec![]));
@@ -982,24 +1051,12 @@ impl CleisApp {
                     member: reply.member,
                 },
                 folder,
+                sftp,
             ))
         });
         cx.spawn(async move |this, cx| {
             let r = task.await;
-            this.update(cx, |app, cx| {
-                let path = app.path.clone();
-                match r {
-                    Ok((m, folder)) => {
-                        let key = m.key();
-                        let mut local = load_local(&path, &key);
-                        local.folder = Some(folder);
-                        save_local(&path, &key, &local);
-                        app.org_joined(Ok(m), cx);
-                    }
-                    Err(e) => app.org_joined(Err(e), cx),
-                }
-            })
-            .ok();
+            this.update(cx, |app, cx| app.folder_joined(r, cx)).ok();
         })
         .detach();
     }
@@ -1156,11 +1213,17 @@ impl CleisApp {
         // The copy is this vault's: its folder names it (one vault per run, several in tests).
         let replica = replica_dir(&self.path, &o.m.key());
         let rkey = replica.display().to_string();
+        let sftp = s
+            .vault
+            .org_setting::<SftpSecret>(&sftp_setting(&o.m.key()))
+            .ok()
+            .flatten();
         let folder = o.m.in_folder().then(|| FolderSpec {
             key: rkey.clone(),
             folder: o.local.folder.clone(),
             replica: replica.clone(),
             member: Some(o.m.member),
+            sftp,
         });
         if folder.is_some() {
             client.local = crate::folder_org::api_of(&rkey);
