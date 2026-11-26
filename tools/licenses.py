@@ -19,7 +19,9 @@ if args[:1] == ["-o"]:
 roots = set(args) or {"cleis-app", "cleis-server"}
 host = next(
     l.split(": ", 1)[1]
-    for l in subprocess.run(["rustc", "-vV"], capture_output=True, text=True).stdout.splitlines()
+    for l in subprocess.run(
+        ["rustc", "-vV"], capture_output=True, text=True, encoding="utf-8"
+    ).stdout.splitlines()
     if l.startswith("host: ")
 )
 meta = json.loads(
@@ -28,6 +30,8 @@ meta = json.loads(
         check=True,
         capture_output=True,
         text=True,
+        # cargo writes UTF-8; Windows would otherwise decode it with the ANSI code page.
+        encoding="utf-8",
     ).stdout
 )
 pkgs = {p["id"]: p for p in meta["packages"]}
