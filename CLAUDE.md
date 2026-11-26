@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-76,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-77,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -33,11 +33,13 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   dans l'historique (D-41). Messages en anglais, à l'impératif, préfixés par la zone :
   `crypto: …`, `core: …`, `store: …`, `app: …`, `server: …`, `docs: …`, `ci: …`. Terminer par les
   lignes `Co-Authored-By` et `Claude-Session`.
-- Version : la session ne peut ni pousser une étiquette (proxy) ni créer ou modifier une version (API).
-  Vérifier d'abord le build Windows en poussant sur `build/full-app`, puis préparer pour l'utilisateur
-  un script dans `C:\MATV_LOCAL\_Interne\Cleis\` (modèle : `etiquette-v0.2.0.ps1`, auteur de
-  l'étiquette `Claude`) et les notes EN + FR ; `release.yml` construit le brouillon sur l'étiquette,
-  l'utilisateur colle les notes et publie. Dépôt local de l'utilisateur : `...\Cleis\cleis`.
+- Version (D-77, comme Revel) : la session ne pousse pas d'étiquette elle-même (proxy). Vérifier le
+  build Windows en poussant sur `build/full-app`, faire essayer l'installateur ; **quand l'utilisateur
+  valide**, pousser la branche `release/vX.Y.Z` sur le commit validé (`git push origin
+  <sha>:refs/heads/release/vX.Y.Z`) : `tag.yml` pose l'étiquette (auteur Claude), lance `release.yml` sur
+  elle (brouillon) et retire la branche. Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes EN + FR
+  fournies à l'utilisateur, qui les colle et publie. Secours : script `etiquette-vX.Y.Z.bat` dans
+  `C:\MATV_LOCAL\_Interne\Cleis\` (modèle `etiquette-v0.2.0.ps1`).
 - Branches : `feat/<sujet>`, `fix/<sujet>`. Les choix validés sont poussés directement sur la
   branche de travail (`feat/full-app`), sans PR (demande de l'utilisateur). `main` reste vert.
 - Langue : anglais pour l'interface et le code ; anglais + français à la sortie des versions.

@@ -564,6 +564,14 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Reste à essayer sur un vrai Windows Hello (le code Windows est vérifié par clippy, pas
     exécuté ici).
 
+- **D-77 Étiquette de version posée par GitHub Actions** (26/11/2026, demande de l'utilisateur, comme
+  Revel) : la session ne peut pas pousser d'étiquette (proxy). Quand l'utilisateur valide une version
+  sur son PC, la session pousse `release/vX.Y.Z` sur le commit validé ; `tag.yml` vérifie que la
+  version correspond à `Cargo.toml` et que l'étiquette n'existe pas, la pose (auteur Claude, D-41),
+  lance `release.yml` sur elle par un `workflow_dispatch` (une étiquette poussée avec `GITHUB_TOKEN`
+  ne lance aucun flux, une demande de lancement oui) et retire la branche. Le brouillon reste publié
+  par l'utilisateur. Le script `etiquette-vX.Y.Z.bat` reste le secours.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
