@@ -166,7 +166,8 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
             s,
             t,
             &format!("org-{okey}"),
-            "users",
+            // D-79: its PIN not given yet.
+            if o.pin.is_some() { "lock" } else { "users" },
             o.m.name.clone(),
             n,
             Filter::Org(h),

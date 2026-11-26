@@ -1229,10 +1229,15 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                     d.child(super::trash::page(s, t, cx))
                 })
                 .when(s.filter != Filter::Trash, |d| {
-                    d.child(center)
-                        .when_some(s.selected_entry().cloned(), |d, e| {
-                            d.child(super::inspector::render(s, &e, t, cx))
-                        })
+                    // D-79: an organization whose PIN is asked shows the PIN, not its items.
+                    match super::org::pin_shown(s) {
+                        Some(o) => d.child(super::org::pin_card(o, t, cx)),
+                        None => d
+                            .child(center)
+                            .when_some(s.selected_entry().cloned(), |d, e| {
+                                d.child(super::inspector::render(s, &e, t, cx))
+                            }),
+                    }
                 }),
         )
         .child(statusbar(s, t))

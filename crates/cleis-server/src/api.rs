@@ -1538,6 +1538,7 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
         events,
         methods: app.config.methods(),
         providers: providers(&app),
+        pin_set: db::meta_get(&conn, "pin")?.is_some(),
     }))
 }
 
@@ -2344,6 +2345,11 @@ async fn set_policy(
         caller.can(Perm::Rules)?;
     }
     db::meta_set_json(&conn, "policy", &req)?;
+    // D-79: a PIN of another length is no longer the PIN: set again before it is asked.
+    if req.pin.length != before.pin.length {
+        db::meta_del(&conn, "pin")?;
+        conn.execute("DELETE FROM pin_ok", [])?;
+    }
     // Written even when the new policy records nothing, so turning the log off is visible.
     if before.record_activity {
         app.log

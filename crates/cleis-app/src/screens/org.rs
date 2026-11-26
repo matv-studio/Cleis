@@ -73,6 +73,8 @@ pub struct JoinForm {
 #[derive(Default)]
 pub struct OrgUi {
     pub subs: Vec<Subscription>,
+    /// Security policy › Organization PIN: the new PIN's box (D-79).
+    pub pin_new: Option<Entity<InputState>>,
     pub menu: Option<OrgMenu>,
     pub invite: Option<InviteForm>,
     /// Code of the invitation just made, shown with a copy button.
@@ -507,7 +509,10 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .when(o.ui.menu == Some(OrgMenu::Spaces(id)), |d| {
                 d.child(deferred(sm))
             });
-        let two_fa = if m.two_fa {
+        let two_fa = if m.pin_locked {
+            // D-79: too many wrong PINs; "Unlock PIN" in the member's menu.
+            chip(t, Tone::Danger, tr("PIN locked"), true)
+        } else if m.two_fa {
             chip(t, Tone::Ok, tr("On"), true)
         } else {
             chip(t, Tone::Warn, tr("To set up"), true)
@@ -844,6 +849,26 @@ pub fn member_menu(
             .test_support(),
         );
     }
+    // D-79: locked out by wrong PINs.
+    if m.pin_locked && o.can(Perm::Rules) {
+        menu = menu.child(
+            menu_item(
+                format!("unlockpin-{id}"),
+                t,
+                Some("lock"),
+                tr("Unlock PIN"),
+                false,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(o) = this.session().and_then(|s| s.org.as_mut()) {
+                    o.ui.menu = None;
+                }
+                this.close_ctx(cx);
+                this.org_reset_pin(id, cx);
+            }))
+            .test_support(),
+        );
+    }
     if reach && o.can(Perm::Manage) {
         menu = menu.child(
             menu_item(
@@ -948,6 +973,16 @@ const OFFLINE: [(u32, &str); 4] = [
     (30, "30 days"),
 ];
 const MIN_LEN: [u32; 6] = [8, 10, 12, 14, 16, 20];
+/// Mockup 36g (D-79).
+const PIN_AGAIN: [(u32, &str); 5] = [
+    (1, "1 hour"),
+    (4, "4 hours"),
+    (8, "8 hours"),
+    (24, "1 day"),
+    (168, "7 days"),
+];
+const PIN_TRIES: [u32; 3] = [3, 5, 10];
+const PIN_LENGTHS: [u8; 3] = [4, 6, 8];
 /// Mockup 35k (D-76).
 const UNLOCK_RULES: [(cleis_core::org::UnlockRule, &str); 3] = [
     (
@@ -1191,6 +1226,140 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     cx,
                 )),
         );
+    // Mockup 36g (D-79): one PIN for the organization, asked before its spaces open.
+    let pin = p.pin;
+    let mut pin_sec = section(t)
+        .child(titled(
+            t,
+            tr("Organization PIN"),
+            Some(tr(
+                "Asked before the organization's spaces open, on top of the vault's own unlock",
+            )),
+        ))
+        .child(
+            row(t, true).child(div().flex_1().child(tr("PIN"))).child(
+                switch("pol-pin", t, pin.on)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.org_set_policy(|p| p.pin.on = !p.pin.on, cx)
+                    }))
+                    .test_support(),
+            ),
+        );
+    if pin.on {
+        let len_ix = PIN_LENGTHS
+            .iter()
+            .position(|l| *l == pin.length)
+            .unwrap_or(1);
+        pin_sec = pin_sec
+            .child(
+                row(t, false)
+                    .child(
+                        div()
+                            .id("pin-new-l")
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(tr(if st.pin_set {
+                                "Change the PIN"
+                            } else {
+                                "Set the PIN"
+                            }))
+                            .when(!st.pin_set, |d| {
+                                d.child(
+                                    div()
+                                        .text_size(TEXT_SM)
+                                        .text_color(t.warning_text)
+                                        .child(tr("Not set yet")),
+                                )
+                            })
+                            .tooltip(tip(tr(
+                                "Give it to the members; every device is asked the new one",
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .items_center()
+                            .when_some(o.ui.pin_new.as_ref(), |d, i| {
+                                d.child(div().w(px(120.)).child(Input::new(i).id("pin-new")))
+                            })
+                            .child(
+                                button("pin-set", t, BtnKind::Default, false)
+                                    .child(tr("Set"))
+                                    .on_click(cx.listener(|this, _, _, cx| this.org_set_pin(cx)))
+                                    .test_support(),
+                            ),
+                    ),
+            )
+            .child(
+                row(t, false)
+                    .child(
+                        div()
+                            .id("pin-len-l")
+                            .flex_1()
+                            .child(tr("Length"))
+                            .tooltip(tip(tr("Another length asks for a new PIN"))),
+                    )
+                    .child(seg(
+                        "pin-len",
+                        t,
+                        &["4", "6", "8"],
+                        len_ix,
+                        Rc::new(|app, i, cx| {
+                            app.org_set_policy(|p| p.pin.length = PIN_LENGTHS[i], cx)
+                        }),
+                        cx,
+                    )),
+            )
+            .child(
+                row(t, false)
+                    .child(
+                        div()
+                            .id("pin-again-l")
+                            .flex_1()
+                            .child(tr("Ask again after"))
+                            .tooltip(tip(tr("Then the PIN is asked again"))),
+                    )
+                    .child(sel(
+                        "pol-pin-again",
+                        160.,
+                        PIN_AGAIN
+                            .iter()
+                            .map(|(h, l)| ((*l).into(), *h == pin.again_hours))
+                            .collect(),
+                        Rc::new(|app, i, cx| {
+                            app.org_set_policy(|p| p.pin.again_hours = PIN_AGAIN[i].0, cx)
+                        }),
+                        cx,
+                    )),
+            )
+            .child(
+                row(t, false)
+                    .child(
+                        div()
+                            .id("pin-tries-l")
+                            .flex_1()
+                            .child(tr("Wrong tries before locking"))
+                            .tooltip(tip(tr(
+                                "The member's access is suspended until an admin resets it",
+                            ))),
+                    )
+                    .child(sel(
+                        "pol-pin-tries",
+                        160.,
+                        PIN_TRIES
+                            .iter()
+                            .map(|n| (n.to_string(), *n == pin.tries))
+                            .collect(),
+                        Rc::new(|app, i, cx| {
+                            app.org_set_policy(|p| p.pin.tries = PIN_TRIES[i], cx)
+                        }),
+                        cx,
+                    )),
+            );
+    }
     let passwords = section(t)
         .child(titled(
             t,
@@ -1335,6 +1504,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(rules_lock("pol-lock-signing", rules, signing))
         .child(rules_lock("pol-lock-methods", rules, methods))
         .child(rules_lock("pol-lock-opening", rules, opening))
+        .child(rules_lock("pol-lock-pin", rules, pin_sec))
         .child(locking)
         .child(passwords)
         .child(rules_lock("pol-lock-log", rules, log))
@@ -2681,6 +2851,105 @@ fn method_short(m: Method) -> &'static str {
     }
 }
 
+/// The organization whose PIN is asked, when the vault shows it (its tab, or its section in the
+/// sidebar) (D-79).
+pub fn pin_shown(s: &Session) -> Option<&OrgSession> {
+    use crate::app::{Filter, Scope};
+    s.all_orgs().find(|o| {
+        o.pin.is_some()
+            && match (&s.scope, &s.filter) {
+                (Scope::Org(k), _) => *k == o.m.key(),
+                (_, Filter::Org(h)) => *h == crate::app::org_hash(&o.m.key()),
+                _ => false,
+            }
+    })
+}
+
+/// Mockup 36h: the organization's PIN, in the place of its items.
+pub fn pin_card(o: &OrgSession, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let Some(p) = o.pin.as_ref() else {
+        return div();
+    };
+    let key = o.m.key();
+    let busy = p.busy;
+    let mut body = section(t).gap(px(12.)).child(
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(8.))
+            .child(
+                div()
+                    .size(px(40.))
+                    .rounded(RADIUS_LG)
+                    .bg(t.surface_active)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon("lock", 20., t.text)),
+            )
+            .child(
+                div()
+                    .text_size(TEXT_XL)
+                    .line_height(px(26.))
+                    .font_weight(W_STRONG)
+                    .child(o.m.name.clone()),
+            )
+            .child(
+                div()
+                    .id("pin-label")
+                    .text_color(t.text_muted)
+                    .child(tr("Organization PIN"))
+                    .tooltip(tip(tr("Set by your organization"))),
+            ),
+    );
+    if p.locked {
+        body = body.child(
+            div()
+                .id("pin-locked")
+                .text_align(gpui_kit::TextAlign::Center)
+                .text_color(t.danger_text)
+                .child(tr(
+                    "Too many wrong PINs. Ask an admin to unlock your access.",
+                )),
+        );
+    } else {
+        body = body
+            .when_some(p.input.as_ref(), |d, i| {
+                d.child(gpui_kit::component::Sizable::large(
+                    Input::new(i).id("org-pin").mask_toggle(),
+                ))
+            })
+            .when_some(p.error.clone(), |d, e| {
+                d.child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.danger_text)
+                        .child(crate::i18n::tr_dynamic(&e)),
+                )
+            })
+            .child(
+                button("pin-open", t, BtnKind::Primary, false)
+                    .h(px(32.))
+                    .w_full()
+                    .when(busy, |b| b.opacity(0.6))
+                    .child(tr("Open"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let key = key.clone();
+                        this.in_org(&key, |app| app.org_pin_submit(cx));
+                    }))
+                    .test_support(),
+            );
+    }
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(div().w(px(340.)).child(body))
+}
+
 /// The dialog open over the main window, if any.
 pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div> {
     let o = s.org.as_ref()?;
@@ -3239,6 +3508,48 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
 impl CleisApp {
     /// Inputs of the organization screens (they need the window).
     pub fn ensure_org_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // D-79: the PIN box of each organization that asks it; emptied after a wrong PIN.
+        if let Some(i) = self.pin_clear.take() {
+            i.update(cx, |i, cx| i.set_value("", window, cx));
+        }
+        let Some(s) = self.session() else { return };
+        let wanted: Vec<String> = s
+            .all_orgs()
+            .filter(|o| {
+                o.pin
+                    .as_ref()
+                    .is_some_and(|p| p.input.is_none() && !p.locked)
+            })
+            .map(|o| o.m.key())
+            .collect();
+        for key in wanted {
+            let st = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(true)
+                    .placeholder("••••••")
+            });
+            let k = key.clone();
+            cx.subscribe_in(
+                &st,
+                window,
+                move |this, _, ev: &gpui_kit::component::input::InputEvent, _, cx| {
+                    if matches!(
+                        ev,
+                        gpui_kit::component::input::InputEvent::PressEnter { .. }
+                    ) {
+                        this.in_org(&k, |app| app.org_pin_submit(cx));
+                    }
+                },
+            )
+            .detach();
+            if let Some(o) = self
+                .session()
+                .and_then(|s| s.all_orgs_mut().find(|o| o.m.key() == key))
+                && let Some(p) = o.pin.as_mut()
+            {
+                p.input = Some(st);
+            }
+        }
         let Some(s) = self.session() else { return };
         // Preferences › Vaults: the personal vault's name, renamed on Enter or when left.
         if s.tab == crate::app::Tab::Settings && s.vault_name.is_none() {
@@ -3259,6 +3570,13 @@ impl CleisApp {
             if let Some(s) = self.session() {
                 s.vault_name = Some((st, sub));
             }
+        }
+        let Some(s) = self.session() else { return };
+        if s.settings_page == "Security policy"
+            && let Some(o) = s.org.as_mut()
+            && o.ui.pin_new.is_none()
+        {
+            o.ui.pin_new = Some(cx.new(|cx| InputState::new(window, cx).masked(true)));
         }
         let Some(s) = self.session() else { return };
         let joining = s.org.is_none() || s.settings_page == "Add an organization";
@@ -3754,6 +4072,26 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 s.tab = crate::app::Tab::Contacts;
                 s.selected_contact = s.contacts.iter().find(|c| c.photo.is_some()).map(|c| c.id);
                 s.contacts_ui.menu = Some(super::contacts::ContactMenu::Photo);
+            }
+        }
+        // D-79: the organization asks its PIN (mockup 36h).
+        "org-pin" => {
+            if let Some(s) = app.session() {
+                let key = s.org.as_ref().map(|o| o.m.key());
+                if let (Some(o), Some(k)) = (s.org.as_mut(), key) {
+                    o.pin = Some(crate::org::PinPrompt::default());
+                    s.filter = crate::app::Filter::Org(crate::app::org_hash(&k));
+                }
+                crate::org::hide_org_entries(s);
+            }
+        }
+        "policy-pin" => {
+            if let Some(st) = app
+                .session()
+                .and_then(|s| s.org.as_mut())
+                .and_then(|o| o.state.as_mut())
+            {
+                st.policy.pin.on = true;
             }
         }
         "wheel" => {

@@ -67,6 +67,11 @@ pub struct Local {
     /// The policy's offline access, as last received (audit L-3).
     #[serde(default)]
     pub offline_days: Option<u32>,
+    /// The policy's PIN (D-79), as last received: asked again after this many hours.
+    pub pin_hours: Option<u32>,
+    /// The PIN was last given on this computer until then: the organization's spaces open
+    /// without asking it again before.
+    pub pin_until: Option<i64>,
 }
 
 /// This computer's file for the organization `key` (one per organization, D-69); the first
@@ -174,6 +179,8 @@ pub struct Conn {
     /// Set when a sign-in gave a new "remembered device" token.
     pub new_remembered: Option<String>,
     pub setup_code: bool,
+    /// The organization's PIN typed (D-79), kept for the sign-ins of this job.
+    pub pin: Option<Zeroizing<String>>,
 }
 
 impl Conn {
@@ -190,6 +197,7 @@ impl Conn {
                 code: self.code.take(),
                 remembered: self.remembered.clone(),
                 id_token: self.id_token.take(),
+                pin: self.pin.as_ref().map(|p| p.to_string()),
             },
         )?;
         self.client.token = Some(reply.token);
@@ -206,7 +214,11 @@ impl Conn {
             self.sign_in()?;
         }
         match f(&self.client) {
-            Err(e) if e.code() == Some("unauthorized") => {
+            // D-79: past "Ask again after" the session needs the PIN again, given if typed.
+            Err(e)
+                if e.code() == Some("unauthorized")
+                    || e.code() == Some("pin_required") && self.pin.is_some() =>
+            {
                 self.client.token = None;
                 self.sign_in()?;
                 f(&self.client)
@@ -274,6 +286,12 @@ pub enum Outcome {
     SetupCode {
         conn: Box<Conn>,
         hello: Box<Hello>,
+    },
+    /// The organization's PIN is asked (D-79): `message` after a wrong one, `locked` after
+    /// too many.
+    NeedPin {
+        message: Option<String>,
+        locked: bool,
     },
     /// This member was removed from the organization.
     Revoked,
@@ -361,6 +379,13 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
                     wrong: true,
                     message: None,
                 },
+            },
+            Some(c @ ("pin_required" | "wrong_pin" | "pin_locked")) => Outcome::NeedPin {
+                message: match &e {
+                    NetError::Api(_, a) if c != "pin_required" => Some(a.message.clone()),
+                    _ => None,
+                },
+                locked: c == "pin_locked",
             },
             Some("revoked") => Outcome::Revoked,
             Some("setup_code") => Outcome::Failed(tr("Set up your verification code").into()),
@@ -458,6 +483,16 @@ impl CodePrompt {
     }
 }
 
+/// The organization's PIN being asked (mockup 36h).
+#[derive(Default)]
+pub struct PinPrompt {
+    pub input: Option<Entity<InputState>>,
+    pub error: Option<String>,
+    pub busy: bool,
+    /// Too many wrong PINs: an admin has to unlock this member.
+    pub locked: bool,
+}
+
 /// The organization as this session knows it.
 pub struct OrgSession {
     pub m: Membership,
@@ -475,6 +510,8 @@ pub struct OrgSession {
     /// Spaces to pull whole at the next sync.
     pub full: Vec<SpaceId>,
     pub code: Option<CodePrompt>,
+    /// The organization's PIN is asked (D-79): its spaces stay closed until it is given.
+    pub pin: Option<PinPrompt>,
     /// Names of the organization's spaces this session can open.
     pub names: BTreeMap<SpaceId, String>,
     /// The organization's spaces are hidden: not reached for longer than the policy allows.
@@ -608,6 +645,11 @@ impl CleisApp {
                 && local
                     .last_ok
                     .is_some_and(|t| cleis_core::now() - t > offline_days * 86_400);
+            // D-79: the PIN given here is too old (or never given): asked before the spaces open.
+            let pin = (!demo
+                && local.pin_hours.is_some()
+                && local.pin_until.is_none_or(|t| cleis_core::now() >= t))
+            .then(PinPrompt::default);
             let mut o = OrgSession {
                 m,
                 token: None,
@@ -621,6 +663,7 @@ impl CleisApp {
                 super_key: None,
                 full: vec![],
                 code: None,
+                pin,
                 names: BTreeMap::new(),
                 offline_locked,
                 ui: Default::default(),
@@ -641,9 +684,7 @@ impl CleisApp {
         let mut it = sessions.into_iter();
         s.org = it.next();
         s.orgs_idle = it.collect();
-        if s.all_orgs().any(|o| o.offline_locked) {
-            hide_org_entries(s);
-        }
+        hide_org_entries(s);
         // Hosted here: start the server if nothing answers yet.
         let host = s.org.as_ref().and_then(|o| {
             let port = crate::host::port_of(&o.m.address);
@@ -825,6 +866,7 @@ impl CleisApp {
             id_token: None,
             new_remembered: None,
             setup_code: false,
+            pin: None,
         })
     }
 
@@ -834,7 +876,7 @@ impl CleisApp {
             return false;
         };
         let Some(o) = &s.org else { return false };
-        if o.busy || o.code.is_some() || s.gate.is_some() || self.demo {
+        if o.busy || o.code.is_some() || o.pin.is_some() || s.gate.is_some() || self.demo {
             return false;
         }
         let since = o.last_attempt.map_or(i64::MAX, |t| cleis_core::now() - t);
@@ -863,6 +905,11 @@ impl CleisApp {
         };
         conn.code = code;
         conn.id_token = id_token;
+        self.org_run(conn, cx);
+    }
+
+    /// One sync with this connection (sign-in, push, pull, state) off the interface thread.
+    fn org_run(&mut self, conn: Conn, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let Some(o) = s.org.as_mut() else { return };
         let key = o.m.key();
@@ -909,6 +956,14 @@ impl CleisApp {
                 o.error = None;
                 o.local.last_ok = Some(cleis_core::now());
                 o.local.offline_days = Some(state.policy.offline_days);
+                // D-79: the PIN given (or not asked) opens the spaces until "Ask again after".
+                let pin = state.policy.pin;
+                let was_asked = o.pin.take().is_some();
+                o.local.pin_hours = pin.on.then_some(pin.again_hours);
+                if pin.on && (was_asked || o.local.pin_until.is_none()) {
+                    o.local.pin_until =
+                        Some(cleis_core::now() + i64::from(pin.again_hours.max(1)) * 3600);
+                }
                 let key = o.m.key();
                 let _ = s.vault.set_org_setting(
                     &remembered_setting(&s.sync.device, &key),
@@ -933,6 +988,9 @@ impl CleisApp {
                     );
                 }
                 apply_state(s, *state, &changes);
+                if was_asked {
+                    let _ = crate::sync::reload(s);
+                }
                 s.enforce_opening(&path);
             }
             Outcome::NeedCode { wrong, message } => {
@@ -982,6 +1040,22 @@ impl CleisApp {
                     .copied()
                     .unwrap_or(Method::AuthenticatorApp);
                 self.org_setup_pick(first, cx);
+            }
+            Outcome::NeedPin { message, locked } => {
+                o.again = false;
+                let p = o.pin.get_or_insert_with(PinPrompt::default);
+                p.busy = false;
+                p.error = message;
+                p.locked = locked;
+                if let Some(i) = p.input.clone() {
+                    self.pin_clear = Some(i);
+                }
+                if let Some(s) = self.session() {
+                    hide_org_entries(s);
+                }
+                self.org_followups(cx);
+                cx.notify();
+                return;
             }
             Outcome::Revoked => {
                 let name = o.m.name.clone();
@@ -1653,6 +1727,64 @@ impl CleisApp {
             |app, r, cx| {
                 if r.is_ok() {
                     app.toast(tr("Two-step verification reset"), cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Unlocks a member locked out by wrong PINs (D-79).
+    pub fn org_reset_pin(&mut self, member: MemberId, cx: &mut Context<Self>) {
+        self.org_request::<_, PushReply>(
+            "/v1/members/reset-pin",
+            IdOnly { id: member.0 },
+            move |app, r, cx| {
+                if r.is_ok() {
+                    if let Some(m) = app
+                        .session()
+                        .and_then(|s| s.org.as_mut())
+                        .and_then(|o| o.state.as_mut())
+                        .and_then(|st| st.members.iter_mut().find(|m| m.id == member))
+                    {
+                        m.pin_locked = false;
+                    }
+                    app.toast(tr("PIN unlocked"), cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Security policy › Organization PIN: the PIN typed becomes the organization's (D-79).
+    pub fn org_set_pin(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = self.session().and_then(|s| s.org.as_mut()) else {
+            return;
+        };
+        let Some(rule) = o.state.as_ref().map(|st| st.policy.pin) else {
+            return;
+        };
+        let Some(input) = o.ui.pin_new.clone() else {
+            return;
+        };
+        let pin = input.read(cx).value().trim().to_string();
+        if !rule.accepts(&pin) {
+            self.toast(crate::trf!("The PIN has {} digits", rule.length), cx);
+            return;
+        }
+        self.pin_clear = Some(input);
+        self.org_request::<_, PushReply>(
+            "/v1/policy/pin",
+            PinSet { pin },
+            |app, r, cx| {
+                if r.is_ok() {
+                    if let Some(st) = app
+                        .session()
+                        .and_then(|s| s.org.as_mut())
+                        .and_then(|o| o.state.as_mut())
+                    {
+                        st.pin_set = true;
+                    }
+                    app.toast(tr("PIN set"), cx);
                 }
             },
             cx,
@@ -2523,21 +2655,32 @@ pub fn parse_recovery(text: &str) -> Option<KeyPair> {
     })
 }
 
-/// Hides the organization's entries (offline longer than the policy allows).
-fn hide_org_entries(s: &mut Session) {
-    // Only the organizations not reached for too long (D-69: each has its own policy).
+/// Hides the organization's entries and contacts: not reached for longer than the policy
+/// allows, or its PIN not given yet (D-79).
+pub fn hide_org_entries(s: &mut Session) {
+    // Only those organizations (D-69: each has its own policy).
     let org_spaces: Vec<SpaceId> = s
         .all_orgs()
-        .filter(|o| o.offline_locked)
+        .filter(|o| o.offline_locked || o.pin.is_some())
         .flat_map(|o| {
             s.vault
                 .org_spaces(&o.m.key())
                 .unwrap_or_default()
                 .into_iter()
                 .map(|x| x.0)
+                .chain(o.names.keys().copied())
         })
         .collect();
+    if org_spaces.is_empty() {
+        return;
+    }
+    if s.selected_entry()
+        .is_some_and(|e| org_spaces.contains(&e.space))
+    {
+        s.selected = None;
+    }
     s.entries.retain(|e| !org_spaces.contains(&e.space));
+    s.contacts.retain(|c| !org_spaces.contains(&c.space));
     s.spaces.retain(|sp| !org_spaces.contains(&sp.id));
     s.refilter();
 }
@@ -2653,6 +2796,36 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
 }
 
 impl CleisApp {
+    /// The PIN typed (mockup 36h): the next sign-in carries it.
+    pub fn org_pin_submit(&mut self, cx: &mut Context<Self>) {
+        let Some(mut conn) = self.org_conn() else {
+            return;
+        };
+        let Some(o) = self.session().and_then(|s| s.org.as_mut()) else {
+            return;
+        };
+        let Some(p) = o.pin.as_mut() else { return };
+        if p.busy || p.locked {
+            return;
+        }
+        let typed = p
+            .input
+            .as_ref()
+            .map(|i| i.read(cx).value().trim().to_string())
+            .unwrap_or_default();
+        if typed.is_empty() {
+            p.error = Some(tr("Enter the PIN").into());
+            cx.notify();
+            return;
+        }
+        p.busy = true;
+        p.error = None;
+        // A new sign-in: the session (if any) was opened before the PIN was asked.
+        conn.client.token = None;
+        conn.pin = Some(Zeroizing::new(typed));
+        self.org_run(conn, cx);
+    }
+
     /// Reserves a space or frees it (Super Admin, D-61). A Standard space is re-encrypted
     /// end-to-end first: the dialog opens for that.
     pub fn org_reserve(&mut self, id: SpaceId, reserved: bool, cx: &mut Context<Self>) {

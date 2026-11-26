@@ -780,3 +780,126 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
         assert_eq!(f.iter().find(|e| e.id == figma).unwrap().space, general);
     });
 }
+
+/// Scenario (mockups 36g, 36h, D-79): Lea turns the organization PIN on and sets it; Hugo's
+/// app closes the organization's spaces and asks the PIN in their place; a wrong PIN is refused,
+/// the right one opens them again (the lock-out after too many is in the server's tests).
+#[gpui_kit::test]
+fn organization_pin(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, code) = server(dir.path().join("server"));
+    let (lh, lea) = open(cx, &dir.path().join("lea.cleis"));
+    cx.run_until_parked();
+    first_launch(cx, lh, &addr, &code, Some("Lea Martin"));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("new-space", cx));
+    act(cx, lh, |w, cx| {
+        w.click("space-name", cx);
+        w.input("General", cx);
+        w.click("space-create", cx);
+    });
+    sync(cx, &lea);
+    let general = session(cx, &lea, |s| {
+        s.org.as_ref().unwrap().state.as_ref().unwrap().spaces[0].id
+    });
+    lea.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        s.vault
+            .put_entry(&cleis_core::Entry::new(general, "Figma"))
+            .unwrap();
+    });
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| w.click("set-Members", cx));
+    act(cx, lh, |w, cx| w.click("invite", cx));
+    act(cx, lh, |w, cx| {
+        w.click("inv-email", cx);
+        w.input("hugo@example-studio.com", cx);
+        w.click("inv-name", cx);
+        w.input("Hugo Bernard", cx);
+        w.click(format!("inv-sp-{general}"), cx);
+        w.click("inv-send", cx);
+    });
+    let hugo_code = session(cx, &lea, |s| {
+        s.org.as_ref().unwrap().ui.invite_code.clone().unwrap()
+    });
+    act(cx, lh, |w, cx| w.click("invite-done", cx));
+    let (hh, hugo) = open(cx, &dir.path().join("hugo.cleis"));
+    cx.run_until_parked();
+    first_launch(cx, hh, &addr, &hugo_code, None);
+    sync(cx, &hugo);
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    let sees_figma = |cx: &mut TestAppContext| {
+        session(cx, &hugo, |s| s.entries.iter().any(|e| e.name == "Figma"))
+    };
+    assert!(sees_figma(cx));
+
+    // Lea: Security policy › Organization PIN, on, 4 digits, set.
+    act(cx, lh, |w, cx| w.click("set-Security policy", cx));
+    act(cx, lh, |w, cx| w.click("pol-pin", cx));
+    act(cx, lh, |w, cx| w.click("pin-len-0", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| {
+        w.click("pin-new", cx);
+        w.input("4821", cx);
+        w.click("pin-set", cx);
+    });
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        assert!(st.policy.pin.on && st.pin_set);
+        assert!(
+            s.org.as_ref().unwrap().pin.is_none(),
+            "not asked of the admin who set it"
+        );
+    });
+
+    // Hugo: the next session asks it; the organization's items are closed.
+    hugo.update(cx, |a, _| {
+        if let Some(o) = a.session().and_then(|s| s.org.as_mut()) {
+            o.token = None;
+        }
+    });
+    sync(cx, &hugo);
+    assert!(session(cx, &hugo, |s| s
+        .org
+        .as_ref()
+        .unwrap()
+        .pin
+        .is_some()));
+    assert!(!sees_figma(cx));
+    let okey = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.key());
+    act(cx, hh, |w, cx| w.click(format!("org-{okey}"), cx));
+    act(cx, hh, |w, cx| {
+        w.click("org-pin", cx);
+        w.input("0000", cx);
+        w.click("pin-open", cx);
+    });
+    cx.run_until_parked();
+    let err = session(cx, &hugo, |s| {
+        s.org
+            .as_ref()
+            .unwrap()
+            .pin
+            .as_ref()
+            .and_then(|p| p.error.clone())
+    });
+    assert!(err.is_some_and(|e| e.starts_with("Wrong PIN")));
+    assert!(!sees_figma(cx));
+    act(cx, hh, |w, cx| {
+        w.click("org-pin", cx);
+        w.input("4821", cx);
+        w.click("pin-open", cx);
+    });
+    cx.run_until_parked();
+    assert!(session(cx, &hugo, |s| s
+        .org
+        .as_ref()
+        .unwrap()
+        .pin
+        .is_none()));
+    assert!(sees_figma(cx));
+}

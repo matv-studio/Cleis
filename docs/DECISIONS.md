@@ -572,6 +572,26 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   ne lance aucun flux, une demande de lancement oui) et retire la branche. Le brouillon reste publié
   par l'utilisateur. Le script `etiquette-vX.Y.Z.bat` reste le secours.
 
+- **D-79 Code PIN de l'organisation** (26/11/2026, demande de l'utilisateur : « un simple pin mis en
+  place par l'admin afin d'accéder à l'espace entreprise » ; maquettes 36g, 36h validées). Un seul PIN
+  pour l'organisation, fixé par un administrateur (droit « Règles ») et communiqué aux membres.
+  Politique : actif ou non, longueur 4 / 6 / 8 chiffres, redemandé après 1 h à 7 jours (8 h par
+  défaut), blocage après 3 / 5 / 10 erreurs. Le serveur garde l'empreinte Argon2id du PIN
+  (`meta.pin`, jamais envoyée aux applis) ; il le demande à l'ouverture de session (avant la
+  vérification en deux étapes, pour ne pas consommer un code) et à tout appel passé le délai
+  (`pin_required`) ; il compte les erreurs par membre (`members.pin_fails`) et bloque au seuil
+  (`pin_locked`, sessions fermées) jusqu'à « Débloquer le code PIN » d'un administrateur ou
+  `cleis-server unlock-pin` (dernier administrateur bloqué). Un PIN donné ouvre l'appareil pour le
+  délai (`pin_ok`). Changer de longueur efface le PIN : à redéfinir. L'administrateur qui le fixe
+  n'est pas interrogé sur son appareil. Dans l'appli, les éléments, contacts et dossiers de
+  l'organisation sont masqués tant que le PIN n'est pas donné ; sa section de la barre latérale
+  porte un cadenas et montre la carte du PIN à la place de la liste.
+  - Écart à la maquette 36g : une ligne « Définir le code PIN » (case + « Définir ») a été ajoutée,
+    la maquette ne montrait pas où saisir le PIN.
+  - Limite : la copie locale reste déchiffrable par la clé du coffre ; le PIN protège l'accès au
+    serveur (synchronisation) et l'affichage, pas le fichier. Une protection du fichier
+    demanderait de sceller les clés des espaces avec un secret remis par le serveur après le PIN.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

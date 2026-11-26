@@ -908,6 +908,9 @@ pub struct State {
     pub methods: Vec<Method>,
     #[serde(default)]
     pub providers: Vec<Provider>,
+    /// The organization's PIN has been set (D-79; the PIN itself never leaves the server).
+    #[serde(default)]
+    pub pin_set: bool,
 }
 
 /// A record as stored on the server: the same sealed row as in the vault file.

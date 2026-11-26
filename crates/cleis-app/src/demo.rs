@@ -475,6 +475,7 @@ pub fn org(s: &mut crate::app::Session) {
         account_public: key(),
         verify_key: key(),
         factor: two_fa.then_some(Method::AuthenticatorApp),
+        pin_locked: false,
     };
     let all: Vec<SpaceId> = spaces.iter().map(|x| x.0).collect();
     let today = now - now.rem_euclid(86_400);
@@ -749,6 +750,7 @@ pub fn org(s: &mut crate::app::Session) {
         events: 214,
         methods: vec![Method::AuthenticatorApp, Method::Email, Method::Google],
         providers: vec![],
+        pin_set: false,
     };
     // The organization's contact folders belong to it too (audit L-13).
     let names = spaces
@@ -800,6 +802,8 @@ pub fn org(s: &mut crate::app::Session) {
             last_ok: Some(now - 120),
             host_dir: None,
             offline_days: None,
+            pin_hours: None,
+            pin_until: None,
         },
         state: Some(st),
         busy: false,
@@ -811,6 +815,7 @@ pub fn org(s: &mut crate::app::Session) {
         full: vec![],
         code: None,
         names,
+        pin: None,
         offline_locked: false,
         ui,
     });
@@ -943,6 +948,7 @@ pub fn second_org(s: &mut crate::app::Session) {
         full: vec![],
         code: None,
         names,
+        pin: None,
         offline_locked: false,
         ui: Default::default(),
     });

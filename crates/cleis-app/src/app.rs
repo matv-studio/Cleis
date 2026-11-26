@@ -354,6 +354,10 @@ impl Session {
         self.org.iter().chain(self.orgs_idle.iter())
     }
 
+    pub fn all_orgs_mut(&mut self) -> impl Iterator<Item = &mut crate::org::OrgSession> {
+        self.org.iter_mut().chain(self.orgs_idle.iter_mut())
+    }
+
     /// The organizations in a stable order for the tabs: as joined, then by name.
     pub fn org_tabs(&self) -> Vec<(String, String)> {
         let joined: Vec<String> = crate::org::memberships(&self.vault)
@@ -474,6 +478,8 @@ pub struct CleisApp {
     pub forced_mode: Option<Mode>,
     /// The colour wheel's field to rewrite at the next render (it needs the window).
     pub wheel_field: Option<(Entity<InputState>, String)>,
+    /// The PIN box to empty at the next render (a wrong PIN, D-79).
+    pub pin_clear: Option<Entity<InputState>>,
     /// Main window, brought back when a shortcut is pressed while the vault is locked.
     pub main_window: Option<gpui_kit::AnyWindowHandle>,
     pub autofill: crate::autofill::AutofillState,
@@ -561,6 +567,7 @@ impl CleisApp {
             phase: Phase::Unlock(first),
             forced_mode,
             wheel_field: None,
+            pin_clear: None,
             main_window: Some(window.window_handle()),
             autofill: Default::default(),
             no_shortcuts: false,

@@ -200,6 +200,7 @@ pub fn reload(s: &mut Session) -> cleis_store::Result<()> {
     s.editor = None;
     s.contacts_ui.editor = None;
     s.refilter();
+    crate::org::hide_org_entries(s);
     Ok(())
 }
 
