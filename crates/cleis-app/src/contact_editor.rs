@@ -46,9 +46,9 @@ impl CleisApp {
         let Phase::Main(s) = &self.phase else {
             return None;
         };
+        // Nothing opens by itself: a click opens a contact (26/11/2026).
         s.selected_contact
             .filter(|id| s.contacts.iter().any(|c| c.id == *id))
-            .or_else(|| crate::screens::contacts::listed(s).first().map(|c| c.id))
     }
 
     /// Builds the contact boxes (and the search box) when the contact changed.

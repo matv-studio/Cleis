@@ -430,6 +430,8 @@ fn select(
     id: ContactId,
 ) -> impl Fn(&mut CleisApp, &gpui_kit::ClickEvent, &mut Window, &mut Context<CleisApp>) {
     move |this, _, window, cx| {
+        // The list below must not take it as a click in the void.
+        cx.stop_propagation();
         if let Some(s) = this.session() {
             s.selected_contact = Some(id);
             s.contacts_ui.menu = None;
@@ -582,12 +584,14 @@ fn table(
                 }),
         );
     }
+    // A click below the rows lets go of the contact and closes its panel.
     let mut rows = div()
         .id("contacts")
         .flex_1()
         .overflow_y_scroll()
         .flex()
-        .flex_col();
+        .flex_col()
+        .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)));
     for c in list {
         let id = c.id;
         let selected = sel == Some(id);
@@ -706,6 +710,7 @@ fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
+            .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)))
             .child(grid),
     )
 }
@@ -713,12 +718,7 @@ fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let ui = &s.contacts_ui;
     let list = listed(s);
-    let sel = ui
-        .editor
-        .as_ref()
-        .map(|e| e.contact)
-        .or(s.selected_contact)
-        .or_else(|| list.first().map(|c| c.id));
+    let sel = ui.editor.as_ref().map(|e| e.contact).or(s.selected_contact);
     let center: AnyElement = if ui.filter == ContactFilter::Merge {
         merge_page(s, t, cx).into_any_element()
     } else {
@@ -1012,6 +1012,12 @@ fn inspector(
                         .test_support(),
                 )
                 .when(more_open, |d| d.child(deferred(more))),
+        )
+        .child(
+            icon_button("close-contact", t, "x", false)
+                .tooltip(tip(tr("Close")))
+                .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)))
+                .test_support(),
         );
     let email = c.primary_email();
     let phone = c.primary_phone();

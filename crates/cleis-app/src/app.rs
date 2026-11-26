@@ -435,6 +435,16 @@ impl CleisApp {
         app
     }
 
+    /// No contact shown: its panel closes (click in the void, its "×").
+    pub fn deselect_contact(&mut self, cx: &mut Context<Self>) {
+        if let Some(s) = self.session()
+            && s.selected_contact.take().is_some()
+        {
+            s.contacts_ui.menu = None;
+            cx.notify();
+        }
+    }
+
     /// No item selected: the inspector closes (click in the void, its "×").
     pub fn deselect(&mut self, cx: &mut Context<Self>) {
         if let Some(s) = self.session()

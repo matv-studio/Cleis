@@ -976,8 +976,19 @@ fn contact_columns(cx: &mut TestAppContext) {
                 .unwrap()
                 .visible
         );
-        (c.id.clone(), a.shown_contact().unwrap())
+        (
+            c.id.clone(),
+            cleis_app::screens::contacts::listed(s).first().unwrap().id,
+        )
     });
+    // The first contact opens (nothing opens by itself).
+    app.update(cx, |a, cx| {
+        if let Some(s) = a.session() {
+            s.selected_contact = Some(first);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
     app.update(cx, |a, cx| {
         if let Some(s) = a.session() {
             s.columns_menu = None;
