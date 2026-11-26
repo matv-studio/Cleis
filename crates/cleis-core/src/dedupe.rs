@@ -190,6 +190,9 @@ pub fn merge(keep: &mut Contact, other: &Contact) {
     fill(&mut keep.company, &other.company);
     fill(&mut keep.department, &other.department);
     fill(&mut keep.job_title, &other.job_title);
+    if keep.photo.is_none() {
+        keep.photo.clone_from(&other.photo);
+    }
     merge_list(&mut keep.emails, &other.emails, |a, b| {
         norm_email(a) == norm_email(b)
     });

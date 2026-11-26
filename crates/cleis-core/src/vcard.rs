@@ -313,6 +313,28 @@ pub fn parse(src: &str, space: SpaceId) -> Vec<Contact> {
                         }
                         c.notes.push_str(&unescape(&p.value));
                     }
+                    // vCard 4: `PHOTO:data:image/jpeg;base64,…`; 3.0: `PHOTO;ENCODING=b;TYPE=JPEG:…`.
+                    // A photo given by its web address is not fetched.
+                    "PHOTO" => {
+                        let v = p.value.trim();
+                        let url = if v.starts_with("data:image/") {
+                            Some(v.to_owned())
+                        } else if p.params.iter().any(|(k, x)| {
+                            k == "ENCODING"
+                                && matches!(x.to_ascii_lowercase().as_str(), "b" | "base64")
+                        }) {
+                            let kind = p
+                                .params
+                                .iter()
+                                .find(|(k, _)| k == "TYPE")
+                                .map(|(_, x)| x.to_ascii_lowercase())
+                                .unwrap_or_else(|| "jpeg".into());
+                            Some(format!("data:image/{kind};base64,{v}"))
+                        } else {
+                            None
+                        };
+                        c.photo = url.filter(|u| crate::contact::photo_bytes(u).is_some());
+                    }
                     "CATEGORIES" => c.labels.extend(
                         split_components(&p.value, ',')
                             .into_iter()
@@ -443,6 +465,9 @@ pub fn write(contacts: &[&Contact]) -> String {
         if !c.notes.is_empty() {
             lines.push(format!("NOTE:{}", escape(&c.notes)));
         }
+        if let Some(p) = &c.photo {
+            lines.push(format!("PHOTO:{p}"));
+        }
         lines.push(format!("UID:urn:uuid:{}", c.id));
         lines.push("END:VCARD".into());
         for l in lines {
@@ -512,5 +537,20 @@ mod tests {
         assert_eq!(cs.len(), 2);
         assert_eq!(cs[0].phones[0].label, "Work");
         assert_eq!(cs[1].display_name(), "Paul Lefèvre");
+    }
+
+    #[test]
+    fn photos() {
+        // 3.0 inline photo (base64 of a few bytes), folded over two lines.
+        let src = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Camille Dubois\r\nPHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQSkZJRg\r\n ABAQ==\r\nEND:VCARD\r\nBEGIN:VCARD\r\nVERSION:4.0\r\nFN:Web photo\r\nPHOTO:https://example-print.com/p.jpg\r\nEND:VCARD\r\n";
+        let cs = parse(src, SpaceId::new());
+        let url = cs[0].photo.clone().unwrap();
+        assert_eq!(url, "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==");
+        let (kind, bytes) = crate::contact::photo_bytes(&url).unwrap();
+        assert_eq!((kind.as_str(), &bytes[..2]), ("jpeg", &[0xff, 0xd8][..]));
+        assert_eq!(cs[1].photo, None);
+        // Written as vCard 4 and read back.
+        let back = parse(&write(&[&cs[0]]), cs[0].space).remove(0);
+        assert_eq!(back.photo, cs[0].photo);
     }
 }

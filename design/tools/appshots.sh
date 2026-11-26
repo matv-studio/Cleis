@@ -44,6 +44,7 @@ for theme in ${THEMES:-dark}; do
   shot "import-$theme" --demo --unlocked --tab settings --page import --import "$root/design/tools/notion-export.csv" --theme $theme
   shot "import-review-$theme" --demo --unlocked --tab settings --page import --import "$root/design/tools/notion-export.csv" --review --theme $theme
   shot "contacts-$theme" --demo --unlocked --tab contacts --theme $theme
+  shot "contact-photo-$theme" --demo --unlocked --tab contacts --menu contact-photo --theme $theme
   shot "merge-$theme" --demo --unlocked --tab contacts --page merge --theme $theme
   shot "health-$theme" --demo --unlocked --tab health --theme $theme
   shot "preferences-$theme" --demo --unlocked --tab settings --theme $theme

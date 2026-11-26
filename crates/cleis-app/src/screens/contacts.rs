@@ -36,6 +36,8 @@ pub enum ContactFilter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContactMenu {
     More,
+    /// The inspector's avatar: choose or remove the photo (mockup 36e).
+    Photo,
     AddLabel,
     Link,
 }
@@ -478,7 +480,7 @@ fn contact_cell(
     match col.id.0.as_str() {
         "name" => base
             .gap(px(8.))
-            .child(avatar(t, &c.initials(), 22.))
+            .child(contact_avatar(t, c, 22.))
             .child(
                 div()
                     .font_weight(W_MEDIUM)
@@ -679,7 +681,7 @@ fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(avatar(t, &c.initials(), 32.))
+                        .child(contact_avatar(t, c, 32.))
                         .child(
                             div()
                                 .flex_1()
@@ -930,6 +932,75 @@ fn field_head(t: &Tokens, label: &str, add: Option<impl IntoElement>) -> Div {
         .when_some(add, |d, b| d.child(b))
 }
 
+/// The inspector's avatar (mockup 36e): the pointer over it shows the upload sign; a click opens
+/// Choose a photo… / Remove photo.
+fn photo_button(
+    c: &Contact,
+    open: bool,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    let id = c.id;
+    let has = c.photo.is_some();
+    let menu = menu_box(t)
+        .top(px(44.))
+        .left_0()
+        .min_w(px(200.))
+        .child(
+            menu_item(
+                "cm-photo-choose",
+                t,
+                Some("upload"),
+                tr("Choose a photo…"),
+                false,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.choose_contact_photo(id, cx)))
+            .test_support(),
+        )
+        .when(has, |d| {
+            d.child(
+                menu_item("cm-photo-remove", t, Some("x"), tr("Remove photo"), false)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.set_contact_photo(id, None, cx)),
+                    )
+                    .test_support(),
+            )
+        });
+    div()
+        .relative()
+        .flex_none()
+        .child(
+            div()
+                .id("contact-photo")
+                .group("contact-photo")
+                .relative()
+                .size(px(40.))
+                .rounded_full()
+                .cursor_pointer()
+                .child(contact_avatar(t, c, 40.))
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(gpui_kit::black().opacity(0.55))
+                        .invisible()
+                        .group_hover("contact-photo", |d| d.visible())
+                        .when(open, |d| d.visible())
+                        .child(icon("upload", 16., gpui_kit::white())),
+                )
+                .tooltip(tip(tr("Change photo")))
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.toggle_contact_menu(ContactMenu::Photo, cx)),
+                )
+                .test_support(),
+        )
+        .when(open, |d| d.child(deferred(menu_in("photo-menu", menu))))
+}
+
 fn inspector(
     s: &Session,
     c: &Contact,
@@ -970,7 +1041,7 @@ fn inspector(
         .flex()
         .items_start()
         .gap(px(8.))
-        .child(avatar(t, &c.initials(), 40.))
+        .child(photo_button(c, ui.menu == Some(ContactMenu::Photo), t, cx))
         .child(
             div()
                 .flex_1()
@@ -1641,7 +1712,7 @@ fn merge_card(
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(avatar(t, &c.initials(), 32.))
+                .child(contact_avatar(t, c, 32.))
                 .child(
                     div()
                         .flex()
@@ -1842,6 +1913,76 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 }
 
 impl CleisApp {
+    /// Choose a photo… : a picture file, scaled down and kept in the contact.
+    pub fn choose_contact_photo(&mut self, id: ContactId, cx: &mut Context<Self>) {
+        if let Some(s) = self.session() {
+            s.contacts_ui.menu = None;
+        }
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(tr("Choose a photo…").into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(p) = paths.into_iter().next()
+            {
+                this.update(cx, |this, cx| this.contact_photo_from(id, &p, cx))
+                    .ok();
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// A picture file becomes the contact's photo: centred square, 256 px, JPEG.
+    pub fn contact_photo_from(
+        &mut self,
+        id: ContactId,
+        path: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) {
+        match std::fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|b| portrait(&b))
+        {
+            Ok(url) => self.set_contact_photo(id, Some(url), cx),
+            Err(e) => {
+                if let Some(s) = self.session() {
+                    s.toast = Some(crate::trf!("Photo not read: {}", e).into());
+                }
+                cx.notify();
+            }
+        }
+    }
+
+    pub fn set_contact_photo(
+        &mut self,
+        id: ContactId,
+        photo: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self.session() else { return };
+        s.contacts_ui.menu = None;
+        let Some(i) = s.contacts.iter().position(|c| c.id == id) else {
+            return;
+        };
+        if !s.may(s.contacts[i].space, cleis_core::org::Perm::Edit) {
+            s.toast = Some(tr("Your role does not allow changing it").into());
+            cx.notify();
+            return;
+        }
+        let mut c = s.contacts[i].clone();
+        c.photo = photo;
+        c.updated = cleis_core::now();
+        match s.vault.put_contact(&c) {
+            Ok(()) => s.contacts[i] = c,
+            Err(e) => s.toast = Some(crate::trf!("Not saved: {}", e).into()),
+        }
+        cx.notify();
+    }
+
     pub fn toggle_contact_menu(&mut self, m: ContactMenu, cx: &mut Context<Self>) {
         if let Some(s) = self.session() {
             s.contacts_ui.menu = if s.contacts_ui.menu == Some(m) {
@@ -2238,4 +2379,32 @@ impl CleisApp {
         })
         .detach();
     }
+}
+
+/// Side of a contact's photo, in pixels: sharp at twice the inspector's 40 px, and more.
+const PORTRAIT: u32 = 256;
+
+/// A picture (any format the `image` crate reads) as a contact photo: the centred square, scaled
+/// to [`PORTRAIT`] px, JPEG, as a `data:` URL.
+pub fn portrait(bytes: &[u8]) -> Result<String, String> {
+    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+    let side = img.width().min(img.height());
+    let sq = img.crop_imm(
+        (img.width() - side) / 2,
+        (img.height() - side) / 2,
+        side,
+        side,
+    );
+    let small = sq
+        .resize_exact(
+            PORTRAIT.min(side),
+            PORTRAIT.min(side),
+            image::imageops::FilterType::Lanczos3,
+        )
+        .to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
+        .encode_image(&small)
+        .map_err(|e| e.to_string())?;
+    Ok(cleis_core::contact::photo_url("image/jpeg", &out))
 }

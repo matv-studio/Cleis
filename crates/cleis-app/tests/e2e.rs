@@ -2272,3 +2272,62 @@ fn own_accent_colour(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("wheel-use", cx));
     assert_eq!(accent(cx), (Some("#3366cc".into()), None));
 }
+
+/// Scenario (mockup 36e): a picture becomes a contact's photo (centred square, 256 px JPEG),
+/// shown in place of the initials; the avatar's menu removes it.
+#[gpui_kit::test]
+fn contact_photo(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    // A wide picture: only its centre is kept.
+    let pic = dir.path().join("wide.png");
+    image::RgbImage::from_pixel(600, 300, image::Rgb([40, 120, 200]))
+        .save(&pic)
+        .unwrap();
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    let emma = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.contacts.iter().find(|c| c.given == "Emma").unwrap().id
+    });
+    act(cx, h, |w, cx| {
+        w.click_at(format!("c-{emma}"), gpui_kit::point(px(30.), px(10.)), cx)
+    });
+    app.update(cx, |a, cx| a.contact_photo_from(emma, &pic, cx));
+    let photo = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.contacts
+                .iter()
+                .find(|c| c.id == emma)
+                .unwrap()
+                .photo
+                .clone()
+        })
+    };
+    let url = photo(cx).unwrap();
+    let (kind, bytes) = cleis_core::contact::photo_bytes(&url).unwrap();
+    assert_eq!(kind, "jpeg");
+    let img = image::load_from_memory(&bytes).unwrap();
+    assert_eq!((img.width(), img.height()), (256, 256));
+    // Kept in the vault.
+    let stored = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.vault.contacts().unwrap()
+    });
+    assert_eq!(
+        stored.iter().find(|c| c.id == emma).unwrap().photo,
+        Some(url)
+    );
+
+    act(cx, h, |w, cx| w.click("contact-photo", cx));
+    act(cx, h, |w, cx| w.click("cm-photo-remove", cx));
+    assert_eq!(photo(cx), None);
+}

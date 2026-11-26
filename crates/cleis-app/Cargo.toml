@@ -41,7 +41,7 @@ russh = { version = "0.65", default-features = false, features = ["ring", "rsa",
 russh-sftp = "2"
 tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
 # Colour wheel drawn once (mockup 36), contact photos scaled down (36e). Already in the tree via GPUI.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # Updates (D-74): versions compared.
 semver = "1"
 

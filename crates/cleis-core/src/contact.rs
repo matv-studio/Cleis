@@ -232,9 +232,32 @@ pub struct Contact {
     pub notes: String,
     pub linked_entries: Vec<EntryId>,
     pub fields: BTreeMap<ColumnId, Value>,
+    /// Photo as a `data:image/…;base64,…` URL (vCard 4 `PHOTO`), scaled down by the app
+    /// (mockup 36e, 26/11/2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
     pub created: Timestamp,
     pub updated: Timestamp,
     pub updated_by: Option<MemberId>,
+}
+
+/// Largest photo kept (encoded image, before base64): a scaled-down portrait is far smaller.
+pub const PHOTO_MAX: usize = 512 * 1024;
+
+/// `data:` URL of an image (`mime` such as `image/jpeg`).
+pub fn photo_url(mime: &str, bytes: &[u8]) -> String {
+    format!("data:{mime};base64,{}", data_encoding::BASE64.encode(bytes))
+}
+
+/// The image of a `data:image/…;base64,…` URL: its type (`jpeg`, `png`…) and bytes.
+pub fn photo_bytes(url: &str) -> Option<(String, Vec<u8>)> {
+    let rest = url.strip_prefix("data:image/")?;
+    let (kind, data) = rest.split_once(";base64,")?;
+    let bytes = data_encoding::BASE64
+        .decode(data.trim().as_bytes())
+        .ok()
+        .filter(|b| !b.is_empty() && b.len() <= PHOTO_MAX)?;
+    Some((kind.to_ascii_lowercase(), bytes))
 }
 
 impl Contact {
@@ -264,6 +287,7 @@ impl Contact {
             notes: String::new(),
             linked_entries: vec![],
             fields: BTreeMap::new(),
+            photo: None,
             created: t,
             updated: t,
             updated_by: None,

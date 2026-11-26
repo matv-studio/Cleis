@@ -3749,6 +3749,13 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 ));
             }
         }
+        "contact-photo" => {
+            if let Some(s) = app.session() {
+                s.tab = crate::app::Tab::Contacts;
+                s.selected_contact = s.contacts.iter().find(|c| c.photo.is_some()).map(|c| c.id);
+                s.contacts_ui.menu = Some(super::contacts::ContactMenu::Photo);
+            }
+        }
         "wheel" => {
             if let Some(s) = app.session() {
                 s.wheel = Some(super::wheel::Wheel::new(crate::theme::parse_hex("#e06b9a")));

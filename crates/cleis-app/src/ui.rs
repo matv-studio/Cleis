@@ -315,6 +315,54 @@ pub fn avatar(t: &Tokens, initials: &str, size: f32) -> Div {
         .child(initials.to_owned())
 }
 
+/// A contact's avatar: its photo, or its initials (mockup 36e).
+pub fn contact_avatar(t: &Tokens, c: &cleis_core::Contact, size: f32) -> Div {
+    match c.photo.as_deref().and_then(photo_image) {
+        Some(img) => div()
+            .flex_none()
+            .size(px(size))
+            .rounded_full()
+            .overflow_hidden()
+            .border_1()
+            .border_color(t.line_strong)
+            .child(gpui_kit::img(img).size(px(size)).rounded_full()),
+        None => avatar(t, &c.initials(), size),
+    }
+}
+
+/// The image of a photo's `data:` URL, decoded once per photo (several avatars show it).
+pub fn photo_image(url: &str) -> Option<std::sync::Arc<gpui_kit::Image>> {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    thread_local! {
+        static CACHE: std::cell::RefCell<HashMap<u64, Option<Arc<gpui_kit::Image>>>> =
+            std::cell::RefCell::default();
+    }
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut h);
+    let key = h.finish();
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() > 512 {
+            c.clear();
+        }
+        c.entry(key)
+            .or_insert_with(|| {
+                let (kind, bytes) = cleis_core::contact::photo_bytes(url)?;
+                let format = match kind.as_str() {
+                    "png" => gpui_kit::ImageFormat::Png,
+                    "jpeg" | "jpg" => gpui_kit::ImageFormat::Jpeg,
+                    "webp" => gpui_kit::ImageFormat::Webp,
+                    "gif" => gpui_kit::ImageFormat::Gif,
+                    _ => return None,
+                };
+                Some(Arc::new(gpui_kit::Image::from_bytes(format, bytes)))
+            })
+            .clone()
+    })
+}
+
 /// TOTP countdown ring: a small conic fill approximated by a pie made of the
 /// remaining fraction (GPUI has no conic gradient; a bar reads just as well at 14 px).
 pub fn totp_ring(t: &Tokens, fraction: f32) -> AnyElement {

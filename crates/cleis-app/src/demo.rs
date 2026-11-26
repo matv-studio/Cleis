@@ -358,6 +358,7 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
         if *g == "Camille" {
             c.birthday = PartialDate::parse("--0312");
             c.notes = "Quotes within 48 h · prefers email".into();
+            c.photo = Some(sample_photo());
             c.fields
                 .insert(vat.clone(), Value::Text("FR00 999999999".into()));
         }
@@ -390,6 +391,27 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
     }
     v.put_contacts(&cs)?;
     Ok(())
+}
+
+/// A drawn photo for the demo (mockup 36e): a silhouette on a gradient, no real person.
+fn sample_photo() -> String {
+    let n = 256u32;
+    let img = image::RgbImage::from_fn(n, n, |x, y| {
+        let (fx, fy) = (x as f32 / n as f32, y as f32 / n as f32);
+        let head = ((fx - 0.5).powi(2) + (fy - 0.40).powi(2)).sqrt() < 0.17;
+        let body = ((fx - 0.5).powi(2) / 0.09 + (fy - 1.0).powi(2) / 0.16) < 1.;
+        if head || body {
+            image::Rgb([236, 226, 214])
+        } else {
+            let t = (fx + fy) / 2.;
+            let mix = |a: f32, b: f32| (a + (b - a) * t) as u8;
+            image::Rgb([mix(62., 196.), mix(120., 140.), mix(138., 80.)])
+        }
+    });
+    let mut png = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut png, image::ImageFormat::Png)
+        .expect("PNG in memory");
+    crate::screens::contacts::portrait(png.get_ref()).expect("demo photo")
 }
 
 /// Item for trying autofill against `design/tools/autofill-form.hta` (`--try-autofill`): its name

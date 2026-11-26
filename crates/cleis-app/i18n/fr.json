@@ -1059,5 +1059,10 @@
   "Windows Hello refused": "Windows Hello a refusé",
   "Logo": "Logo",
   "Your own color": "Votre couleur",
-  "Brightness": "Luminosité"
+  "Brightness": "Luminosité",
+  "Choose a photo…": "Choisir une photo…",
+  "Remove photo": "Retirer la photo",
+  "Change photo": "Changer la photo",
+  "Photo not read: {}": "Photo non lue : {}",
+  "Your role does not allow changing it": "Votre rôle ne permet pas de le modifier"
 }
