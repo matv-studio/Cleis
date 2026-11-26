@@ -15,7 +15,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    [--page autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
    profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
-   delete-folder|create-elsewhere|server-sms|server-email|server-identity|place-github|place-sftp|
+   delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
    ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
    [--quick-access] [--restore] [--unlock-with hello|nothing]

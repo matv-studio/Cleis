@@ -60,6 +60,8 @@ for theme in ${THEMES:-dark}; do
   shot "welcome-org-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --org-welcome --theme $theme
   shot "org-pin-$theme" --demo --unlocked --menu org-pin --theme $theme
   shot "policy-pin-$theme" --demo --unlocked --tab settings --page policy --menu policy-pin --theme $theme
+  shot "create-org-$theme" --demo --unlocked --no-org --tab settings --page join --theme $theme
+  shot "create-folder-$theme" --demo --unlocked --no-org --tab settings --page join --menu create-folder --theme $theme
   shot "members-$theme" --demo --unlocked --tab settings --page members --theme $theme
   shot "invite-$theme" --demo --unlocked --tab settings --page members --menu invite --theme $theme
   shot "invite-code-$theme" --demo --unlocked --tab settings --page members --menu invite-code --theme $theme

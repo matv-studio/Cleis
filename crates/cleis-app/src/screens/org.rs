@@ -2340,6 +2340,7 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         );
         list = list.child(
             row(t, i > 0)
+                .py(px(10.))
                 .gap(px(10.))
                 .child(
                     div()
@@ -2421,6 +2422,7 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     });
     list.child(
         row(t, true)
+            .py(px(10.))
             .gap(px(10.))
             .child(
                 div()
@@ -3914,6 +3916,7 @@ impl CleisApp {
             let (mut join, subs) = join_form(window, cx);
             join.elsewhere = s.join.elsewhere;
             join.place = s.join.place;
+            join.folder = s.join.folder.clone();
             if let Some(s) = self.session() {
                 s.join = join;
                 s.join_subs = subs;
@@ -4410,6 +4413,16 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         "create-elsewhere" => {
             if let Some(j) = app.join_form_mut() {
                 j.elsewhere = true;
+            }
+        }
+        // D-78: Shared folder, a SharePoint library chosen (mockup 36i).
+        "create-folder" => {
+            if let Some(j) = app.join_form_mut() {
+                j.place = OrgPlace::Folder;
+                j.folder = Some((
+                    0,
+                    std::path::PathBuf::from("C:\\Users\\lea\\Example Studio\\Cleis"),
+                ));
             }
         }
         "invite" => {
