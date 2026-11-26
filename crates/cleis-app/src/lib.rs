@@ -13,6 +13,7 @@ pub mod host;
 pub mod i18n;
 pub mod instance;
 pub mod kit;
+pub mod nas;
 pub mod oidc;
 pub mod opening;
 pub mod org;
