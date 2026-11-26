@@ -169,6 +169,8 @@ pub fn render(
         .when_some(update_dialog, |d, dlg| d.child(dlg))
         .when_some(super::ctx::outside(s, cx), |d, m| d.child(m))
         .when_some(super::ctx::render(s, &t, window, cx), |d, m| d.child(m))
+        // A column's edge let go anywhere (vault, contacts): its width is kept.
+        .on_drop(cx.listener(|this, _: &super::dnd::ColResize, _, cx| this.end_resize(cx)))
         // Any input counts as activity (Security › Locking).
         .on_mouse_move(cx.listener(|this, _, _, _| this.touch_activity()))
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
@@ -446,7 +448,19 @@ fn is_num(c: &ColumnDef) -> bool {
     )
 }
 
-fn cell_box(c: &ColumnDef) -> Div {
+/// Width of a vault column: dragged, kept, or as in mockup 01; in customize mode the name also
+/// holds the handle and the cross.
+fn vault_width(s: &Session, c: &ColumnDef) -> Option<f32> {
+    let w = super::dnd::width(s, c, col_width(c));
+    if s.customize && c.id.0 == "name" {
+        w.map(|w| w + 48.)
+    } else {
+        w
+    }
+}
+
+/// A cell of column `c`, `w` wide (or sharing the rest of the row when `None`).
+fn cell_box(c: &ColumnDef, w: Option<f32>) -> Div {
     let d = div()
         .h_full()
         .px(px(12.))
@@ -455,7 +469,7 @@ fn cell_box(c: &ColumnDef) -> Div {
         .overflow_hidden()
         .whitespace_nowrap()
         .min_w_0();
-    let d = match col_width(c) {
+    let d = match w {
         Some(w) => d.w(px(w)).flex_none(),
         None => d.flex_1(),
     };
@@ -479,6 +493,7 @@ fn faint_dash(t: &Tokens) -> Div {
     div().text_color(t.text_faint).child("—")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn row_cell(
     e: &Entry,
     c: &ColumnDef,
@@ -486,20 +501,42 @@ fn row_cell(
     t: &Tokens,
     now: i64,
     selected: bool,
+    w: Option<f32>,
+    editing: bool,
     cx: &mut Context<CleisApp>,
 ) -> AnyElement {
     let id = e.id;
-    let base = cell_box(c);
+    let base = cell_box(c, w);
     match c.id.0.as_str() {
+        // Customize (mockup 35f): a handle, then the cross that moves the item to the trash;
+        // the column grows by their width so that the name keeps its room.
         "name" => base
             .gap(px(8.))
+            .when(editing, |d| {
+                d.child(icon("grip", 14., t.text_faint))
+                    .child(super::sidebar::remove_badge(
+                        &format!("rm-item-{id}"),
+                        t,
+                        tr("Move to trash"),
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.trash_entry(id, cx);
+                        }),
+                    ))
+            })
             .child(site_icon(t, e.name.chars().next().unwrap_or('?'), 20.))
             .child(
                 div()
+                    .id(SharedString::from(format!("rname-{id}")))
+                    .min_w_0()
                     .font_weight(W_MEDIUM)
                     .overflow_hidden()
                     .text_ellipsis()
-                    .child(e.name.clone()),
+                    .child(e.name.clone())
+                    // A name cut short shows whole on hover.
+                    .when(e.name.chars().count() > 18, |d| {
+                        d.tooltip(tip(e.name.clone()))
+                    }),
             )
             .into_any_element(),
         "username" => {
@@ -865,6 +902,39 @@ fn filter_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     )
 }
 
+/// Customize mode (mockup 35f): in place of the toolbar, a low banner and Done.
+fn edit_bar(t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
+    div()
+        .h(px(36.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .px(px(12.))
+        .bg(t.accent_soft)
+        .border_b_1()
+        .border_color(t.line)
+        .child(
+            div()
+                .id("edit-bar-info")
+                .size(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(icon("grip", 16., t.accent_text))
+                .tooltip(tip(tr(
+                    "Drag the handles to reorder; the cross moves to the trash",
+                ))),
+        )
+        .child(div().flex_1())
+        .child(
+            button("customize-done", t, BtnKind::Primary, true)
+                .child(tr("Done"))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_customize(cx)))
+                .test_support(),
+        )
+}
+
 fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<CleisApp>) -> Div {
     let cols: Vec<ColumnDef> =
         cleis_core::column::visible_columns(&s.columns, cleis_core::column::Table::Vault, None)
@@ -892,12 +962,15 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
     for c in &cols {
         let arrow = sorted.filter(|(id, _)| c.id.0 == *id).map(|(_, a)| a);
         head = head.child(
-            cell_box(c)
+            cell_box(c, vault_width(s, c))
+                .relative()
+                .on_drag_move(super::dnd::on_resize_move(&c.id, cx))
                 .when_some(arrow, |d, a| {
                     d.text_color(t.text)
                         .child(format!("{} {a}", crate::i18n::tr_owned(&c.name)))
                 })
-                .when(arrow.is_none(), |d| d.child(crate::i18n::tr_owned(&c.name))),
+                .when(arrow.is_none(), |d| d.child(crate::i18n::tr_owned(&c.name)))
+                .child(super::dnd::col_grip(&c.id, t, cx)),
         );
     }
     let count = s.visible.len();
@@ -932,19 +1005,40 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 .cloned()
                 .collect();
                 let all_cols = s.columns.clone();
-                let rows: Vec<(EntryId, Entry)> = range
+                let rows: Vec<(usize, EntryId, Entry)> = range
                     .filter_map(|ix| {
                         s.visible
                             .get(ix)
-                            .map(|i| (s.entries[*i].id, s.entries[*i].clone()))
+                            .map(|i| (ix, s.entries[*i].id, s.entries[*i].clone()))
                     })
                     .collect();
                 let sel = s.selected;
+                let widths: Vec<Option<f32>> = cols.iter().map(|c| vault_width(s, c)).collect();
+                let editing = s.customize;
+                // Items take each other's place in "My order", or while customizing.
+                let reorder = editing || s.prefs.sort_by == cleis_core::settings::SortBy::Manual;
                 rows.into_iter()
-                    .map(|(id, e)| {
+                    .map(|(ix, id, e)| {
                         let selected = sel == Some(id);
+                        let dragged = super::dnd::DraggedEntry {
+                            id,
+                            name: e.name.clone().into(),
+                            ix,
+                        };
+                        let line = t.primary;
                         let mut row = div()
                             .id(SharedString::from(format!("row-{id}")))
+                            .on_drag(dragged, super::dnd::entry_ghost)
+                            .when(reorder, |d| {
+                                d.drag_over::<super::dnd::DraggedEntry>(move |d, from, _, _| {
+                                    super::dnd::drop_line(d, from.ix, ix, line)
+                                })
+                                .on_drop(cx.listener(
+                                    move |this, d: &super::dnd::DraggedEntry, _, cx| {
+                                        this.reorder_entry(d.id, id, cx)
+                                    },
+                                ))
+                            })
                             .group("row")
                             .w_full()
                             .h(ROW_H)
@@ -969,8 +1063,10 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                                 }
                                 cx.notify();
                             }));
-                        for c in &cols {
-                            row = row.child(row_cell(&e, c, &all_cols, &t, now, selected, cx));
+                        for (c, w) in cols.iter().zip(&widths) {
+                            row = row.child(row_cell(
+                                &e, c, &all_cols, &t, now, selected, *w, editing, cx,
+                            ));
                         }
                         row.test_support()
                     })
@@ -985,74 +1081,80 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         .relative()
         .flex()
         .flex_col()
-        .child(
-            div()
-                .h(px(44.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .px(px(12.))
-                .border_b_1()
-                .border_color(t.line)
-                .child(
-                    div()
-                        .w(px(280.))
-                        .child(Input::new(&s.search).id("search").prefix(icon(
+        .when(s.customize, |d| d.child(edit_bar(t, cx)))
+        .when(!s.customize, |d| {
+            d.child(
+                div()
+                    .h(px(44.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(12.))
+                    .border_b_1()
+                    .border_color(t.line)
+                    .child(div().w(px(280.)).child(
+                        Input::new(&s.search).id("search").prefix(icon(
                             "search",
                             16.,
                             t.text_muted,
-                        ))),
-                )
-                .child(
-                    div()
-                        .relative()
-                        .child(
-                            button("filter", t, BtnKind::Ghost, false)
-                                .when(s.filter_menu || s.vault_filter.count() > 0, |d| {
-                                    d.bg(t.surface_active)
-                                })
-                                .child(icon("filter", 16., t.text_muted))
-                                .child(match s.vault_filter.count() {
-                                    0 => tr("Filter").to_owned(),
-                                    n => crate::trf!("Filter · {}", n),
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    if let Some(s) = this.session() {
-                                        s.filter_menu = !s.filter_menu;
-                                        s.columns_menu = None;
-                                    }
-                                    cx.notify();
-                                }))
-                                .test_support(),
-                        )
-                        .when(s.filter_menu, |d| {
-                            d.child(gpui_kit::deferred(filter_menu(s, t, cx)))
-                        }),
-                )
-                .child(
-                    div()
-                        .relative()
-                        .child(
-                            button("columns", t, BtnKind::Ghost, false)
-                                .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
-                                .child(icon("columns", 16., t.text_muted))
-                                .child(tr("Columns"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_columns_menu(cleis_core::column::Table::Vault, cx)
-                                }))
-                                .test_support(),
-                        )
-                        .when_some(
-                            s.columns_menu
-                                .as_ref()
-                                .filter(|m| m.table == cleis_core::column::Table::Vault),
-                            |d, m| d.child(gpui_kit::deferred(super::columns::menu(s, m, t, cx))),
-                        ),
-                )
-                .child(div().flex_1())
-                .child(view_toggle(s.vault_cards, t, cx)),
-        )
+                        )),
+                    ))
+                    .child(
+                        div()
+                            .relative()
+                            .child(
+                                button("filter", t, BtnKind::Ghost, false)
+                                    .when(s.filter_menu || s.vault_filter.count() > 0, |d| {
+                                        d.bg(t.surface_active)
+                                    })
+                                    .child(icon("filter", 16., t.text_muted))
+                                    .child(match s.vault_filter.count() {
+                                        0 => tr("Filter").to_owned(),
+                                        n => crate::trf!("Filter · {}", n),
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(s) = this.session() {
+                                            s.filter_menu = !s.filter_menu;
+                                            s.columns_menu = None;
+                                        }
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            )
+                            .when(s.filter_menu, |d| {
+                                d.child(gpui_kit::deferred(filter_menu(s, t, cx)))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .relative()
+                            .child(
+                                button("columns", t, BtnKind::Ghost, false)
+                                    .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
+                                    .child(icon("columns", 16., t.text_muted))
+                                    .child(tr("Columns"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_columns_menu(
+                                            cleis_core::column::Table::Vault,
+                                            cx,
+                                        )
+                                    }))
+                                    .test_support(),
+                            )
+                            .when_some(
+                                s.columns_menu
+                                    .as_ref()
+                                    .filter(|m| m.table == cleis_core::column::Table::Vault),
+                                |d, m| {
+                                    d.child(gpui_kit::deferred(super::columns::menu(s, m, t, cx)))
+                                },
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(view_toggle(s.vault_cards, t, cx)),
+            )
+        })
         .when(!s.vault_cards, |d| {
             d.child(head).child(
                 // A click below the rows lets go of the item and closes the panel on the right.

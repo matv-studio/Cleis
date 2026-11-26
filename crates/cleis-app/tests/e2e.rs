@@ -1922,3 +1922,110 @@ fn void_right(w: &mut gpui_kit::Window, id: &str, cx: &mut gpui_kit::App) {
         cx,
     );
 }
+
+/// Drag and drop (mockups 35c to 35f): an item onto a folder, a folder before another, an item
+/// before another while customizing, a column's edge; the cross of customize mode.
+#[gpui_kit::test]
+fn drag_drop_resize_customize(cx: &mut TestAppContext) {
+    use cleis_core::settings::SortBy;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let (item, space) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let item = |n: &str| s.entries.iter().find(|e| e.name == n).unwrap().id;
+        let space = |n: &str| s.spaces.iter().find(|x| x.name == n).unwrap().id;
+        (
+            [
+                item("Dropbox"),
+                item("Webflow"),
+                item("Canva"),
+                item("Slack"),
+            ],
+            [space("Banking"), space("Dev"), space("General")],
+        )
+    });
+    let [dropbox, webflow, canva, slack] = item;
+    let [banking, dev, general] = space;
+
+    // An item onto a folder: it moves into it.
+    act(cx, h, |w, cx| {
+        w.drag_to(format!("row-{dropbox}"), format!("pfw-{banking}"), cx)
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(
+            s.entries.iter().find(|e| e.id == dropbox).unwrap().space,
+            banking
+        );
+    });
+
+    // A folder onto another: it takes its place.
+    act(cx, h, |w, cx| {
+        w.drag_to(format!("pfw-{dev}"), format!("pfw-{general}"), cx)
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let o = &s.prefs.space_order;
+        let at = |id| o.iter().position(|x| *x == id).unwrap();
+        // Dragged down, it lands just after the folder it was dropped on.
+        assert_eq!(at(dev), at(general) + 1, "{o:?}");
+    });
+
+    // Sorted by name, rows do not take each other's place; while customizing they do.
+    act(cx, h, |w, cx| {
+        w.drag_to(format!("row-{webflow}"), format!("row-{canva}"), cx)
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.sort_by, SortBy::Name);
+    });
+    act(cx, h, |w, cx| w.click("customize", cx));
+    act(cx, h, |w, cx| {
+        w.drag_to(format!("row-{webflow}"), format!("row-{canva}"), cx)
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.sort_by, SortBy::Manual);
+        let shown: Vec<_> = s.visible.iter().map(|i| s.entries[*i].id).collect();
+        let at = |id| shown.iter().position(|x| *x == id).unwrap();
+        assert_eq!(at(webflow) + 1, at(canva));
+    });
+    // The cross moves the item to the trash; Done leaves.
+    act(cx, h, |w, cx| w.click(format!("rm-item-{slack}"), cx));
+    act(cx, h, |w, cx| w.click("customize-done", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.customize);
+        assert!(s.entries.iter().all(|e| e.id != slack));
+        assert!(s.trash.iter().any(|e| e.id == slack));
+    });
+
+    // A column's edge: dragged wider, then fitted to its longest name.
+    let name_width = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            assert!(s.resize.is_none());
+            s.columns
+                .iter()
+                .find(|c| c.table == cleis_core::column::Table::Vault && c.id.0 == "name")
+                .unwrap()
+                .width
+        })
+    };
+    act(cx, h, |w, cx| {
+        w.drag_to("colgrip-name", "colgrip-password", cx)
+    });
+    let wide = name_width(cx).expect("kept");
+    assert!(wide > 300, "{wide}");
+    act(cx, h, |w, cx| w.double_click("colgrip-name", cx));
+    let fit = name_width(cx).expect("kept");
+    assert!(fit < wide && fit >= 150, "{fit}");
+}

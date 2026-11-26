@@ -1263,6 +1263,9 @@ impl CleisApp {
         } else if let Some(ed) = s.editor.as_mut().filter(|ed| ed.menu.is_some()) {
             ed.menu = None;
             true
+        } else if s.customize {
+            s.customize = false;
+            true
         } else if let Some(o) = s.org.as_mut() {
             o.ui.close_top()
         } else {

@@ -442,7 +442,13 @@ fn select(
     }
 }
 
-fn contact_col_width(c: &ColumnDef) -> f32 {
+/// Width of a contact column: dragged, kept, or as in mockup 09 (0: the rest of the row).
+fn contact_col_width(s: &Session, c: &ColumnDef) -> f32 {
+    let w = default_width(c);
+    super::dnd::width(s, c, (w > 0.).then_some(w)).unwrap_or(0.)
+}
+
+fn default_width(c: &ColumnDef) -> f32 {
     match c.id.0.as_str() {
         "name" => 210.,
         "company" | "phone" | "job_title" | "folder" => 150.,
@@ -463,7 +469,7 @@ fn contact_cell(
     cx: &mut Context<CleisApp>,
 ) -> AnyElement {
     let id = c.id;
-    let base = cell(contact_col_width(col));
+    let base = cell(contact_col_width(s, col));
     match col.id.0.as_str() {
         "name" => base
             .gap(px(8.))
@@ -574,7 +580,10 @@ fn table(
         .text_color(t.text_muted);
     for c in &cols {
         head = head.child(
-            cell(contact_col_width(c))
+            cell(contact_col_width(s, c))
+                .relative()
+                .on_drag_move(super::dnd::on_resize_move(&c.id, cx))
+                .child(super::dnd::col_grip(&c.id, t, cx))
                 .when(c.id.0 == "name", |d| {
                     d.text_color(t.text)
                         .child(format!("{} ↑", crate::i18n::tr_owned(&c.name)))

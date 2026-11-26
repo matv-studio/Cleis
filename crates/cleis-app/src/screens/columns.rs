@@ -397,7 +397,7 @@ impl CleisApp {
         cx.notify();
     }
 
-    fn save_columns(&mut self, cx: &mut Context<Self>) {
+    pub fn save_columns(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let of = |t: Table| -> Vec<ColumnDef> {
             s.columns.iter().filter(|c| c.table == t).cloned().collect()

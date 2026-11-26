@@ -168,6 +168,8 @@ pub struct Session {
     pub folder_menu: Option<cleis_core::SpaceId>,
     /// Customize mode (mockup 35f): handles to reorder, crosses to delete, shortcuts shown or hidden.
     pub customize: bool,
+    /// A column's edge being dragged (mockup 35e).
+    pub resize: Option<crate::screens::dnd::Resize>,
     /// Menu opened by a right-click (mockups 33 to 33d).
     pub ctx: Option<crate::screens::ctx::CtxMenu>,
     /// Settings › Organization: joining one from an open vault.
@@ -826,6 +828,7 @@ impl CleisApp {
             place: None,
             folder_menu: None,
             customize: false,
+            resize: None,
             ctx: None,
             orgs_idle: vec![],
             vault_name: None,

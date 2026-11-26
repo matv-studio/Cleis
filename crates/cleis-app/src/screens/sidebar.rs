@@ -108,17 +108,29 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
     let home = s.vault.home_space();
     if !matches!(s.scope, Scope::Org(_)) {
         let n = count(&|e| s.scope_has(&Scope::Personal, e.space));
-        d = d.child(div().h(px(10.))).child(section(
-            s,
-            t,
-            &format!("sp-{home}"),
-            "user",
-            s.personal_name(),
-            n,
-            Filter::Personal,
-            Some(("new-folder-v".into(), tr("New folder"))),
-            cx,
-        ));
+        let accent = t.accent_soft;
+        d = d.child(div().h(px(10.))).child(
+            div()
+                .id("personal-drop")
+                .rounded(RADIUS_MD)
+                .drag_over::<super::dnd::DraggedEntry>(move |d, _, _, _| d.bg(accent))
+                .on_drop(
+                    cx.listener(move |this, d: &super::dnd::DraggedEntry, _, cx| {
+                        this.move_entry(d.id, home, cx)
+                    }),
+                )
+                .child(section(
+                    s,
+                    t,
+                    &format!("sp-{home}"),
+                    "user",
+                    s.personal_name(),
+                    n,
+                    Filter::Personal,
+                    Some(("new-folder-v".into(), tr("New folder"))),
+                    cx,
+                )),
+        );
         let folders = ordered(
             s,
             s.spaces
@@ -415,10 +427,38 @@ fn folder_row(
     } else {
         inner
     };
+    let accent = t.accent_soft;
+    let line = t.primary;
+    let ix = ordered(s, s.spaces.iter().filter(|x| !x.for_contacts))
+        .iter()
+        .position(|x| x.id == id)
+        .unwrap_or(0);
+    let dragged = super::dnd::DraggedSpace {
+        id,
+        name: sp.name.clone().into(),
+        ix,
+    };
     div()
         .id(SharedString::from(format!("pfw-{id}")))
         .relative()
         .group(gname.clone())
+        .rounded(RADIUS_MD)
+        // Mockups 35c, 35d: an item dropped here moves into it; a folder takes its place.
+        .on_drag(dragged, super::dnd::space_ghost)
+        .drag_over::<super::dnd::DraggedEntry>(move |d, _, _, _| d.bg(accent))
+        .drag_over::<super::dnd::DraggedSpace>(move |d, from, _, _| {
+            super::dnd::drop_line(d, from.ix, ix, line)
+        })
+        .on_drop(
+            cx.listener(move |this, d: &super::dnd::DraggedEntry, _, cx| {
+                this.move_entry(d.id, id, cx)
+            }),
+        )
+        .on_drop(
+            cx.listener(move |this, d: &super::dnd::DraggedSpace, _, cx| {
+                this.reorder_space(d.id, id, cx)
+            }),
+        )
         .on_mouse_down(
             gpui_kit::MouseButton::Right,
             super::ctx::on_right(super::ctx::CtxTarget::Space(id), cx),
@@ -443,6 +483,7 @@ fn folder_row(
         .when(menu_open, |d| {
             d.child(gpui_kit::deferred(super::folders::menu(s, id, t, cx)))
         })
+        .test_support()
 }
 
 /// The red cross of the customize mode, centred in its disc.

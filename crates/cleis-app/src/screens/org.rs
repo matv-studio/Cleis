@@ -3677,6 +3677,12 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 }
             }
         }
+        "customize" => {
+            if let Some(s) = app.session() {
+                s.customize = true;
+                s.selected = None;
+            }
+        }
         "health-vault" => {
             if let Some(s) = app.session() {
                 s.health.vault = s.org.as_ref().map(|o| crate::app::Scope::Org(o.m.key()));

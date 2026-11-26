@@ -978,5 +978,7 @@
   "Import…": "Importer…",
   "Customize": "Personnaliser",
   "Drag the items to put them in your order": "Glisser les éléments pour les mettre dans votre ordre",
-  "For this vault; Preferences › Vaults makes them the same everywhere": "Pour ce coffre ; Préférences › Coffres les rend identiques partout"
+  "For this vault; Preferences › Vaults makes them the same everywhere": "Pour ce coffre ; Préférences › Coffres les rend identiques partout",
+  "Drag to resize · double-click to fit": "Glisser pour redimensionner · double-clic pour ajuster",
+  "Drag the handles to reorder; the cross moves to the trash": "Glisser les poignées pour réordonner ; la croix met à la corbeille"
 }
