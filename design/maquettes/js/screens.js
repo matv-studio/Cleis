@@ -1386,8 +1386,29 @@ function stockageOrganisation() {
       ${fld('Name', 'Example Studio')}
       ${ch('server', 'Server on the NAS', 'Cleis installs it there · immediate access changes · reachable through your VPN', true, nas)}
       ${ch('laptop', 'Server on this computer', 'Only while this computer is on')}
-      ${ch('folder', 'Shared folder', 'SharePoint or a NAS share · no server · access changes at the next sync')}
+      ${ch('folder', 'Shared folder', 'SharePoint, Google shared drive, NAS share or SFTP · no server · access changes at the next sync')}
       <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Install and create</button></div>
+    </div>`);
+}
+// 36i. Creating an organization in a shared folder (26/11/2026, user's note: SharePoint, SFTP and
+// Google's equivalent too): where the shared folder is.
+function dossierOrganisation() {
+  const ch = (ico, name, sub, on, extra = '') => `<div class="choice ${on ? 'is-active' : ''}"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">${name}</b><span>${sub}</span>${extra}</div><span class="ico">${i(ico)}</span></div>`;
+  const place = (ico, name, sub, on, action) => `<div class="row" style="padding:var(--s-2) 0;${on ? '' : ''}"><span class="radio ${on ? 'on' : ''}"></span><span class="site-ico">${i(ico)}</span><div class="member row-label"><div class="meta"><span>${name}</span><span class="sub ${on ? 'code' : ''}">${sub}</span></div></div>${action}</div>`;
+  const places = `<div style="margin-top:var(--s-3);border:1px solid var(--line-strong);border-radius:var(--radius-md);padding:0 var(--s-3);background:var(--bg)">
+      ${place('cloud', 'SharePoint', 'C:\\Users\\lea\\Example Studio\\Cleis', true, '<button class="btn btn--sm">Change</button>')}
+      ${place('cloud', 'Google shared drive', 'Folder kept by Google Drive for desktop', false, '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('folder', 'NAS share', 'Network folder (\\\\nas\\cleis)', false, '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('server', 'SFTP', 'An SSH server', false, '<button class="btn btn--sm">Set up</button>')}
+    </div>`;
+  return settings('Organization', `
+    <div class="page-head"><h1>Organization</h1></div>
+    <div class="section">${sectionTitle('Create an organization')}
+      ${fld('Name', 'Example Studio')}
+      ${ch('server', 'Server on the NAS', 'Cleis installs it there · immediate access changes · reachable through your VPN', false)}
+      ${ch('laptop', 'Server on this computer', 'Only while this computer is on')}
+      ${ch('folder', 'Shared folder', 'No server · access changes at the next sync', true, places)}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Create</button></div>
     </div>`);
 }
 // 36g. Security policy: the organization's PIN.
@@ -1488,6 +1509,7 @@ export const SCREENS = {
   '36d-nouvel-ordinateur': ['First launch — sign in on a new computer', nouvelOrdinateur],
   '36e-photo-contact': ['Contact — photo', photoContact],
   '36f-stockage-organisation': ['Create an organization — where it lives', stockageOrganisation],
+  '36i-dossier-organisation': ['Create an organization — shared folder', dossierOrganisation],
   '36g-politique-pin': ['Security policy — organization PIN', politiquePin],
   '36h-saisie-pin': ['Organization PIN asked', saisiePin],
 };
