@@ -279,7 +279,9 @@ pub fn install(
         let script = match found.system {
             System::Qnap => format!(
                 "set -e
-sh {file}
+# A QPKG ends with status 10, installed or not: its start script tells.
+sh {file} >/dev/null 2>&1 || true
+[ -x /etc/init.d/CleisServer.sh ] || {{ echo 'App Center did not install Cleis Server' >&2; exit 4; }}
 D=$(/etc/init.d/CleisServer.sh data)
 R=$(/sbin/getcfg CleisServer Install_Path -f /etc/config/qpkg.conf)
 if [ -f \"$D/server.db\" ]; then echo 'An organization already lives on this NAS' >&2; exit 3; fi

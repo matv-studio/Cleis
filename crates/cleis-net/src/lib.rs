@@ -121,6 +121,21 @@ fn provider() -> Arc<CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
+/// The organization's API answered in the app itself (D-78: an organization in a shared folder,
+/// no server): what `Client::send` uses instead of the network when set.
+pub trait Local: Send + Sync {
+    fn send(&self, method: &str, path: &str, body: &[u8]) -> Response;
+}
+
+#[derive(Clone)]
+pub struct LocalApi(pub Arc<dyn Local>);
+
+impl std::fmt::Debug for LocalApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LocalApi")
+    }
+}
+
 /// A server reached at `address` (`host:port`), trusted as `trust`.
 #[derive(Clone, Debug)]
 pub struct Client {
@@ -129,6 +144,8 @@ pub struct Client {
     /// Session token from `/v1/session`.
     pub token: Option<String>,
     pub timeout: Duration,
+    /// No server: the API in the app (D-78).
+    pub local: Option<LocalApi>,
 }
 
 /// An answer: HTTP status, body and the hash of the certificate the server presented.
@@ -146,6 +163,7 @@ impl Client {
             trust,
             token: None,
             timeout: Duration::from_secs(20),
+            local: None,
         }
     }
 
@@ -165,6 +183,9 @@ impl Client {
         path: &str,
         body: Option<&[u8]>,
     ) -> Result<Response, NetError> {
+        if let Some(l) = &self.local {
+            return Ok(l.0.send(method, path, body.unwrap_or_default()));
+        }
         let provider = provider();
         let verifier = Arc::new(Pinned {
             trust: self.trust.clone(),

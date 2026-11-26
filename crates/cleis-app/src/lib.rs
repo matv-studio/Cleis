@@ -8,6 +8,7 @@ pub mod autofill;
 pub mod contact_editor;
 pub mod demo;
 pub mod editor;
+pub mod folder_org;
 pub mod format;
 pub mod host;
 pub mod i18n;
