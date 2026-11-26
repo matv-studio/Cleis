@@ -47,6 +47,7 @@ for theme in ${THEMES:-dark}; do
   shot "merge-$theme" --demo --unlocked --tab contacts --page merge --theme $theme
   shot "health-$theme" --demo --unlocked --tab health --theme $theme
   shot "preferences-$theme" --demo --unlocked --tab settings --theme $theme
+  shot "wheel-$theme" --demo --unlocked --tab settings --menu wheel --theme $theme
   shot "security-$theme" --demo --unlocked --tab settings --page security --theme $theme
   shot "recovery-key-$theme" --demo --unlocked --tab settings --page security --menu recovery-key --theme $theme
   shot "open-code-$theme" --demo --unlocked --tab settings --page security --menu open-code --theme $theme

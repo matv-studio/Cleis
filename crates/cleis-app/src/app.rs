@@ -200,6 +200,8 @@ pub struct Session {
     pub resize: Option<crate::screens::dnd::Resize>,
     /// The calendar open below a date box (mockup 35g).
     pub calendar: Option<crate::screens::calendar::Calendar>,
+    /// Preferences › Appearance: your own accent colour being chosen (mockup 36).
+    pub wheel: Option<crate::screens::wheel::Wheel>,
     /// Where the last tab clicked was, relative to the one shown before (-1 left, +1 right): the
     /// page slides from that side (26/11/2026).
     pub tab_dir: f32,
@@ -470,6 +472,8 @@ pub struct CleisApp {
     pub phase: Phase,
     /// Theme forced on the command line (screenshots); otherwise preferences decide.
     pub forced_mode: Option<Mode>,
+    /// The colour wheel's field to rewrite at the next render (it needs the window).
+    pub wheel_field: Option<(Entity<InputState>, String)>,
     /// Main window, brought back when a shortcut is pressed while the vault is locked.
     pub main_window: Option<gpui_kit::AnyWindowHandle>,
     pub autofill: crate::autofill::AutofillState,
@@ -556,6 +560,7 @@ impl CleisApp {
             path,
             phase: Phase::Unlock(first),
             forced_mode,
+            wheel_field: None,
             main_window: Some(window.window_handle()),
             autofill: Default::default(),
             no_shortcuts: false,
@@ -1092,6 +1097,7 @@ impl CleisApp {
             customize: false,
             resize: None,
             calendar: None,
+            wheel: None,
             tab_dir: 0.,
             opening: crate::opening::mode(&self.path),
             after_password: None,

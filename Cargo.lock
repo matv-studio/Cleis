@@ -1265,6 +1265,7 @@ dependencies = [
  "directories",
  "embed-resource",
  "gpui-kit",
+ "image",
  "qrcode",
  "raw-window-handle",
  "russh",

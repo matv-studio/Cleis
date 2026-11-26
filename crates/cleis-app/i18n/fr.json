@@ -1057,5 +1057,7 @@
   "Canceled": "Annulé",
   "Windows Hello is not available": "Windows Hello n'est pas disponible",
   "Windows Hello refused": "Windows Hello a refusé",
-  "Logo": "Logo"
+  "Logo": "Logo",
+  "Your own color": "Votre couleur",
+  "Brightness": "Luminosité"
 }

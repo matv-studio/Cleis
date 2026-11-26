@@ -2219,3 +2219,56 @@ fn organization_rule_for_opening(cx: &mut TestAppContext) {
     });
     assert_eq!(cleis_app::opening::mode(&path), Mode::Password);
 }
+
+/// Scenario (mockup 36): the last swatch opens the wheel; a click on the wheel picks a colour
+/// shown but not saved; Escape puts the saved accent back; a colour typed in the field and "Use"
+/// make it the accent, ringed on the last swatch.
+#[gpui_kit::test]
+fn own_accent_colour(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let accent = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            (
+                s.prefs.accent.clone(),
+                s.wheel.as_ref().map(|w| w.hex_text()),
+            )
+        })
+    };
+    let before = accent(cx).0;
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("accent-own", cx));
+    assert!(accent(cx).1.is_some());
+    // The top of the wheel: red.
+    act(cx, h, |w, cx| {
+        w.click_at("wheel-area", gpui_kit::point(px(108.), px(4.)), cx)
+    });
+    let (saved, shown) = accent(cx);
+    assert_eq!(saved, before);
+    let shown = shown.unwrap();
+    assert!(
+        shown.starts_with("#e") || shown.starts_with("#f"),
+        "{shown}"
+    );
+    act(cx, h, |w, cx| w.press("escape", cx));
+    assert_eq!(accent(cx), (before.clone(), None));
+
+    act(cx, h, |w, cx| w.click("accent-own", cx));
+    act(cx, h, |w, cx| {
+        w.click("wheel-hex", cx);
+        w.press("ctrl-a", cx);
+        w.input("#3366CC", cx);
+    });
+    assert_eq!(accent(cx).1.as_deref(), Some("#3366cc"));
+    act(cx, h, |w, cx| w.click("wheel-use", cx));
+    assert_eq!(accent(cx), (Some("#3366cc".into()), None));
+}

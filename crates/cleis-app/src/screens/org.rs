@@ -3749,6 +3749,11 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 ));
             }
         }
+        "wheel" => {
+            if let Some(s) = app.session() {
+                s.wheel = Some(super::wheel::Wheel::new(crate::theme::parse_hex("#e06b9a")));
+            }
+        }
         "calendar" => {
             if let Some(s) = app.session() {
                 use chrono::Datelike;

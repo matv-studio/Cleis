@@ -203,6 +203,7 @@ fn off(el: Stateful<Div>, why: &'static str, cx: &mut Context<CleisApp>) -> AnyE
 pub fn menu_open(s: &Session) -> bool {
     s.filter_menu
         || s.calendar.is_some()
+        || s.wheel.is_some()
         || s.sync_menu
         || s.pref_menu.is_some()
         || s.folder_menu.is_some()
@@ -1200,6 +1201,7 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         s.filter_menu = false;
         s.calendar = None;
+        let wheel = s.wheel.take().is_some();
         s.sync_menu = false;
         s.pref_menu = None;
         s.folder_menu = None;
@@ -1214,6 +1216,11 @@ impl CleisApp {
         }
         if let Some(o) = s.org.as_mut() {
             o.ui.menu = None;
+        }
+        // The wheel's colour was only shown: the saved accent comes back.
+        if wheel {
+            let prefs = s.prefs.clone();
+            self.apply_appearance(&prefs, cx);
         }
         cx.notify();
     }
@@ -1335,6 +1342,9 @@ impl CleisApp {
         } else if s.calendar.is_some() {
             s.calendar = None;
             true
+        } else if s.wheel.is_some() {
+            self.toggle_wheel(cx);
+            return true;
         } else if s.confirm.is_some() {
             s.confirm = None;
             true

@@ -19,3 +19,4 @@ pub mod trash;
 pub mod unlock;
 pub mod update;
 pub mod welcome;
+pub mod wheel;

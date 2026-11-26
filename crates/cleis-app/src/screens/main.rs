@@ -25,6 +25,7 @@ pub fn render(
     app.ensure_editor(window, cx);
     app.ensure_contact_editor(window, cx);
     app.ensure_org_inputs(window, cx);
+    app.ensure_wheel_input(window, cx);
     // Updates (D-74), read before the session is borrowed.
     let update_button = super::update::top_button(app, &t, cx);
     let update_dialog = super::update::dialog(app, &t, cx);

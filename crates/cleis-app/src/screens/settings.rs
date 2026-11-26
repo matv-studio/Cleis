@@ -506,7 +506,7 @@ fn preferences(
                 .child(
                     row(t, false)
                         .child(div().flex_1().child(tr("Accent color")))
-                        .child(swatches(p, t, cx)),
+                        .child(swatches(s, p, t, cx)),
                 )
                 .child(
                     row(t, false)
@@ -716,13 +716,13 @@ fn pref_select(
 }
 
 /// Accent swatches (`.swatches`): "None" then the palette; the ring marks the current one.
-fn swatches(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn swatches(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let current = p.accent.as_deref().map(str::to_ascii_lowercase);
-    let mut d = div().flex().gap(px(6.));
+    let mut d = div().relative().flex().gap(px(6.));
     let items =
         std::iter::once((None, "None")).chain(ACCENTS.iter().map(|&(hex, name)| (Some(hex), name)));
     for (i, (hex, name)) in items.enumerate() {
-        let on = current.as_deref() == hex;
+        let on = current.as_deref() == hex && s.wheel.is_none();
         // Shown as the current theme will draw it (the light theme deepens pale accents).
         let fill = hex
             .and_then(parse_hex)
@@ -767,6 +767,34 @@ fn swatches(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .test_support(),
             ),
         );
+    }
+    // Your own colour (mockup 36): the last swatch, ringed when it is the accent or the wheel is open.
+    use crate::screens::wheel;
+    let own = current
+        .as_deref()
+        .filter(|h| !wheel::in_palette(h))
+        .and_then(parse_hex);
+    let on = own.is_some() || s.wheel.is_some();
+    d = d.child(
+        div()
+            .size(px(30.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .when(on, |d| d.border(px(1.5)).border_color(t.text_muted))
+            .child(
+                div()
+                    .id("accent-own")
+                    .cursor_pointer()
+                    .child(wheel::own_swatch(own, t))
+                    .tooltip(tip(tr("Your own color")))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_wheel(cx)))
+                    .test_support(),
+            ),
+    );
+    if let Some(w) = s.wheel.as_ref() {
+        d = d.child(wheel::render(w, t, cx));
     }
     d
 }
