@@ -3677,6 +3677,21 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 }
             }
         }
+        "calendar" => {
+            if let Some(s) = app.session() {
+                use chrono::Datelike;
+                let at = s
+                    .selected_entry()
+                    .and_then(|e| e.renewal.clone())
+                    .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
+                    .unwrap_or_else(|| chrono::Local::now().date_naive());
+                s.calendar = Some(super::calendar::Calendar {
+                    target: super::calendar::CalTarget::Field(cleis_core::edit::Field::Renewal),
+                    year: at.year(),
+                    month: at.month(),
+                });
+            }
+        }
         "customize" => {
             if let Some(s) = app.session() {
                 s.customize = true;

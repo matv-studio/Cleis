@@ -2029,3 +2029,70 @@ fn drag_drop_resize_customize(cx: &mut TestAppContext) {
     let fit = name_width(cx).expect("kept");
     assert!(fit < wide && fit >= 150, "{fit}");
 }
+
+/// Dates (mockup 35g): the renewal picked in the calendar, one year from today, then cleared.
+#[gpui_kit::test]
+fn renewal_calendar(cx: &mut TestAppContext) {
+    use chrono::{Datelike, Months};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let figma = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries.iter().find(|e| e.name == "Figma").unwrap().id
+    });
+    act(cx, h, |w, cx| {
+        w.click_at(
+            format!("row-{figma}"),
+            gpui_kit::point(px(30.), px(10.)),
+            cx,
+        )
+    });
+    let renewal = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.entries
+                .iter()
+                .find(|e| e.id == figma)
+                .unwrap()
+                .renewal
+                .clone()
+        })
+    };
+    let today = chrono::Local::now().date_naive();
+    act(cx, h, |w, cx| w.click("cal-open-renewal", cx));
+    let month = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.calendar.as_ref().map(|c| (c.year, c.month))
+        })
+    };
+    // It opens on the month of the renewal; the next one is shown after a click.
+    let (y, m) = month(cx).unwrap();
+    act(cx, h, |w, cx| w.click("cal-next", cx));
+    let shown = chrono::NaiveDate::from_ymd_opt(y, m, 1).unwrap() + Months::new(1);
+    assert_eq!(month(cx), Some((shown.year(), shown.month())));
+    let day = shown.with_day(15).unwrap();
+    act(cx, h, |w, cx| {
+        w.click(format!("cal-{}", day.format("%Y-%m-%d")), cx)
+    });
+    assert_eq!(renewal(cx), Some(day.format("%Y-%m-%d").to_string()));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.calendar.is_none());
+    });
+    act(cx, h, |w, cx| w.click("cal-open-renewal", cx));
+    act(cx, h, |w, cx| w.click("cal-year", cx));
+    let year = today + Months::new(12);
+    assert_eq!(renewal(cx), Some(year.format("%Y-%m-%d").to_string()));
+    act(cx, h, |w, cx| w.click("cal-open-renewal", cx));
+    act(cx, h, |w, cx| w.click("cal-clear", cx));
+    assert_eq!(renewal(cx), None);
+}

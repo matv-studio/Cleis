@@ -83,6 +83,7 @@ for theme in ${THEMES:-dark}; do
   shot "ctx-contact-$theme" --demo --unlocked --tab contacts --menu ctx-contact --theme $theme
   shot "ctx-list-$theme" --demo --unlocked --menu ctx-list --theme $theme
   shot "ctx-sidebar-$theme" --demo --unlocked --menu ctx-sidebar --theme $theme
+  shot "calendar-$theme" --demo --unlocked --menu calendar --theme $theme
   shot "customize-$theme" --demo --unlocked --menu customize --theme $theme
   shot "ctx-member-$theme" --demo --unlocked --tab settings --page members --menu ctx-member --theme $theme
   shot "confirm-transfer-$theme" --demo --unlocked --tab settings --page members --menu confirm-transfer --theme $theme

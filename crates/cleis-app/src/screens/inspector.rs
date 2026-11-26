@@ -402,16 +402,33 @@ fn details(
                         .text_color(t.text_muted)
                         .child(crate::i18n::tr_owned(label)),
                 )
-                .child(
-                    div().flex_1().min_w_0().child(boxed(
-                        t,
-                        ed,
-                        f,
-                        Input::new(&st)
-                            .id(SharedString::from(format!("edit-{label}")))
-                            .small(),
-                    )),
-                )
+                .child({
+                    let target = super::calendar::CalTarget::Field(f);
+                    let date = f == Field::Renewal;
+                    let open = s.calendar.as_ref().filter(|c| date && c.target == target);
+                    let mut inp = Input::new(&st)
+                        .id(SharedString::from(format!("edit-{label}")))
+                        .small();
+                    if date {
+                        inp = inp.suffix(super::calendar::open_button(
+                            "cal-open-renewal",
+                            target,
+                            t,
+                            cx,
+                        ));
+                    }
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .relative()
+                        .child(boxed(t, ed, f, inp))
+                        .when_some(open, |d, c| {
+                            d.child(super::calendar::popup(
+                                super::calendar::render(s, c, t, cx),
+                                CONTROL_SM,
+                            ))
+                        })
+                })
                 .into_any_element(),
             None => div().into_any_element(),
         }
@@ -478,11 +495,25 @@ fn details(
         .child(kv("Renewal", Field::Renewal, cx));
     for (c, st) in &ed.custom {
         let err = ed.custom_errors.get(&c.id).cloned();
-        let inp = Input::new(st).id(SharedString::from(format!("custom-{}", c.id.0)));
+        let date = matches!(c.kind, cleis_core::column::ColumnKind::Date);
+        let target = super::calendar::CalTarget::Custom(c.id.clone());
+        let open = s.calendar.as_ref().filter(|x| date && x.target == target);
+        let mut inp = Input::new(st).id(SharedString::from(format!("custom-{}", c.id.0)));
+        if date {
+            inp = inp.suffix(super::calendar::open_button(
+                format!("cal-open-{}", c.id.0),
+                target,
+                t,
+                cx,
+            ));
+        }
+        let cal =
+            open.map(|x| super::calendar::popup(super::calendar::render(s, x, t, cx), CONTROL_MD));
         d = d.child(field(
             t,
             &c.name,
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .gap(px(4.))
@@ -492,6 +523,7 @@ fn details(
                         .when(err.is_some(), |d| d.border_1().border_color(t.danger_text))
                         .child(inp),
                 )
+                .children(cal)
                 .when_some(err, |d, e| {
                     d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
                 }),

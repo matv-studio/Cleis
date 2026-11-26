@@ -198,6 +198,7 @@ fn off(el: Stateful<Div>, why: &'static str, cx: &mut Context<CleisApp>) -> AnyE
 /// Whether a floating menu other than a right-click one is open (audit U-2).
 pub fn menu_open(s: &Session) -> bool {
     s.filter_menu
+        || s.calendar.is_some()
         || s.sync_menu
         || s.pref_menu.is_some()
         || s.folder_menu.is_some()
@@ -1100,6 +1101,7 @@ impl CleisApp {
     pub fn close_menus(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         s.filter_menu = false;
+        s.calendar = None;
         s.sync_menu = false;
         s.pref_menu = None;
         s.folder_menu = None;
@@ -1231,6 +1233,9 @@ impl CleisApp {
         };
         let closed = if s.ctx.is_some() {
             s.ctx = None;
+            true
+        } else if s.calendar.is_some() {
+            s.calendar = None;
             true
         } else if s.confirm.is_some() {
             s.confirm = None;

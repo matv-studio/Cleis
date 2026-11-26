@@ -170,6 +170,8 @@ pub struct Session {
     pub customize: bool,
     /// A column's edge being dragged (mockup 35e).
     pub resize: Option<crate::screens::dnd::Resize>,
+    /// The calendar open below a date box (mockup 35g).
+    pub calendar: Option<crate::screens::calendar::Calendar>,
     /// Menu opened by a right-click (mockups 33 to 33d).
     pub ctx: Option<crate::screens::ctx::CtxMenu>,
     /// Settings › Organization: joining one from an open vault.
@@ -829,6 +831,7 @@ impl CleisApp {
             folder_menu: None,
             customize: false,
             resize: None,
+            calendar: None,
             ctx: None,
             orgs_idle: vec![],
             vault_name: None,
