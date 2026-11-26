@@ -239,6 +239,9 @@ fn topbar(
             .items_center()
             .font_weight(W_MEDIUM)
             .cursor_pointer()
+            // Windows: the top bar moves the window (caption hit test) except over a control,
+            // which must block the bar beneath it, or its click becomes a window move.
+            .occlude()
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_tab(tab, scope.clone(), cx);
             }));
@@ -325,6 +328,7 @@ fn topbar(
                 .child(sync_status(s, t, cx))
                 .child(
                     icon_button("lock", t, "lock", false)
+                        .occlude()
                         .tooltip(|window, cx| {
                             gpui_kit::component::tooltip::Tooltip::new(tr("Lock (Ctrl+L)"))
                                 .build(window, cx)
@@ -335,6 +339,7 @@ fn topbar(
                 .when_some(primary, |d, (id, label)| {
                     d.child(
                         button(id, t, BtnKind::Primary, false)
+                            .occlude()
                             .child(icon("plus", 16., t.primary_ink))
                             .child(crate::i18n::tr_owned(label))
                             .on_click(cx.listener(move |this, _, window, cx| {
@@ -396,6 +401,7 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
     let tip_text: SharedString = tip_text.into();
     div()
         .id("sync-status")
+        .occlude()
         .flex()
         .items_center()
         .gap(px(6.))

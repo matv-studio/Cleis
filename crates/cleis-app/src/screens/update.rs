@@ -132,6 +132,8 @@ pub fn top_button(app: &CleisApp, t: &Tokens, cx: &mut Context<CleisApp>) -> Opt
     let r = app.update.available.as_ref()?;
     Some(
         button("update", t, BtnKind::Default, false)
+            // Over the top bar: see `main::topbar` (Windows caption hit test).
+            .occlude()
             .child(icon("download", 16., t.text_muted))
             .child(crate::trf!("Version {}", r.version))
             .tooltip(|window, cx| {
