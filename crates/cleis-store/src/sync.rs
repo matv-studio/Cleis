@@ -7,6 +7,7 @@
 //! The merged file then replaces the other copy in one step (written beside it, then renamed).
 
 use crate::{Result, StoreError, Vault, meta_get, meta_set};
+use rusqlite::OptionalExtension;
 use rusqlite::{Connection, params};
 use std::path::Path;
 
@@ -160,11 +161,11 @@ impl Vault {
             )?;
             // Master password changed on the other device: its sealing of the same account
             // keys is the current one.
-            let when = |db: &str| -> Result<i64> {
+            let when = |db: &str, key: &str| -> Result<i64> {
                 let v: Option<Vec<u8>> = c
                     .query_row(
-                        &format!("SELECT value FROM {db}.meta WHERE key = 'password_changed'"),
-                        [],
+                        &format!("SELECT value FROM {db}.meta WHERE key = ?1"),
+                        params![key],
                         |r| r.get(0),
                     )
                     .ok();
@@ -172,15 +173,31 @@ impl Vault {
                     .map(i64::from_be_bytes)
                     .unwrap_or(0))
             };
-            if when("o")? > when("main")? {
-                for key in ["kdf", "salt", "account", "password_changed"] {
-                    let v: Vec<u8> = c.query_row(
-                        "SELECT value FROM o.meta WHERE key = ?1",
-                        params![key],
-                        |r| r.get(0),
-                    )?;
-                    meta_set(c, key, &v)?;
+            // Master password removed there (D-76): removed here too. Same for a newer
+            // recovery key.
+            let copy = |keys: &[&str]| -> Result<()> {
+                for key in keys {
+                    let v: Option<Vec<u8>> = c
+                        .query_row(
+                            "SELECT value FROM o.meta WHERE key = ?1",
+                            params![key],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    match v {
+                        Some(v) => meta_set(c, key, &v)?,
+                        None => {
+                            c.execute("DELETE FROM main.meta WHERE key = ?1", params![key])?;
+                        }
+                    }
                 }
+                Ok(())
+            };
+            if when("o", "password_changed")? > when("main", "password_changed")? {
+                copy(&["kdf", "salt", "account", "password_changed"])?;
+            }
+            if when("o", "recovery_saved")? > when("main", "recovery_saved")? {
+                copy(&["account_recovery", "recovery_saved"])?;
             }
             tx.commit()?;
             Ok(SyncReport {
@@ -274,6 +291,31 @@ mod tests {
             LockedVault::open(&a_path)
                 .unwrap()
                 .unlock("a new pass phrase")
+                .is_ok()
+        );
+    }
+
+    /// D-76: a recovery key and the removal of the master password reach the other device.
+    #[test]
+    fn recovery_key_and_no_password_travel() {
+        let d = tempfile::tempdir().unwrap();
+        let (a_path, b_path) = (d.path().join("a.cleis"), d.path().join("b.cleis"));
+        let place = d.path().join("place/vault.cleis");
+        let mut a = Vault::create(&a_path, PW, KdfParams::insecure_for_tests()).unwrap();
+        a.sync_with(&place).unwrap();
+        std::fs::copy(&place, &b_path).unwrap();
+        let mut b = LockedVault::open(&b_path).unwrap().unlock(PW).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let key = a.new_recovery_key().unwrap();
+        a.remove_password().unwrap();
+        a.sync_with(&place).unwrap();
+        b.sync_with(&place).unwrap();
+        assert!(!b.has_password().unwrap());
+        drop(b);
+        assert!(
+            LockedVault::open(&b_path)
+                .unwrap()
+                .unlock_recovery(&key)
                 .is_ok()
         );
     }

@@ -34,6 +34,14 @@ const FORMAT: i64 = 1;
 pub enum StoreError {
     #[error("wrong master password")]
     WrongPassword,
+    #[error("this vault has no master password")]
+    NoPassword,
+    #[error("this vault has no recovery key")]
+    NoRecoveryKey,
+    #[error("wrong recovery key")]
+    WrongRecoveryKey,
+    #[error("this computer's key no longer opens the vault")]
+    WrongDeviceKey,
     #[error("this file is not a Cleis vault")]
     NotAVault,
     #[error("this vault was created by a newer version of Cleis")]
@@ -60,6 +68,9 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 
 mod org;
 mod sync;
+mod unlock;
+
+pub use unlock::{format_recovery, parse_recovery};
 pub use org::{open_space_info, seal_space_info};
 pub use sync::SyncReport;
 
@@ -668,6 +679,9 @@ impl LockedVault {
     }
 
     pub fn unlock(self, password: &str) -> Result<Vault> {
+        if meta_get(&self.conn, "account")?.is_none() {
+            return Err(StoreError::NoPassword);
+        }
         let kdf: KdfParams = serde_json::from_slice(
             &meta_get(&self.conn, "kdf")?.ok_or(StoreError::Corrupt("kdf"))?,
         )?;
