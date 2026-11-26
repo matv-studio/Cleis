@@ -592,6 +592,31 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     serveur (synchronisation) et l'affichage, pas le fichier. Une protection du fichier
     demanderait de sceller les clés des espaces avec un secret remis par le serveur après le PIN.
 
+- **D-78 Où vivent les données d'une organisation** (26/11/2026, demandes de l'utilisateur ;
+  maquettes 36f, 36i validées). À la création, trois choix : **serveur sur le NAS** (défaut),
+  **serveur sur cet ordinateur** (D-63, existant), **dossier partagé** sans serveur (SharePoint
+  synchronisé par l'appli OneDrive, Google shared drive par Google Drive pour ordinateur, partage
+  NAS, SFTP). Le coffre personnel garde par défaut un dossier partagé (places D-50, D-65).
+  - Serveur sur le NAS : Cleis se connecte en SSH (adresse, port, administrateur, mot de passe,
+    jamais gardé) et regarde le système. **QNAP (QTS / QuTS hero)** : paquet **Cleis Server
+    (.qpkg)** envoyé par SFTP puis installé par `sh paquet.qpkg` : il apparaît dans l'App Center
+    (sans signature QNAP : avertissement affiché par QTS), QTS le démarre avec le NAS ; données sous
+    `.qpkg/CleisServer/data`. **Autre Linux** (Synology, serveur) : exécutable statique + service
+    systemd (`cleis-server install`). **Docker** seulement s'il est déjà présent et qu'aucune des
+    deux voies ne convient : rien n'est ajouté au NAS pour Cleis (demande de l'utilisateur). Le
+    NAS de l'utilisateur : QNAP TS-863U-RP, AMD GX-420MC (x86-64, AES-NI), QTS 5.2.11 : paquets
+    construits pour x86_64 et arm_64.
+  - Dossier partagé : pas de serveur ; chaque appli tient une copie de l'état de l'organisation
+    rejouée depuis le dossier. Chaque membre écrit seulement dans son sous-dossier (aucun conflit
+    de synchronisation entre deux écrivains) des opérations signées (Ed25519) : les requêtes de
+    l'API du serveur, rejouées par toutes les applis dans le même ordre (date, membre, numéro) avec
+    les mêmes contrôles de droits que le serveur ; une opération refusée est ignorée partout. Les
+    lignes restent scellées comme sur le serveur. Retrait d'un membre : appliqué à la synchro
+    suivante, ses espaces rechiffrés ; retirer aussi son accès au dossier (SharePoint, NAS).
+    Invitation : l'administrateur publie la clé publique dérivée du code ; le nouveau membre signe
+    sa demande avec elle (le code ne passe jamais par le dossier). Le code PIN (D-79) n'y est que
+    local (pas de serveur pour compter les erreurs).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
