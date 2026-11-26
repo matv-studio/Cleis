@@ -22,6 +22,29 @@ use zeroize::Zeroizing;
 
 pub use platform::{accessibility_allowed, request_accessibility};
 
+/// Opening Cleis without the master password (D-76).
+pub mod unlock {
+    /// Whether Windows Hello can sign for this account (Windows only for now).
+    pub fn hello_available() -> bool {
+        crate::platform::hello_available()
+    }
+
+    /// The Windows Hello signature of `challenge` by the key `name`: the user is asked first.
+    /// Blocks until the prompt closes: call it off the interface thread.
+    pub fn hello_sign(name: &str, challenge: &[u8]) -> Result<Vec<u8>, String> {
+        crate::platform::hello_sign(name, challenge)
+    }
+
+    /// Seals a key for this system account ("Nothing": Windows DPAPI; elsewhere unchanged).
+    pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
+        crate::platform::protect(secret)
+    }
+
+    pub fn unprotect(stored: &[u8]) -> Result<Vec<u8>, String> {
+        crate::platform::unprotect(stored)
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum FillError {
     #[error("the window changed before filling finished")]

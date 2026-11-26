@@ -165,3 +165,21 @@ pub fn set_open_at_login(on: bool, exe: &std::path::Path, args: &[&str]) -> Resu
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::write(&file, plist).map_err(|e| e.to_string())
 }
+
+/// Opening Cleis (D-76): Windows only for now.
+pub fn hello_available() -> bool {
+    false
+}
+
+pub fn hello_sign(_name: &str, _challenge: &[u8]) -> Result<Vec<u8>, String> {
+    Err("Windows Hello is not available on this system".into())
+}
+
+/// "Nothing": the key is kept as is; the application writes it to a file only its user reads.
+pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(secret.to_vec())
+}
+
+pub fn unprotect(stored: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(stored.to_vec())
+}

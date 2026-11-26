@@ -380,3 +380,135 @@ pub fn set_open_at_login(on: bool, exe: &std::path::Path, args: &[&str]) -> Resu
         }
     }
 }
+
+// ---------- Opening Cleis (D-76) ----------
+// Windows Hello as KeePassXC does it: a key pair of the Windows Hello key store (the TPM when
+// there is one) signs a random challenge kept by Cleis; only the user, through the Windows Hello
+// prompt, gets the signature, whose hash seals the vault on this computer. RSA PKCS#1 v1.5
+// signatures are deterministic, so the same challenge always gives the same key.
+
+/// Whether Windows Hello is set up for this Windows account.
+pub fn hello_available() -> bool {
+    windows::Security::Credentials::KeyCredentialManager::IsSupportedAsync()
+        .and_then(|op| op.join())
+        .unwrap_or(false)
+}
+
+/// The Windows Hello prompt (behind the app's window on some versions of Windows): brought to
+/// the front as soon as it appears, for a few seconds.
+fn raise_hello_prompt() {
+    std::thread::spawn(|| {
+        use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            // SAFETY: plain window lookups by class name; the handle is only passed back.
+            unsafe {
+                if let Ok(w) = FindWindowW(windows::core::w!("Credential Dialog Xaml Host"), None)
+                    && !w.is_invalid()
+                {
+                    let _ = SetForegroundWindow(w);
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// Signs `challenge` with the Windows Hello key `name` (made the first time), after the prompt.
+pub fn hello_sign(name: &str, challenge: &[u8]) -> Result<Vec<u8>, String> {
+    use windows::Security::Credentials::{
+        KeyCredentialCreationOption, KeyCredentialManager, KeyCredentialStatus,
+    };
+    use windows::Security::Cryptography::CryptographicBuffer;
+    let name = windows::core::HSTRING::from(name);
+    raise_hello_prompt();
+    let created = KeyCredentialManager::RequestCreateAsync(
+        &name,
+        KeyCredentialCreationOption::FailIfExists,
+    )
+    .and_then(|op| op.join())
+    .map_err(|e| e.to_string())?;
+    let credential = match created.Status().map_err(|e| e.to_string())? {
+        KeyCredentialStatus::Success => created.Credential(),
+        KeyCredentialStatus::CredentialAlreadyExists => KeyCredentialManager::OpenAsync(&name)
+            .and_then(|op| op.join())
+            .and_then(|r| r.Credential()),
+        KeyCredentialStatus::UserCanceled => return Err("Canceled".into()),
+        _ => return Err("Windows Hello is not available".into()),
+    }
+    .map_err(|e| e.to_string())?;
+    raise_hello_prompt();
+    let data = CryptographicBuffer::CreateFromByteArray(challenge).map_err(|e| e.to_string())?;
+    let signed = credential
+        .RequestSignAsync(&data)
+        .and_then(|op| op.join())
+        .map_err(|e| e.to_string())?;
+    match signed.Status().map_err(|e| e.to_string())? {
+        KeyCredentialStatus::Success => {}
+        KeyCredentialStatus::UserCanceled => return Err("Canceled".into()),
+        _ => return Err("Windows Hello refused".into()),
+    }
+    let buffer = signed.Result().map_err(|e| e.to_string())?;
+    let mut out = windows::core::Array::<u8>::new();
+    CryptographicBuffer::CopyToByteArray(&buffer, &mut out).map_err(|e| e.to_string())?;
+    Ok(out.to_vec())
+}
+
+fn blob(data: &[u8]) -> windows::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB {
+    windows::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB {
+        cbData: data.len() as u32,
+        pbData: data.as_ptr() as *mut u8,
+    }
+}
+
+/// Copies and frees a blob returned by DPAPI.
+fn take(out: windows::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB) -> Vec<u8> {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    // SAFETY: DPAPI filled `out` with `cbData` bytes it allocated with LocalAlloc.
+    unsafe {
+        let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+        let _ = LocalFree(Some(HLOCAL(out.pbData as *mut core::ffi::c_void)));
+        v
+    }
+}
+
+/// "Nothing": the key sealed by DPAPI for this Windows account (any program it runs reads it).
+pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
+    use windows::Win32::Security::Cryptography::{CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData};
+    let input = blob(secret);
+    let mut out = Default::default();
+    // SAFETY: the input blob points at `secret`, alive for the call; DPAPI allocates `out`.
+    unsafe {
+        CryptProtectData(
+            &input,
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut out,
+        )
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(take(out))
+}
+
+pub fn unprotect(stored: &[u8]) -> Result<Vec<u8>, String> {
+    use windows::Win32::Security::Cryptography::{CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData};
+    let input = blob(stored);
+    let mut out = Default::default();
+    // SAFETY: as in `protect`.
+    unsafe {
+        CryptUnprotectData(
+            &input,
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut out,
+        )
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(take(out))
+}
