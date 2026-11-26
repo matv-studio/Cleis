@@ -1,7 +1,7 @@
 //! `cleis [--vault PATH] [--theme dark|light] [--demo [--no-org]] [--unlocked] [--tab T]
 //! [--page P] [--quick-access] [--menu columns|new-column|open-code|filter|invite|invite-code|
 //! new-space|new-role|rekey|server-code] [--import FILE [--review]] [--try-autofill]
-//! [--background] [--restore] [--org-welcome]`
+//! [--background] [--restore] [--org-welcome] [--lang fr] [--update VERSION [--menu update]]`
 
 // Release builds on Windows are a GUI program: no console window behind Cleis.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -65,9 +65,15 @@ fn main() {
     let page = value("--page");
     let quick_access = flag("--quick-access") && unlocked;
     let menu = value("--menu").filter(|_| unlocked);
+    // Screenshots: a newer version shown as published (`--update 0.2.1`).
+    let fake_update = value("--update");
     let import = value("--import").filter(|_| unlocked);
     let review = flag("--review");
     let background = flag("--background");
+    if !demo {
+        // The files the previous update renamed `*.old` (D-74).
+        std::thread::spawn(cleis_app::update::clean_up);
+    }
     let restore = flag("--restore");
     let no_org = flag("--no-org");
     // D-69 captures: a second organization, the vaults in their own tabs.
@@ -112,6 +118,17 @@ fn main() {
                 let view = cx.new(|cx| {
                     let mut app = CleisApp::new(path.clone(), forced_mode, window, cx);
                     app.demo = demo;
+                    // D-74: GitHub looked at for a newer version (never in the demo).
+                    app.update.enabled = !demo;
+                    if let Some(v) = &fake_update {
+                        app.update.available = Some(cleis_app::update::Release {
+                            version: v.clone(),
+                            prerelease: true,
+                            page: String::new(),
+                            package: Some((String::new(), String::new())),
+                        });
+                        app.update.confirm = menu.as_deref() == Some("update");
+                    }
                     if demo && !try_autofill {
                         // Demo and screenshots: never take the system's shortcuts or type.
                         app.no_shortcuts = true;

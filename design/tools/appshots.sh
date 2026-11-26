@@ -35,6 +35,9 @@ shot() { # name, args...
 for theme in ${THEMES:-dark}; do
   shot "unlock-$theme" --demo --theme $theme
   shot "vault-$theme" --demo --unlocked --theme $theme
+  shot "update-$theme" --demo --unlocked --update 0.2.1 --theme $theme
+  shot "update-confirm-$theme" --demo --unlocked --update 0.2.1 --menu update --theme $theme
+  shot "updates-settings-$theme" --demo --unlocked --update 0.2.1 --tab settings --theme $theme
   shot "filter-$theme" --demo --unlocked --menu filter --theme $theme
   shot "columns-$theme" --demo --unlocked --menu new-column --theme $theme
   shot "import-$theme" --demo --unlocked --tab settings --page import --import "$root/design/tools/notion-export.csv" --theme $theme

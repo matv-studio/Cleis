@@ -146,6 +146,8 @@ pub struct Preferences {
     pub org_backup_key_saved: Option<i64>,
     /// The personal vault in its own tab, beside one tab per organization (D-69).
     pub vault_tabs: bool,
+    /// Updates (D-74): pre-releases offered too (every 0.x version is one).
+    pub update_prereleases: bool,
 }
 
 impl Default for Preferences {
@@ -167,6 +169,7 @@ impl Default for Preferences {
             password_changed: None,
             org_backup_key_saved: None,
             vault_tabs: false,
+            update_prereleases: true,
         }
     }
 }

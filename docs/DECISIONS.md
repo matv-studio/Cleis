@@ -497,6 +497,24 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     `UI_LANG=fr design/tools/appshots.sh`.
   - Le kit d'urgence (PDF) et la ligne de commande du serveur restent en anglais.
 
+- **D-74 Mises à jour** (26/11/2026, demande de l'utilisateur, présentation reprise de Revel) :
+  Cleis lit les versions publiées du dépôt public `matv-studio/Cleis` (API GitHub, sans jeton)
+  au démarrage puis toutes les six heures. Une version plus récente fait paraître le bouton
+  « Version x.y.z » en haut à droite ; Preferences › Updates donne la version installée, l'option
+  « Recevoir les préversions » (par défaut : oui, toutes les 0.x en sont) et « Rechercher les
+  mises à jour ». Les brouillons ne comptent jamais.
+  - Installation (Windows, zip portable) : téléchargement du zip et de sa somme `.sha256`,
+    vérification, puis chaque fichier du dossier est renommé `<nom>.old` et remplacé (un
+    programme ouvert se renomme mais ne s'écrase pas) ; Cleis se relance, les `.old` sont
+    effacés au démarrage suivant. Un paquet sans `Cleis.exe` ou abîmé ne change rien. Dossier
+    non inscriptible (Program Files) : message d'erreur, rien n'est remplacé.
+  - Ailleurs (macOS, Linux) : le bouton ouvre la page de la version.
+  - Limite : la somme `.sha256` vient de la même version GitHub ; elle protège d'un
+    téléchargement abîmé, pas d'un compte GitHub compromis. Signature des paquets (clé Ed25519
+    dans les secrets du dépôt) : à décider, « En suspens » 16.
+  - Jamais dans la démo, les captures ni les essais (`update.enabled` mis par `main.rs`).
+    Captures : `--update 0.2.1 [--menu update]`.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
@@ -512,3 +530,5 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 10 à 14. ~~Choix de fin d'audit~~ (D-71).
 15. Format monétaire régional en français (`69,99 €`) : aujourd'hui `€69.99` dans les deux
     langues (D-73).
+16. Signature des paquets de mise à jour (D-74) : clé Ed25519 gardée dans les secrets du dépôt,
+    à créer par l'utilisateur.

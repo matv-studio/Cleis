@@ -14,4 +14,5 @@ pub mod settings;
 pub mod sync;
 pub mod trash;
 pub mod unlock;
+pub mod update;
 pub mod welcome;

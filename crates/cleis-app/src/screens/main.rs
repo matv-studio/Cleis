@@ -25,6 +25,11 @@ pub fn render(
     app.ensure_editor(window, cx);
     app.ensure_contact_editor(window, cx);
     app.ensure_org_inputs(window, cx);
+    // Updates (D-74), read before the session is borrowed.
+    let update_button = super::update::top_button(app, &t, cx);
+    let update_dialog = super::update::dialog(app, &t, cx);
+    let update_section = matches!(&app.phase, Phase::Main(s) if s.tab == Tab::Settings)
+        .then(|| super::update::section_of(app, &t, cx));
     let Phase::Main(s) = &app.phase else {
         unreachable!()
     };
@@ -38,9 +43,8 @@ pub fn render(
         Tab::Contacts => super::contacts::page(s, &t, cx).into_any_element(),
         Tab::Health => super::health::page(s, &t, cx).into_any_element(),
         Tab::Activity => super::org::activity(s, &t, cx).into_any_element(),
-        Tab::Settings => {
-            super::settings::page(s, &app.autofill, &app.path, &t, cx).into_any_element()
-        }
+        Tab::Settings => super::settings::page(s, &app.autofill, &app.path, update_section, &t, cx)
+            .into_any_element(),
     };
     let toast = s.toast.clone();
     div()
@@ -152,7 +156,7 @@ pub fn render(
                     )
                 }),
         )
-        .child(topbar(s, &t, cx))
+        .child(topbar(s, update_button, &t, cx))
         .when_some(s.confirm.as_ref(), |d, c| {
             d.child(super::trash::dialog(c, &t, cx))
         })
@@ -162,6 +166,7 @@ pub fn render(
         .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::folders::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::places::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(update_dialog, |d, dlg| d.child(dlg))
         .when_some(super::ctx::outside(s, cx), |d, m| d.child(m))
         .when_some(super::ctx::render(s, &t, cx), |d, m| d.child(m))
         // Any input counts as activity (Security › Locking).
@@ -169,7 +174,12 @@ pub fn render(
         .capture_key_down(cx.listener(|this, _, _, _| this.touch_activity()))
 }
 
-fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
+fn topbar(
+    s: &Session,
+    update: Option<AnyElement>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> TitleBar {
     use crate::app::Scope;
     // D-69: with Preferences › Vaults › "Personal vault in its own tab", the personal vault comes
     // first, then one tab per organization; otherwise a single Vault tab shows them all.
@@ -311,6 +321,7 @@ fn topbar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> TitleBar {
                 .items_center()
                 .justify_end()
                 .gap(px(8.))
+                .children(update)
                 .child(sync_status(s, t, cx))
                 .child(
                     icon_button("lock", t, "lock", false)

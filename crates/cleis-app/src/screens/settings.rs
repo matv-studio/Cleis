@@ -55,6 +55,7 @@ pub fn page(
     s: &Session,
     af: &AutofillState,
     path: &std::path::Path,
+    updates: Option<Div>,
     t: &Tokens,
     cx: &mut Context<CleisApp>,
 ) -> Div {
@@ -233,7 +234,7 @@ pub fn page(
         "Encryption" => super::org::encryption(s, t, cx),
         "Server" | "Organization" => super::org::server(s, t, cx),
         "Add an organization" => super::org::join_page(s, t, cx),
-        _ => preferences(s, &s.prefs, s.pref_menu, t, cx),
+        _ => preferences(s, &s.prefs, s.pref_menu, t, cx).children(updates),
     };
     div().flex_1().min_h_0().flex().child(nav).child(
         div()

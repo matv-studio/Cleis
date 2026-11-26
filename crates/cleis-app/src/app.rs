@@ -333,6 +333,8 @@ pub struct CleisApp {
     pub main_hwnd: Option<u64>,
     /// Demo vault (`--demo`, `--try-autofill`): nothing is registered on the computer.
     pub demo: bool,
+    /// Published versions (D-74).
+    pub update: crate::screens::update::UpdateState,
     _ticker: Task<()>,
     pub(crate) _subs: Vec<Subscription>,
 }
@@ -359,6 +361,7 @@ impl CleisApp {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let Ok(idle) = this.update(cx, |app, cx| {
                     cx.notify();
+                    app.update_due(cx);
                     if app.auto_sync_due() {
                         app.sync(true, cx);
                     }
@@ -399,6 +402,10 @@ impl CleisApp {
             tray: None,
             main_hwnd: crate::tray::hwnd_of(window),
             demo: false,
+            update: crate::screens::update::UpdateState {
+                pre: true,
+                ..Default::default()
+            },
             _ticker: ticker,
             _subs: vec![],
         };
@@ -813,6 +820,7 @@ impl CleisApp {
     /// Applies theme and accent from the preferences (and remembers them for the unlock screen).
     pub fn apply_appearance(&mut self, prefs: &Preferences, cx: &mut Context<Self>) {
         crate::i18n::set_language(&prefs.language);
+        self.update.pre = prefs.update_prereleases;
         let mut a = Appearance::from_prefs(prefs);
         if let Some(m) = self.forced_mode {
             a.mode = m;
@@ -993,6 +1001,7 @@ fn save_appearance(p: &Preferences) {
         "accent": p.accent,
         "accent_scope": p.accent_scope,
         "language": p.language,
+        "update_prereleases": p.update_prereleases,
     });
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
