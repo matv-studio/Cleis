@@ -84,6 +84,8 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
         ("members", "factor_target", "TEXT"),
         // Organization PIN (D-79): wrong PINs in a row.
         ("members", "pin_fails", "INTEGER NOT NULL DEFAULT 0"),
+        // Shared folder (D-78): the public key of the proof an invitation code gives.
+        ("invites", "proof_key", "BLOB"),
     ] {
         let has: bool = conn
             .prepare(&format!(

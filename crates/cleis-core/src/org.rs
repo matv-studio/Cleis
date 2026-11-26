@@ -710,6 +710,10 @@ pub struct JoinRequest {
     /// Signature of `token | account_public` with the account's Ed25519 key.
     #[serde(with = "b64_64")]
     pub signature: [u8; 64],
+    /// Shared folder (D-78): instead of the code (`token` empty), a signature of `account_public`
+    /// with the key the code gives (`cleis_server::local::invite_proof`).
+    #[serde(default, with = "b64")]
+    pub proof: Vec<u8>,
 }
 
 impl JoinRequest {
@@ -1059,6 +1063,19 @@ pub struct NewInvite {
     /// The server's address as members reach it: put in the invitation e-mail (audit L-17).
     #[serde(default)]
     pub address: String,
+    /// Shared folder (D-78): the code is made by the inviting app; only this goes to the folder.
+    #[serde(default)]
+    pub secret: Option<InviteSecret>,
+}
+
+/// What an invitation keeps of its code when the code must not be known to the folder's readers
+/// (D-78): its hash, and the public key of the proof it gives.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteSecret {
+    #[serde(with = "b64_32")]
+    pub token_hash: [u8; 32],
+    #[serde(with = "b64_32")]
+    pub proof_key: [u8; 32],
 }
 
 /// A new code for an invitation (Resend).
@@ -1067,6 +1084,8 @@ pub struct RenewInvite {
     pub id: uuid::Uuid,
     #[serde(default)]
     pub address: String,
+    #[serde(default)]
+    pub secret: Option<InviteSecret>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

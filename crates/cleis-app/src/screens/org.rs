@@ -4019,6 +4019,7 @@ impl CleisApp {
             role: f.role.clone(),
             spaces: f.spaces.iter().copied().collect(),
             address: o.m.address.clone(),
+            secret: None,
         };
         self.org_invite(req, cx);
     }

@@ -74,6 +74,7 @@ fn join(addr: &str, code: &str, name: &str, email: &str) -> Result<Person, NetEr
         account_public: account.public().0,
         verify_key: signing.verifying_key().0,
         signature: [0; 64],
+        proof: vec![],
     };
     req.signature = signing.sign(JOIN_DOMAIN, &req.signed_bytes());
     let first = Client::new(addr, Trust::Prefix(inv.pin));
@@ -253,6 +254,7 @@ fn organization_flow() {
                 role: "read_only".into(),
                 spaces: vec![general],
                 address: String::new(),
+                secret: None,
             },
         )
         .unwrap();
@@ -276,6 +278,7 @@ fn organization_flow() {
                 role: "member".into(),
                 spaces: vec![],
                 address: String::new(),
+                secret: None,
             },
         )
         .unwrap_err();
@@ -931,6 +934,7 @@ max_token_age = 3_000_000_000
                 role: "member".into(),
                 spaces: vec![],
                 address: "vault.example-studio.lan:8443".into(),
+                secret: None,
             },
         )
         .unwrap();
@@ -942,6 +946,7 @@ max_token_age = 3_000_000_000
             &RenewInvite {
                 id: inv.id,
                 address: "vault.example-studio.lan:8443".into(),
+                secret: None,
             },
         )
         .unwrap();
@@ -1080,6 +1085,7 @@ fn admin_delegations() {
                 role: role.into(),
                 spaces: vec![],
                 address: String::new(),
+                secret: None,
             },
         )
     };
@@ -1169,6 +1175,7 @@ fn organization_pin() {
                 role: "member".into(),
                 spaces: vec![],
                 address: String::new(),
+                secret: None,
             },
         )
         .unwrap();

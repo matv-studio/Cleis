@@ -427,6 +427,7 @@ pub fn join(
         account_public,
         verify_key: signing.verifying_key().0,
         signature: [0; 64],
+        proof: vec![],
     };
     req.signature = signing.sign(JOIN_DOMAIN, &req.signed_bytes());
     let (reply, cert): (JoinReply, [u8; 32]) = Client::new(&addr, Trust::Prefix(inv.pin))
@@ -1929,7 +1930,11 @@ impl CleisApp {
                 .unwrap_or_default();
             self.org_request::<_, InviteReply>(
                 "/v1/invites/renew",
-                RenewInvite { id, address },
+                RenewInvite {
+                    id,
+                    address,
+                    secret: None,
+                },
                 move |app, r, cx| {
                     if let (Ok(r), Some(o)) = (r, app.session().and_then(|s| s.org.as_mut())) {
                         o.ui.invite_code = Some(r.code);

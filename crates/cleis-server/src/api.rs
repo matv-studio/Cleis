@@ -1,14 +1,15 @@
 //! Requests of the server protocol (`cleis_core::org`). Every request but `hello`, `join`,
 //! `challenge` and `session` carries a session token; the caller's role decides what passes.
 
+use crate::local::{now, random_bytes};
 use crate::{ApiErr, App, INVITE_DAYS, Peer, SESSION_SECS, db};
 use axum::extract::{DefaultBodyLimit, FromRequestParts, State};
 use axum::http::{StatusCode, request::Parts};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use cleis_core::org::*;
-use cleis_core::{MemberId, SpaceId, now};
-use cleis_crypto::{VerifyingKey, hex, random_bytes, sha256, verify};
+use cleis_core::{MemberId, SpaceId};
+use cleis_crypto::{VerifyingKey, hex, sha256, verify};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -133,6 +134,10 @@ fn member_from(r: &rusqlite::Row) -> rusqlite::Result<Member> {
     })
 }
 
+fn member_of(conn: &Connection, id: MemberId) -> rusqlite::Result<Option<Member>> {
+    member(conn, id)
+}
+
 fn member(conn: &Connection, id: MemberId) -> rusqlite::Result<Option<Member>> {
     conn.query_row(
         &format!("SELECT {MEMBER_COLS} FROM members WHERE id = ?1"),
@@ -242,6 +247,26 @@ impl FromRequestParts<Arc<App>> for Caller {
     type Rejection = ApiErr;
 
     async fn from_request_parts(parts: &mut Parts, app: &Arc<App>) -> Result<Self, ApiErr> {
+        // D-78: an operation replayed from a shared folder is the member who signed it.
+        if let Some((member, device)) = crate::local::replaying() {
+            let id =
+                member.ok_or_else(|| ApiErr::unauthorized("unauthorized", "Sign in again."))?;
+            let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+            let m = member_of(&conn, id)?
+                .filter(|m| m.revoked.is_none())
+                .ok_or_else(|| {
+                    ApiErr::unauthorized(
+                        "revoked",
+                        "This account was removed from the organization.",
+                    )
+                })?;
+            return Ok(Caller {
+                id,
+                role: role_of(&conn, &m.role),
+                device,
+                setup_only: false,
+            });
+        }
         let token = parts
             .headers
             .get("authorization")
@@ -446,21 +471,30 @@ pub fn create_invite(
     spaces: &[SpaceId],
     created_by: Option<MemberId>,
     at: i64,
+    secret: Option<&InviteSecret>,
 ) -> rusqlite::Result<(Uuid, String)> {
     let token: [u8; 10] = random_bytes().expect("random");
-    let id = Uuid::new_v4();
+    let id = crate::local::uuid();
+    let (hash, proof) = match secret {
+        Some(s) => (s.token_hash, s.proof_key),
+        None => (
+            sha256(&token),
+            crate::local::invite_proof(&token).verifying_key().0,
+        ),
+    };
     conn.execute(
-        "INSERT INTO invites(id, token_hash, name, email, role, spaces, created, expires, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO invites(id, token_hash, name, email, role, spaces, created, expires, created_by, proof_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             id.to_string(),
-            &sha256(&token)[..],
+            &hash[..],
             name,
             email,
             role,
             serde_json::to_string(spaces).expect("ids"),
             at,
             at + INVITE_DAYS * 86_400,
-            created_by.map(|m| m.to_string())
+            created_by.map(|m| m.to_string()),
+            &proof[..]
         ],
     )?;
     Ok((id, crate::code_for(token, cert)))
@@ -517,13 +551,51 @@ async fn join(
     let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
     let t = now();
     #[allow(clippy::type_complexity)]
-    let invite: Option<(String, String, String, String, String, Option<String>)> = conn
-        .query_row(
+    let invite: Option<(String, String, String, String, String, Option<String>)> = if req
+        .token
+        .is_empty()
+    {
+        // Shared folder (D-78): the code proven by a signature, never shown to the folder.
+        let proof: [u8; 64] = req.proof.as_slice().try_into().unwrap_or([0; 64]);
+        let mut st = conn.prepare(
+            "SELECT id, name, email, role, spaces, created_by, proof_key FROM invites WHERE expires > ?1 AND proof_key IS NOT NULL",
+        )?;
+        let rows: Vec<_> = st
+            .query_map([t], |r| {
+                Ok((
+                    (
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ),
+                    r.get::<_, Vec<u8>>(6)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        rows.into_iter()
+            .find(|(_, key)| {
+                key.as_slice().try_into().is_ok_and(|k: [u8; 32]| {
+                    verify(
+                        &VerifyingKey(k),
+                        crate::local::INVITE_PROOF_DOMAIN,
+                        &req.account_public,
+                        &proof,
+                    )
+                    .is_ok()
+                })
+            })
+            .map(|(i, _)| i)
+    } else {
+        conn.query_row(
             "SELECT id, name, email, role, spaces, created_by FROM invites WHERE token_hash = ?1 AND expires > ?2",
             params![&sha256(&req.token)[..], t],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
-        .optional()?;
+        .optional()?
+    };
     let Some((invite_id, name, email, role, spaces, created_by)) = invite else {
         drop(conn);
         throttle(&app, &peer, true)?;
@@ -563,7 +635,7 @@ async fn join(
             "This vault already belongs to the organization.",
         ));
     }
-    let id = MemberId::new();
+    let id = MemberId(crate::local::uuid_v7());
     let tx = conn.unchecked_transaction()?;
     conn.execute(
         "INSERT INTO members(id, name, email, role, account_public, verify_key, created, last_device) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -1154,6 +1226,10 @@ fn pin_locked(policy: &Policy, fails: u32) -> bool {
 
 /// The PIN is on and set, and this device has no PIN given recently enough.
 fn pin_due(conn: &Connection, member: MemberId, device: &str, t: i64) -> Result<bool, ApiErr> {
+    // Shared folder (D-78): no server to count wrong PINs; the app asks it locally.
+    if crate::local::replaying().is_some() {
+        return Ok(false);
+    }
     let policy = db::policy(conn);
     if !policy.pin.on || db::meta_get(conn, "pin")?.is_none() {
         return Ok(false);
@@ -2227,12 +2303,21 @@ async fn invite(
             &req.spaces,
             Some(caller.id),
             now(),
+            req.secret.as_ref(),
         )?;
         let mut e = caller.event(Action::Invited);
         e.note = email.to_owned();
         app.record(&conn, e)?;
         made
     };
+    // Shared folder (D-78): the code is the inviting app's; nothing is sent from a replay.
+    if req.secret.is_some() || crate::local::replaying().is_some() {
+        return Ok(Json(InviteReply {
+            id,
+            code: String::new(),
+            emailed: false,
+        }));
+    }
     let emailed = mail_invite(&app, email, &req.address, &code).await;
     Ok(Json(InviteReply { id, code, emailed }))
 }
@@ -2277,13 +2362,21 @@ async fn renew_invite(
         let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
         guard_invite(&conn, &caller, &req.id.to_string())?;
         let t = now();
+        let (hash, proof) = match &req.secret {
+            Some(s) => (s.token_hash, s.proof_key),
+            None => (
+                sha256(&token),
+                crate::local::invite_proof(&token).verifying_key().0,
+            ),
+        };
         if conn.execute(
-            "UPDATE invites SET token_hash = ?2, created = ?3, expires = ?4 WHERE id = ?1",
+            "UPDATE invites SET token_hash = ?2, created = ?3, expires = ?4, proof_key = ?5 WHERE id = ?1",
             params![
                 req.id.to_string(),
-                &sha256(&token)[..],
+                &hash[..],
                 t,
-                t + INVITE_DAYS * 86_400
+                t + INVITE_DAYS * 86_400,
+                &proof[..]
             ],
         )? != 1
         {
@@ -2295,6 +2388,13 @@ async fn renew_invite(
             |r| r.get(0),
         )?
     };
+    if req.secret.is_some() || crate::local::replaying().is_some() {
+        return Ok(Json(InviteReply {
+            id: req.id,
+            code: String::new(),
+            emailed: false,
+        }));
+    }
     let code = crate::code_for(token, &app.cert);
     let emailed = mail_invite(&app, &email, &req.address, &code).await;
     Ok(Json(InviteReply {

@@ -11,6 +11,7 @@ pub mod api;
 pub mod config;
 pub mod db;
 pub mod delivery;
+pub mod local;
 pub mod oidc;
 pub mod tls;
 
@@ -180,6 +181,7 @@ impl App {
             &[],
             None,
             cleis_core::now(),
+            None,
         )?
         .1;
         restrict(dir);
@@ -273,6 +275,7 @@ impl App {
             &[],
             None,
             cleis_core::now(),
+            None,
         )?
         .1)
     }
