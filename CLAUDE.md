@@ -38,7 +38,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   valide**, pousser la branche `release/vX.Y.Z` sur le commit validé (`git push origin
   <sha>:refs/heads/release/vX.Y.Z`) : `tag.yml` pose l'étiquette (auteur Claude), lance `release.yml` sur
   elle (brouillon) et retire la branche. Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes EN + FR
-  fournies à l'utilisateur, qui les colle et publie. Secours : script `etiquette-vX.Y.Z.bat` dans
+  dans `docs/notes/vX.Y.Z.md` avant l'étiquette : le brouillon les reprend ; l'utilisateur publie. Secours : script `etiquette-vX.Y.Z.bat` dans
   `C:\MATV_LOCAL\_Interne\Cleis\` (modèle `etiquette-v0.2.0.ps1`).
 - Branches : `feat/<sujet>`, `fix/<sujet>`. Les choix validés sont poussés directement sur la
   branche de travail (`feat/full-app`), sans PR (demande de l'utilisateur). `main` reste vert.
