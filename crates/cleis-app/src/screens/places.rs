@@ -8,7 +8,7 @@ use crate::sync::Provider;
 use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, Entity, SharedString, Window, div, px};
 

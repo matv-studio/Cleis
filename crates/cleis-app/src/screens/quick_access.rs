@@ -14,7 +14,7 @@ use cleis_core::text::{fold, matches};
 use cleis_core::totp::Totp;
 use cleis_core::{EntryId, now};
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Context, Entity, KeyDownEvent, SharedString, Subscription, Task, WeakEntity, Window, div, px,

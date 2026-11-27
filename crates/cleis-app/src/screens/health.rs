@@ -594,7 +594,7 @@ fn change_card(
     t: &Tokens,
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement {
-    use gpui_kit::component::input::Input;
+    use crate::ui::Input;
     let len = field.read(cx).value().chars().count();
     gpui_kit::deferred(
         menu_box(t)

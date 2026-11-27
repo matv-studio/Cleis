@@ -14,7 +14,7 @@ use cleis_core::{Contact, ContactId, SpaceId};
 use cleis_store::SpaceKind;
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Sizable;
-use gpui_kit::component::input::{Input, InputState, Textarea};
+use gpui_kit::component::input::{InputState, Textarea};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, Context, Div, Entity, PathPromptOptions, SharedString, Subscription, Window,
@@ -553,13 +553,8 @@ fn cell(w: f32) -> Div {
         .flex()
         .items_center()
         .overflow_hidden()
-        .whitespace_nowrap()
-        .min_w_0();
-    if w > 0. {
-        d.w(px(w)).flex_none()
-    } else {
-        d.flex_1()
-    }
+        .whitespace_nowrap();
+    col_sized(d, (w > 0.).then_some(w))
 }
 
 fn labels_row(t: &Tokens, c: &Contact) -> Div {
@@ -768,8 +763,8 @@ fn table(
         head = head.child(
             cell(contact_col_width(s, c))
                 .relative()
-                .on_drag_move(super::dnd::on_resize_move(&c.id, cx))
-                .child(super::dnd::col_grip(&c.id, ci + 1 < ncols, t, cx))
+                .on_drag_move(super::dnd::on_resize_move(c.table, &c.id, cx))
+                .child(super::dnd::col_grip(c.table, &c.id, ci + 1 < ncols, t, cx))
                 .when(c.id.0 == "name", |d| {
                     d.text_color(t.text)
                         .child(format!("{} ↑", crate::i18n::tr_owned(&c.name)))

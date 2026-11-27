@@ -8,7 +8,7 @@ use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::settings::ACCENTS;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Bounds, Context, Div, Entity, MouseButton, Pixels, Point, Rgba, Subscription, TestSupportExt,

@@ -13,7 +13,7 @@ use cleis_core::totp::Totp;
 use cleis_core::{Entry, Subscription};
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Sizable;
-use gpui_kit::component::input::{Input, Textarea};
+use gpui_kit::component::input::Textarea;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Div, Hsla, SharedString, div, px};
 

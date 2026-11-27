@@ -10,7 +10,6 @@ use cleis_core::column::{ColumnDef, ColumnKind};
 use cleis_core::totp::Totp;
 use cleis_core::{Entry, EntryId};
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::Input;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Div, SharedString, Window, div, px, uniform_list};
 
@@ -562,12 +561,8 @@ fn cell_box(c: &ColumnDef, w: Option<f32>) -> Div {
         .flex()
         .items_center()
         .overflow_hidden()
-        .whitespace_nowrap()
-        .min_w_0();
-    let d = match w {
-        Some(w) => d.w(px(w)).flex_none(),
-        None => d.flex_1(),
-    };
+        .whitespace_nowrap();
+    let d = col_sized(d, w);
     if is_num(c) { d.justify_end() } else { d }
 }
 
@@ -1137,13 +1132,13 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
         head = head.child(
             cell_box(c, vault_width(s, c))
                 .relative()
-                .on_drag_move(super::dnd::on_resize_move(&c.id, cx))
+                .on_drag_move(super::dnd::on_resize_move(c.table, &c.id, cx))
                 .when_some(arrow, |d, a| {
                     d.text_color(t.text)
                         .child(format!("{} {a}", crate::i18n::tr_owned(&c.name)))
                 })
                 .when(arrow.is_none(), |d| d.child(crate::i18n::tr_owned(&c.name)))
-                .child(super::dnd::col_grip(&c.id, ci + 1 < ncols, t, cx)),
+                .child(super::dnd::col_grip(c.table, &c.id, ci + 1 < ncols, t, cx)),
         );
     }
     let count = s.visible.len();

@@ -10,6 +10,15 @@ use gpui_kit::{
 use std::path::Path;
 
 fn open(cx: &mut TestAppContext, path: &Path) -> (WindowHandle<Root>, Entity<CleisApp>) {
+    open_sized(cx, path, 1440., 900.)
+}
+
+fn open_sized(
+    cx: &mut TestAppContext,
+    path: &Path,
+    w: f32,
+    h: f32,
+) -> (WindowHandle<Root>, Entity<CleisApp>) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         // Animations at their end state: elements are where the test clicks.
@@ -18,7 +27,7 @@ fn open(cx: &mut TestAppContext, path: &Path) -> (WindowHandle<Root>, Entity<Cle
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds {
                 origin: Point::default(),
-                size: size(px(1440.), px(900.)),
+                size: size(px(w), px(h)),
             })),
             ..Default::default()
         };
@@ -1158,6 +1167,23 @@ fn contact_columns(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Contacts", cx));
     act(cx, h, |w, cx| w.click("contact-columns", cx));
     act(cx, h, |w, cx| w.click("col-company", cx));
+    // Website (also a vault column): the contacts' one appears, the vault's stays as it was.
+    let vault_web = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            let of = |t| {
+                s.columns
+                    .iter()
+                    .find(|c| c.table == t && c.id.0 == "website")
+                    .unwrap()
+                    .visible
+            };
+            (of(Table::Vault), of(Table::Contacts))
+        })
+    };
+    let (vault_before, contacts_before) = vault_web(cx);
+    act(cx, h, |w, cx| w.click("col-website", cx));
+    assert_eq!(vault_web(cx), (vault_before, !contacts_before));
     act(cx, h, |w, cx| w.click("col-new", cx));
     act(cx, h, |w, cx| {
         w.input("Contract end", cx);
@@ -3866,4 +3892,120 @@ fn organization_view_targets(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Contacts", cx));
     assert!(!window_has(cx, h, "cf-bday"));
     assert!(window_has(cx, h, "cf-unfiled"));
+}
+
+/// 0.2.4: a click on the edge of a box (its padding, beside the text) lets the keys in, in the
+/// vault's search, the contacts' search and an inspector box.
+#[gpui_kit::test]
+fn box_edge_takes_the_keys(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    // Top-left corner of the box, in its padding: not on the text.
+    let corner = gpui_kit::point(px(3.), px(3.));
+    act(cx, h, |w, cx| {
+        w.click_at("search", corner, cx);
+        w.input("figm", cx);
+    });
+    app.read_with(cx, |a, cx| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.search.read(cx).value().to_string(), "figm");
+        assert_eq!(s.visible.len(), 1);
+    });
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    act(cx, h, |w, cx| {
+        w.click_at("contact-search", corner, cx);
+        w.input("camille", cx);
+    });
+    app.read_with(cx, |a, cx| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let st = s.contacts_ui.search.as_ref().unwrap();
+        assert_eq!(st.read(cx).value().to_string(), "camille");
+    });
+}
+
+/// 0.2.4: in a window too narrow for every column, the columns get narrower in proportion to
+/// their width; none runs past the table (vault and contacts, with and without the panel).
+#[gpui_kit::test]
+fn columns_fit_a_narrow_window(cx: &mut TestAppContext) {
+    use cleis_core::column::Table;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open_sized(cx, &path, 1000., 760.);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    // Every column shown, in both tables.
+    app.update(cx, |a, cx| {
+        if let Some(s) = a.session() {
+            for c in s.columns.iter_mut() {
+                c.visible = true;
+            }
+            s.selected = None;
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let edges = |cx: &mut TestAppContext, table: Table| -> Vec<(String, f32, f32)> {
+        let ids: Vec<String> = app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            cleis_core::column::visible_columns(&s.columns, table, None)
+                .iter()
+                .map(|c| c.id.0.clone())
+                .collect()
+        });
+        cx.update_window(h.into(), |_, w, _| {
+            ids.iter()
+                .map(|id| {
+                    let b = w
+                        .find(gpui_kit::SharedString::from(format!("colgrip-{id}")))
+                        .bounds();
+                    (id.clone(), f32::from(b.left()), f32::from(b.right()))
+                })
+                .collect()
+        })
+        .unwrap()
+    };
+    let check = |cols: &[(String, f32, f32)], right: f32, what: &str| {
+        assert!(cols.len() >= 8, "{what}: {cols:?}");
+        for (id, _, r) in cols {
+            assert!(*r <= right + 0.5, "{what}: {id} ends at {r}, past {right}");
+        }
+        // Still in their order, each with some width.
+        for pair in cols.windows(2) {
+            assert!(pair[1].2 > pair[0].2, "{what}: {pair:?}");
+        }
+    };
+    check(&edges(cx, Table::Vault), 1000., "vault");
+    // With the panel open, the table ends where the panel starts.
+    let first = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries[s.visible[0]].id
+    });
+    app.update(cx, |a, cx| {
+        if let Some(s) = a.session() {
+            s.selected = Some(first);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let panel = cx
+        .update_window(h.into(), |_, w, _| {
+            f32::from(w.find("edit-name").bounds().left())
+        })
+        .unwrap();
+    check(&edges(cx, Table::Vault), panel, "vault with the panel");
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    check(&edges(cx, Table::Contacts), 1000., "contacts");
 }

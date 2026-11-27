@@ -10,7 +10,7 @@ use crate::ui::*;
 use cleis_core::org::*;
 use cleis_core::{MemberId, SpaceId};
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, Entity, SharedString, Subscription, Window, deferred, div, px};
 use std::collections::BTreeSet;

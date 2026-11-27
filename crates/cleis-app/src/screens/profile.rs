@@ -10,7 +10,7 @@ use crate::ui::*;
 use cleis_core::org::{MemberView, ProfileChange};
 use cleis_core::settings::Profile;
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, Context, Div, Entity, PathPromptOptions, SharedString, Window, div, px,

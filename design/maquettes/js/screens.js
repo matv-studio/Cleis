@@ -2223,6 +2223,238 @@ function cleRecuperation(adding = false) {
 }
 function cleRecuperationAjout() { return cleRecuperation(true); }
 
+// ---------- 48 (28/11/2026, 0.2.4): lists by folder, star before the name, scroll bar, search
+// clear, type menu, birthday calendar, folder icons, billing period, middle-click scroll, Fill
+// best match by the site ----------
+// The vault's items with their folder (fictitious).
+const FOLDER48 = {
+  Dropbox: ['My vault', ''], 'Bank — business portal': ['My vault', 'Banking'], Canva: ['My vault', 'Shopping'],
+  OVHcloud: ['Example Studio', 'General'], Cloudflare: ['Example Studio', 'General'], 'Google Workspace': ['Example Studio', 'General'], Slack: ['Example Studio', 'General'],
+  Figma: ['Example Studio', 'Design'], 'Adobe Creative Cloud': ['Example Studio', 'Design'], Webflow: ['Example Studio', 'Design'],
+  'Microsoft 365': ['Example Studio', 'Accounting'], Notion: ['Example Studio', 'Accounting'],
+  GitHub: ['Example Studio', 'Dev'], 'Office router': ['Example Studio', 'Dev'],
+};
+const FAV48 = ['Figma', 'Notion', 'Google Workspace', 'Canva'];
+const ICON48 = { Banking: 'bank', Shopping: 'cart', General: 'folder', Design: 'palette', Accounting: 'receipt', Dev: 'code' };
+// A folder's line in the list: its icon and name, the vault before it when the list holds several
+// vaults (All items), its count on the right. Not clickable (the sidebar opens the folder).
+const sepRow48 = (cols, vault, folder, n, { path = true } = {}) => {
+  const ico = folder ? (ICON48[folder] || 'folder') : (vault === 'My vault' ? 'user' : 'users');
+  const name = folder ? (path ? `<span style="color:var(--text-faint)">${vault}</span><span style="color:var(--text-faint);display:inline-grid;transform:rotate(-90deg)">${i('chevron')}</span>${folder}` : folder) : vault;
+  return `<tr class="grp"><td colspan="${cols}"><span class="grp-in">${i(ico)}<span class="grp-name">${name}</span><span class="grp-n">${n}</span></span></td></tr>`;
+};
+// The name cell: the star sits in a slot before the name, kept empty for the others (names line up).
+const name48 = (r) => `<span class="site"><span class="site-ico">${r.c}</span><span class="star-slot">${FAV48.includes(r.n) ? `<span class="fav" title="Favorite">${i('star')}</span>` : ''}</span><span class="site-name">${r.n}</span></span>`;
+function vaultTable48({ only = null, filter = null, selected = null, path = true } = {}) {
+  const head = `<tr><th style="width:214px" class="sorted">Name <span class="sort">↑</span></th><th>Username</th><th style="width:116px">Password</th><th style="width:100px">2FA code</th><th style="width:120px">Subscription</th><th class="num" style="width:120px">Price</th><th class="num" style="width:100px">Yearly cost</th></tr>`;
+  const order = [['My vault', ''], ['My vault', 'Banking'], ['My vault', 'Shopping'], ['Example Studio', 'General'], ['Example Studio', 'Design'], ['Example Studio', 'Accounting'], ['Example Studio', 'Dev']];
+  let body = '';
+  let count = 0;
+  for (const [v, f] of order) {
+    if (only && v !== only) continue;
+    const rows = ROWS.filter((r) => FOLDER48[r.n][0] === v && FOLDER48[r.n][1] === f && (!filter || r.n.toLowerCase().includes(filter)));
+    if (!rows.length) continue;
+    count += rows.length;
+    body += sepRow48(7, v, f, rows.length, { path: path && !only });
+    body += rows.map((r) => {
+      const totp = r.totp ? `<span class="totp"><span class="ring ${r.p < 25 ? 'low' : ''}" style="--p:${r.p}%"></span>${r.totp}</span>` : '<span style="color:var(--text-faint)">—</span>';
+      return `<tr class="${r.n === selected ? 'is-selected' : ''}"><td>${name48(r)}</td><td class="muted">${r.u}</td><td><span class="dots">••••••</span></td><td>${totp}</td><td>${statusChip(r.st)}</td><td class="num">${r.price}${r.per ? `<span style="color:var(--text-faint)"> /${r.per}</span>` : ''}</td><td class="num">${r.cost}</td></tr>`;
+    }).join('');
+  }
+  body += `<tr><td colspan="7" style="color:var(--text-muted);font-size:var(--text-sm);border-bottom:0">${count} items</td></tr>`;
+  return `<table class="table table--fixed">${'<thead>' + head + '</thead>'}<tbody>${body}</tbody></table>`;
+}
+// The scroll bar (charter §4: a 2 px line, the visible part as a pill), always there when the list
+// is longer than its place; `hover`: under the pointer.
+const scrollbar48 = (top, len, hover = false) => `<div class="vbar" title="Drag, or click above or below"><div class="vbar-thumb ${hover ? 'is-hover' : ''}" style="top:${top}%;height:${len}%"></div></div>`;
+const search48 = (text = '', hoverX = false) => text
+  ? `<div class="input search is-focus">${i('search')}<span class="grow">${text}</span><button class="icon-btn icon-btn--sm ${hoverX ? 'is-hover' : ''}" aria-label="Clear" title="Clear (Esc)" style="margin-right:-6px;${hoverX ? 'background:var(--surface-hover);color:var(--text)' : ''}">${i('x')}</button></div>`
+  : `<div class="input search">${i('search')}<span class="grow ph">Search</span><span style="color:var(--text-faint);font-size:var(--text-sm)">Ctrl+K</span></div>`;
+const toolbar48 = (search) => vaultToolbar().replace(/<div class="input search">[\s\S]*?Ctrl\+K<\/span><\/div>/, search);
+const side48 = (active) => sidebarB({ active })
+  .replace(`${i('folder')}<span>Banking</span>`, `${i('bank')}<span>Banking</span>`)
+  .replace(`${i('folder')}<span>Shopping</span>`, `${i('cart')}<span>Shopping</span>`)
+  .replace(`${i('folder')}<span>Design</span>`, `${i('palette')}<span>Design</span>`)
+  .replace(`${i('lock')}<span>Accounting</span>`, `${i('receipt')}<span>Accounting</span>`)
+  .replace(`${i('folder')}<span>Dev</span>`, `${i('code')}<span>Dev</span>`)
+  .replace('<span>Dev</span><span class="count">3</span>', '<span>Dev</span><span class="count">2</span>')
+  .replace('<span>My vault</span><span class="count">3</span>', '<span>My vault</span><span class="count">3</span>')
+  .replace('<span>Example Studio</span><span class="count">12</span>', '<span>Example Studio</span><span class="count">11</span>')
+  .replace('<span>All items</span><span class="count">15</span>', '<span>All items</span><span class="count">14</span>');
+
+// 48a. All items: each folder starts with its line (vault › folder); the star of a favorite sits
+// before its name; the scroll bar on the right.
+function listeDossiers() {
+  const center = `${toolbar48(search48())}<div class="table-wrap" style="position:relative">${vaultTable48()}${scrollbar48(0, 46)}</div>`;
+  return frameB(center, { side: side48('All items') });
+}
+// 48b. My vault: the folders of this vault only, without the vault's name; the bar under the pointer.
+function listeMonCoffre() {
+  const center = `${toolbar48(search48())}<div class="table-wrap" style="position:relative">${vaultTable48({ only: 'My vault', selected: 'Canva' })}</div>`;
+  return frameB(center, { side: side48('My vault'), inspector: true })
+    .replace('<span class="site-ico site-ico--lg">F</span>', '<span class="site-ico site-ico--lg">C</span>')
+    .replace('<span style="font-weight:var(--weight-medium);font-size:var(--text-lg)">Figma</span>', '<span style="font-weight:var(--weight-medium);font-size:var(--text-lg)">Canva</span>')
+    .replace('<span style="color:var(--text-muted);font-size:var(--text-sm)">Design</span>', '<span style="color:var(--text-muted);font-size:var(--text-sm)">My vault › Shopping</span>')
+    .replace('<button class="icon-btn" aria-label="Favorite" title="Favorite">', '<button class="icon-btn" aria-label="Favorite" title="Remove from favorites" style="color:var(--warning-text)">');
+}
+// 48c. A search typed: × at the right of the box empties it (Esc too); the results keep their folders.
+function rechercheEffacer() {
+  const center = `${toolbar48(search48('fl', true))}<div class="table-wrap" style="position:relative">${vaultTable48({ filter: 'fl' })}</div>`;
+  return frameB(center, { side: side48('All items') });
+}
+
+// 48d. All contacts: the same folder lines; star before the name; the Website column shown (its
+// switch in Columns now acts on the contacts, not on the vault's Website column).
+const CFOLD48 = {
+  'Léa Fontaine': ['My contacts', ''], 'Paul Lefèvre': ['My contacts', 'Family'],
+  'Sofia Rossi': ['Example Studio', 'Clients'], 'Emma Laurent': ['Example Studio', 'Clients'],
+  'Camille Dubois': ['Example Studio', 'Suppliers'], 'Nadia Benali': ['Example Studio', 'Suppliers'], 'Thomas Weber': ['Example Studio', 'Suppliers'],
+  'Julien Moreau': ['Example Studio', 'Advisors'], 'Omar Haddad': ['Example Studio', 'Advisors'], 'Marc Girard': ['Example Studio', 'Advisors'],
+  'Hugo Bernard': ['Example Studio', 'Team'], 'Ines Petit': ['Example Studio', 'Team'],
+};
+const SITE48 = { 'Camille Dubois': 'example-print.com', 'Julien Moreau': 'example-legal.com', 'Nadia Benali': 'example-hosting.com', 'Paul Lefèvre': 'example-bakery.com', 'Sofia Rossi': 'example-films.com', 'Marc Girard': 'example-bank.com', 'Emma Laurent': 'example-retail.com', 'Thomas Weber': 'example-print.com' };
+function contactsDossiers() {
+  const order = [['My contacts', ''], ['My contacts', 'Family'], ['Example Studio', 'Clients'], ['Example Studio', 'Suppliers'], ['Example Studio', 'Advisors'], ['Example Studio', 'Team']];
+  let body = '';
+  for (const [v, f] of order) {
+    const rows = PEOPLE.filter((c) => CFOLD48[c.n][0] === v && CFOLD48[c.n][1] === f);
+    body += sepRow48(6, v, f, rows.length).replace(i('user'), i('user'));
+    body += rows.map((c) => `<tr class="${c.n === 'Camille Dubois' ? 'is-selected' : ''}">
+      <td><span class="site"><span class="avatar avatar--sm">${initials(c.n)}</span><span class="star-slot">${c.fav ? `<span class="fav">${i('star')}</span>` : ''}</span><span class="site-name">${c.n}</span></span></td>
+      <td>${c.co}</td><td class="muted">${c.e}</td><td class="muted">${c.ph}</td>
+      <td class="muted">${SITE48[c.n] ? `<span class="cellflex"><span class="ell">${SITE48[c.n]}</span>${c.n === 'Camille Dubois' ? `<span class="cell-acts"><button class="icon-btn icon-btn--sm" title="Open">${i('external')}</button></span>` : ''}</span>` : '<span style="color:var(--text-faint)">—</span>'}</td>
+      <td>${c.lb.map((l) => `<span class="chip ${LB[l]}" style="margin-right:4px">${l}</span>`).join('')}</td></tr>`).join('');
+  }
+  body += '<tr><td colspan="6" style="color:var(--text-muted);font-size:var(--text-sm);border-bottom:0">12 contacts</td></tr>';
+  const table = `<table class="table table--fixed"><thead><tr><th style="width:214px" class="sorted">Name <span class="sort">↑</span></th><th style="width:140px">Company</th><th>Email</th><th style="width:150px">Phone</th><th style="width:160px">Website</th><th style="width:150px">Labels</th></tr></thead><tbody>${body}</tbody></table>`;
+  return shell('Contacts', `
+    <div class="work work--no-inspector">${contactsSidebar44('All')}
+      <section class="center">
+        <div class="toolbar">${search48().replace('Search', 'Search name, company, phone')}
+          <button class="btn btn--ghost">${i('filter')}Filter</button><button class="btn btn--ghost">${i('columns')}Columns</button><div style="flex:1"></div>
+          <div class="segmented" role="radiogroup" aria-label="View"><button role="radio" aria-checked="true" title="Table">${i('list')}</button><button role="radio" aria-checked="false" title="Cards">${i('columns')}</button></div></div>
+        <div class="table-wrap" style="position:relative">${table}${scrollbar48(0, 38)}</div>
+      </section>
+    </div>
+    <footer class="statusbar"><span>All contacts</span><span class="sp"></span><span class="sb-item">${i('shield')}Standard encryption</span></footer>`, { primary: `${i('plus')}New contact` });
+}
+
+// 48e. The type of an email or a phone: a click opens the list of all the types (the current one
+// checked) instead of moving to the next one. Phone numbers in pairs of digits.
+function inspecteurContact48(extra = '') {
+  const cp = `<button class="icon-btn icon-btn--sm" aria-label="Copy" title="Copy">${i('copy')}</button>`;
+  const row = (kind, val, { open = false, acts = cp } = {}) => `<div style="display:flex;gap:4px;align-items:center"><span class="kind48 ${open ? 'is-open' : ''}" title="Change type">${kind}${i('chevron')}</span><div class="input" style="flex:1"><span class="grow">${val}</span><span class="act">${acts}</span></div></div>`;
+  return `<aside class="inspector pane">
+    <div class="inspector-head"><span class="avatar avatar--lg">CD</span>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-weight:var(--weight-medium);font-size:var(--text-lg)">Camille Dubois</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Account manager · Example Print</span></div>
+      <button class="icon-btn" title="Remove from favorites" style="color:var(--warning-text)">${i('star')}</button><button class="icon-btn" title="More">${i('more')}</button></div>
+    <div class="quick-acts"><button class="btn btn--sm">${i('mail')}Email</button><button class="btn btn--sm">${i('phone')}Call</button><button class="btn btn--sm">${i('copy')}Copy</button></div>
+    <div class="inspector-tabs"><span class="is-active">Details</span><span>Linked</span><span>History</span></div>
+    <div class="inspector-body" style="padding-top:var(--s-3);gap:var(--s-3)">
+      <div class="field"><span class="label" style="display:flex">Email<span style="flex:1"></span>${i('plus')}</span>${row('Work', 'camille@example-print.com')}${row('Personal', 'camille.d@example.com')}</div>
+      <div class="field"><span class="label" style="display:flex">Phone<span style="flex:1"></span>${i('plus')}</span>${row('Work', '+33 4 99 00 12 34')}${row('Mobile', '+33 6 99 00 12 35', { open: extra === 'menu' })}</div>
+      <div class="field"><span class="label">Address</span>${row('Work', '12 rue de l’Exemple, 69002 Lyon', { acts: `<button class="icon-btn icon-btn--sm" title="Open in maps">${i('external')}</button>` })}</div>
+      <div class="field"><span class="label">Birthday</span><div class="input ${extra === 'cal' ? 'is-focus' : ''}"><span class="grow">Mar 12, 1988</span><span class="act"><button class="icon-btn icon-btn--sm" title="Pick a date" ${extra === 'cal' ? 'style="background:var(--surface-active);color:var(--text)"' : ''}>${i('calendar')}</button></span></div></div>
+      <div class="field"><span class="label">Notes</span><div class="input" style="height:auto;min-height:44px;align-items:flex-start;padding:6px 8px;color:var(--text-muted)">Quotes within 48 h · prefers email</div></div>
+    </div></aside>`;
+}
+function contactsFrame48(extra, overlay) {
+  return shell('Contacts', `
+    <div class="work">${contactsSidebar44('All')}
+      <section class="center"><div class="toolbar">${search48().replace('Search', 'Search name, company, phone')}<button class="btn btn--ghost">${i('filter')}Filter</button><button class="btn btn--ghost">${i('columns')}Columns</button></div>
+        <div class="table-wrap">${contactsTable('Camille Dubois')}</div></section>
+      ${inspecteurContact48(extra)}
+    </div>
+    <footer class="statusbar"><span>Suppliers › Camille Dubois</span><span class="sp"></span><span class="sb-item">${i('shield')}Standard encryption</span><span>Saved</span></footer>`, { primary: `${i('plus')}New contact`, overlay });
+}
+function typeMenu() {
+  const ck = (label, on, hover = false) => `<div class="menu-item ${hover ? 'is-hover' : ''}">${on ? i('check') : '<span style="width:16px"></span>'}<span>${label}</span></div>`;
+  const m = `<div class="menu" style="left:1176px;top:432px;width:148px">${ck('Work', false)}${ck('Mobile', true)}${ck('Home', false, true)}${ck('Other', false)}</div>`;
+  return contactsFrame48('menu', m);
+}
+// 48f. Birthday: the calendar of the vault's dates, opened from the box; a birthday may be kept
+// without its year.
+function anniversaireCalendrier() {
+  const days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => `<span class="cal-dow">${d}</span>`).join('');
+  let cells = '';
+  for (let k = 0; k < 1; k++) cells += '<span class="cal-day is-out"></span>';
+  for (let d = 1; d <= 31; d++) cells += `<span class="cal-day ${d === 12 ? 'is-on' : ''}">${d}</span>`;
+  const pop = `<div class="cal" style="left:1170px;top:574px">
+    <div class="cal-head"><button class="icon-btn icon-btn--sm" title="Previous month" style="transform:rotate(90deg)">${i('chevron')}</button><span class="sp" style="text-align:center;font-weight:var(--weight-medium)">March <span class="cal-year" title="Click to type the year">1988</span></span><button class="icon-btn icon-btn--sm" title="Next month" style="transform:rotate(-90deg)">${i('chevron')}</button></div>
+    <div class="cal-grid">${days}${cells}</div>
+    <div class="cal-foot"><button class="btn btn--ghost btn--sm" title="Keep the day and the month only">No year</button><span class="sp"></span><button class="btn btn--ghost btn--sm">Clear</button></div>
+  </div>`;
+  return contactsFrame48('cal', pop);
+}
+
+// 48g. A folder's icon: right-click › Icon…, a grid of icons (the current one outlined), Default
+// puts the folder icon back. Personal folders: yours; an organization's spaces: its admins, seen by
+// every member.
+const FICONS48 = ['folder', 'star', 'heart', 'user', 'users', 'briefcase', 'building', 'bank', 'wallet', 'receipt', 'cart', 'gift', 'home', 'car', 'luggage', 'cap', 'book', 'medical', 'code', 'palette', 'camera', 'music', 'gamepad', 'wrench', 'mail', 'globe', 'cloud', 'key', 'shield', 'leaf'];
+function iconeDossier() {
+  const menu = ctx(150, 214, `${mi('plus', 'New item here')}${mi('text', 'Rename')}${mi('palette', 'Icon', '', { hover: true, sub: true })}${sep}${mi('trash', 'Delete', '', { danger: true })}`, 200);
+  const grid = FICONS48.map((n) => `<button class="ico-pick ${n === 'cart' ? 'is-on' : ''} ${n === 'gift' ? 'is-hover' : ''}" title="${n[0].toUpperCase() + n.slice(1)}">${i(n)}</button>`).join('');
+  const pick = `<div class="menu" style="left:374px;top:270px;width:236px;padding:8px"><div class="ico-grid">${grid}</div><div class="menu-sep"></div><div style="display:flex"><button class="btn btn--ghost btn--sm">${i('folder')}Default</button></div></div>`;
+  const side = side48('Shopping').replace('<div class="side-item  ', '<div class="side-item ').replace(`${i('cart')}<span>Shopping</span>`, `${i('cart')}<span>Shopping</span>`);
+  const center = `${toolbar48(search48())}<div class="table-wrap" style="position:relative">${vaultTable48({ only: 'My vault' })}</div>`;
+  return frameB(center, { side, overlay: menu + pick });
+}
+
+// 48h. The price's billing period: a button at the right of the box, as the type of a contact's
+// email: a click goes from month to year and back. The yearly cost follows.
+function periodePrix(year = false) {
+  const per = year ? 'year' : 'month';
+  const insp = inspector().replace(/<div class="section" style="padding:var\(--s-3\);gap:var\(--s-2\);background:var\(--surface-raised\)">[\s\S]*?<\/dl>\s*<\/div>/, `<div class="section" style="padding:var(--s-3);gap:var(--s-2);background:var(--surface-raised)">
+        <div style="display:flex;align-items:center;justify-content:space-between"><h3>Subscription</h3>${statusChip('Active')}</div>
+        <div class="kvi"><span>Price</span><div class="input input--sm"><span class="grow num" style="text-align:left">€15.00</span><span class="per48 is-hover" title="Billed per ${per} · click for ${year ? 'month' : 'year'}">/ ${per}</span></div></div>
+        <div class="kvi"><span>Licenses</span><div class="input input--sm"><span class="grow">4</span></div></div>
+        <div class="kvi"><span>Yearly cost</span><b style="margin-left:auto;font-weight:var(--weight-medium)">${year ? '€60.00' : '€720.00'}</b></div>
+        <div class="kvi"><span>Renewal</span><div class="input input--sm"><span class="grow">Dec 3, 2026</span><span class="act" title="Pick a date">${i('calendar')}</span></div></div>
+      </div>`);
+  return shell('Vault', `<div class="work">${side48('Design')}<section class="center">${toolbar48(search48())}<div class="table-wrap">${vaultTable48({ only: 'Example Studio', selected: 'Figma' }).replace(/<tr class="grp">[\s\S]*?<\/tr>/g, (m) => (m.includes('Design') ? m : m))}</div></section>${insp}</div>${statusbar()}`);
+}
+function periodePrixAn() { return periodePrix(true); }
+
+// 48i. Middle click in a list: the anchor appears where the wheel was pressed; moving the pointer
+// away scrolls, faster the farther it goes (above: up, below: down); any click or Esc stops it.
+// Held and dragged, it scrolls while held.
+function defilementMolette() {
+  const anchor = `<div class="anchor48" style="left:640px;top:420px" title="Move the pointer to scroll">${i('autoscroll')}</div>
+    <svg class="cursor48" style="left:652px;top:560px" viewBox="0 0 24 24"><path d="M12 22 6 15h4V2h4v13h4Z"/></svg>`;
+  const center = `${toolbar48(search48())}<div class="table-wrap" style="position:relative">${vaultTable48()}${scrollbar48(22, 46, true)}</div>`;
+  return frameB(center, { side: side48('All items'), overlay: anchor });
+}
+
+// 48k. Fill best match on a page no item is saved for exactly: Quick Access lists the most likely
+// logins first. Order: the item linked to the app; its Website on this address; its Website on
+// the same site (another sub-domain); the site's name in the item's name; the window's title.
+// Fill best match still fills at once when a single item is saved for this address.
+function remplissageSite() {
+  const it = (c, n, sub, why, sel = false) => `<div class="qa-item ${sel ? 'is-sel' : ''}"><span class="site-ico">${c}</span><div class="meta"><span class="site-name">${n}</span><span class="sub">${sub}</span></div>${why ? `<span class="chip" title="${why[1]}">${why[0]}</span>` : ''}${sel ? `<span class="qa-hint">${keys('↵')}Fill</span>` : ''}</div>`;
+  return `<div class="desk">
+    <div class="win" style="left:380px;top:420px;width:680px">
+      <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span>app.example-books.com/login</span></div>
+      <div class="win-body">
+        <div style="font-size:var(--text-lg);font-weight:var(--weight-medium)">Sign in to Example Books</div>
+        <div class="field"><span class="label">Email</span><div class="input is-focus"><span class="grow"></span></div></div>
+        <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Sign in</button></div>
+      </div>
+    </div>
+    <div class="qa" role="dialog" aria-label="Quick Access">
+      <div class="qa-search">${i('search')}<span class="grow ph">Search</span><span class="chip chip--auto" title="Address of the tab in front">${i('globe')}app.example-books.com</span></div>
+      <div class="qa-list">
+        <div class="menu-head">Most likely</div>
+        ${it('E', 'Example Books — billing', 'accounting@example-studio.com · Accounting', ['Same site', 'Saved for billing.example-books.com'], true)}
+        ${it('E', 'Example Books', 'ines@example-studio.com · General', ['Name', '“Example Books” in its name, no website saved'])}
+        ${it('E', 'Example Books — test', 'lea@example-studio.com · My vault', ['Name', '“Example Books” in its name, no website saved'])}
+        <div class="menu-head">Other</div>
+        ${it('M', 'Microsoft 365', 'accounting@example-studio.com · Accounting', null)}
+      </div>
+      <div class="qa-foot"><span class="qa-hint">${keys('Shift', '↵')}Type</span><span class="qa-hint">${keys('Ctrl', 'C')}Password</span><span style="flex:1"></span></div>
+    </div>
+  </div>`;
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -2364,4 +2596,15 @@ export const SCREENS = {
   '40e-compte-local': ['Account — signed out, no Revoke', compteLocal40],
   '38-raccourcis-clavier': ['Settings — keyboard shortcuts', raccourcisClavier],
   '38b-raccourci-conflit': ['Settings — shortcut already in use', raccourciConflit],
+  '48a-liste-dossiers': ['All items — folder lines, star before the name, scroll bar', listeDossiers],
+  '48b-liste-mon-coffre': ['My vault — its folders', listeMonCoffre],
+  '48c-recherche-effacer': ['Search — clear button', rechercheEffacer],
+  '48d-contacts-dossiers': ['All contacts — folder lines, Website column', contactsDossiers],
+  '48e-type-menu': ['Contact — type menu, numbers in pairs', typeMenu],
+  '48f-anniversaire-calendrier': ['Contact — birthday calendar', anniversaireCalendrier],
+  '48g-icone-dossier': ['Folder — icon', iconeDossier],
+  '48h-periode-prix': ['Subscription — billing period, per month', periodePrix],
+  '48i-periode-prix-an': ['Subscription — billing period, per year', periodePrixAn],
+  '48j-defilement-molette': ['Middle click — scroll', defilementMolette],
+  '48k-remplissage-site': ['Fill best match — most likely logins by the site', remplissageSite],
 };

@@ -7,7 +7,7 @@ use crate::theme::*;
 use crate::ui::*;
 use cleis_core::open_code::{Check, OpenCode};
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, Entity, SharedString, Window, deferred, div, px};
 

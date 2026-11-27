@@ -5,7 +5,6 @@ use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::Input;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, Window, div, px};
 

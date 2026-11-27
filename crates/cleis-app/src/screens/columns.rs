@@ -10,7 +10,7 @@ use cleis_core::column::{
 };
 use cleis_core::ids::ColumnId;
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, Entity, SharedString, Window, div, px};
 
@@ -32,6 +32,7 @@ pub struct NewColumn {
 /// Dragged column (reorder).
 #[derive(Clone)]
 pub struct DraggedColumn {
+    pub table: Table,
     pub id: ColumnId,
     pub name: SharedString,
 }
@@ -110,7 +111,9 @@ fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> i
     let id = c.id.clone();
     let locked = c.id.0 == "name";
     let on = c.visible;
+    let table = c.table;
     let dragged = DraggedColumn {
+        table,
         id: c.id.clone(),
         name: c.name.clone().into(),
     };
@@ -133,7 +136,9 @@ fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> i
         })
         .drag_over::<DraggedColumn>(|d, _, _, cx| d.bg(tokens(cx).selection))
         .on_drop(cx.listener(move |this, d: &DraggedColumn, _, cx| {
-            this.reorder_column(&d.id, &drop_id, cx);
+            if d.table == table {
+                this.reorder_column(table, &d.id, &drop_id, cx);
+            }
         }))
         .child(icon("grip", 14., t.text_faint))
         .child(
@@ -169,13 +174,13 @@ fn col_row(c: &ColumnDef, i: usize, t: &Tokens, cx: &mut Context<CleisApp>) -> i
                     .group_hover("colrow", |s| s.visible())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.delete_column(&del_id, cx);
+                        this.delete_column(table, &del_id, cx);
                     }))
                     .test_support(),
             )
         })
         .when(!locked, |d| {
-            d.on_click(cx.listener(move |this, _, _, cx| this.toggle_column(&id, cx)))
+            d.on_click(cx.listener(move |this, _, _, cx| this.toggle_column(table, &id, cx)))
         })
         .test_support()
 }
@@ -417,19 +422,23 @@ impl CleisApp {
         cx.notify();
     }
 
-    pub fn toggle_column(&mut self, id: &ColumnId, cx: &mut Context<Self>) {
+    /// Shows or hides `table`'s column `id` (the vault and the contacts share some ids).
+    pub fn toggle_column(&mut self, table: Table, id: &ColumnId, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        if let Some(c) = s.columns.iter_mut().find(|c| &c.id == id) {
+        if let Some(c) = column::find_mut(&mut s.columns, table, id) {
             c.visible = !c.visible;
         }
         self.save_columns(cx);
     }
 
-    pub fn reorder_column(&mut self, moved: &ColumnId, onto: &ColumnId, cx: &mut Context<Self>) {
+    pub fn reorder_column(
+        &mut self,
+        table: Table,
+        moved: &ColumnId,
+        onto: &ColumnId,
+        cx: &mut Context<Self>,
+    ) {
         let Some(s) = self.session() else { return };
-        let Some(table) = s.columns.iter().find(|c| &c.id == moved).map(|c| c.table) else {
-            return;
-        };
         let mut ordered: Vec<&ColumnDef> = s.columns.iter().filter(|c| c.table == table).collect();
         ordered.sort_by_key(|c| c.order);
         let Some(to) = ordered.iter().position(|c| &c.id == onto) else {
@@ -437,8 +446,8 @@ impl CleisApp {
         };
         // Dropping onto a column of the other group also shows or hides it.
         let target_visible = ordered[to].visible;
-        column::reorder(&mut s.columns, moved, to);
-        if let Some(c) = s.columns.iter_mut().find(|c| &c.id == moved)
+        column::reorder(&mut s.columns, table, moved, to);
+        if let Some(c) = column::find_mut(&mut s.columns, table, moved)
             && c.id.0 != "name"
         {
             c.visible = target_visible;
@@ -446,9 +455,9 @@ impl CleisApp {
         self.save_columns(cx);
     }
 
-    pub fn delete_column(&mut self, id: &ColumnId, cx: &mut Context<Self>) {
+    pub fn delete_column(&mut self, table: Table, id: &ColumnId, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        if let Err(e) = column::remove_custom(&mut s.columns, id) {
+        if let Err(e) = column::remove_custom(&mut s.columns, table, id) {
             s.toast = Some(e.to_string().into());
         }
         self.save_columns(cx);

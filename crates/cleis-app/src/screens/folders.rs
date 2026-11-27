@@ -8,7 +8,7 @@ use crate::ui::*;
 use cleis_core::SpaceId;
 use cleis_store::{EncryptionMode, SpaceKind};
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, Window, div, px};
 

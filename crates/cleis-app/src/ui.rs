@@ -802,3 +802,91 @@ pub trait NoDrag: InteractiveElement + Sized {
 }
 
 impl<E: InteractiveElement> NoDrag for E {}
+
+/// A text box (gpui-component's `Input`) whose whole frame gives the keyboard to its text.
+///
+/// The frame of gpui-component's box tracks a focus of its own: a click on its padding (the few
+/// pixels around the text, or beside a short text) lit the box up but typing went nowhere
+/// (0.2.4). Here a press anywhere on the box focuses its text; a press on the text itself is
+/// handled by the text first (caret placed), focusing it again changes nothing.
+#[derive(IntoElement)]
+pub struct Input {
+    inner: gpui_kit::component::input::Input,
+    state: gpui_kit::Entity<gpui_kit::component::input::InputState>,
+}
+
+impl Input {
+    pub fn new(state: &gpui_kit::Entity<gpui_kit::component::input::InputState>) -> Self {
+        Self {
+            inner: gpui_kit::component::input::Input::new(state),
+            state: state.clone(),
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.inner = self.inner.id(id);
+        self
+    }
+
+    pub fn prefix(mut self, prefix: impl IntoElement) -> Self {
+        self.inner = self.inner.prefix(prefix);
+        self
+    }
+
+    pub fn suffix(mut self, suffix: impl IntoElement) -> Self {
+        self.inner = self.inner.suffix(suffix);
+        self
+    }
+
+    pub fn appearance(mut self, on: bool) -> Self {
+        self.inner = self.inner.appearance(on);
+        self
+    }
+
+    pub fn mask_toggle(mut self) -> Self {
+        self.inner = self.inner.mask_toggle();
+        self
+    }
+}
+
+impl gpui_kit::component::Sizable for Input {
+    fn with_size(mut self, size: impl Into<gpui_kit::component::Size>) -> Self {
+        self.inner = self.inner.with_size(size);
+        self
+    }
+}
+
+impl Styled for Input {
+    fn style(&mut self) -> &mut gpui_kit::StyleRefinement {
+        self.inner.style()
+    }
+}
+
+impl RenderOnce for Input {
+    fn render(self, _: &mut Window, _: &mut gpui_kit::App) -> impl IntoElement {
+        let state = self.state;
+        div()
+            .w_full()
+            .min_w_0()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                state.update(cx, |st, cx| st.focus(window, cx));
+            })
+            .child(self.inner)
+    }
+}
+
+/// What a column sharing the rest of the row starts from (Username, Notes, Email).
+pub const COL_FLEX_BASIS: f32 = 160.;
+
+/// The width rule of a table cell, the same for a heading and its rows so they stay aligned.
+/// `Some(w)`: `w` wide while the row has room, narrower in proportion to `w` when it has not;
+/// `None`: shares what is left. Columns never run past the window (0.2.4: they were cut at the
+/// window's edge when their widths added up to more than it), even when that leaves each one
+/// only a few pixels: no minimum width, which would push the last ones out again.
+pub fn col_sized(d: Div, w: Option<f32>) -> Div {
+    let d = d.min_w_0().flex_shrink(1.);
+    match w {
+        Some(w) => d.flex_basis(px(w)).flex_grow(0.),
+        None => d.flex_basis(px(COL_FLEX_BASIS)).flex_grow(1.),
+    }
+}

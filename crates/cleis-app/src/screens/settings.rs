@@ -318,7 +318,7 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
                     div()
                         .w(px(200.))
                         .when_some(s.vault_name.as_ref(), |d, (i, _)| {
-                            d.child(gpui_kit::component::input::Input::new(i).id("vault-name"))
+                            d.child(crate::ui::Input::new(i).id("vault-name"))
                         }),
                 ),
         )

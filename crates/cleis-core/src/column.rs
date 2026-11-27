@@ -325,9 +325,13 @@ pub fn add_custom(
     Ok(id)
 }
 
-/// Deletes a custom column (its values stay in the items until they are next edited).
-pub fn remove_custom(cols: &mut Vec<ColumnDef>, id: &ColumnId) -> Result<(), ColumnError> {
-    match cols.iter().position(|c| &c.id == id) {
+/// Deletes a custom column of `table` (its values stay in the items until they are next edited).
+pub fn remove_custom(
+    cols: &mut Vec<ColumnDef>,
+    table: Table,
+    id: &ColumnId,
+) -> Result<(), ColumnError> {
+    match cols.iter().position(|c| c.table == table && &c.id == id) {
         Some(i) if cols[i].builtin => Err(ColumnError::Builtin),
         Some(i) => {
             cols.remove(i);
@@ -337,11 +341,21 @@ pub fn remove_custom(cols: &mut Vec<ColumnDef>, id: &ColumnId) -> Result<(), Col
     }
 }
 
-/// Moves `id` to position `to` among its table's columns and renumbers them.
-pub fn reorder(cols: &mut [ColumnDef], id: &ColumnId, to: usize) {
-    let Some(table) = cols.iter().find(|c| &c.id == id).map(|c| c.table) else {
+/// The column `id` of `table`.
+pub fn find_mut<'a>(
+    cols: &'a mut [ColumnDef],
+    table: Table,
+    id: &ColumnId,
+) -> Option<&'a mut ColumnDef> {
+    cols.iter_mut().find(|c| c.table == table && &c.id == id)
+}
+
+/// Moves `id` to position `to` among `table`'s columns and renumbers them. The vault and the
+/// contacts share built-in ids (`name`, `website`, `notes`): a column is its table and its id.
+pub fn reorder(cols: &mut [ColumnDef], table: Table, id: &ColumnId, to: usize) {
+    if !cols.iter().any(|c| c.table == table && &c.id == id) {
         return;
-    };
+    }
     let mut ids: Vec<(i32, ColumnId)> = cols
         .iter()
         .filter(|c| c.table == table)
@@ -479,19 +493,53 @@ mod tests {
             ),
             Err(ColumnError::NoName)
         );
-        reorder(&mut cols, &id, 1);
+        reorder(&mut cols, Table::Vault, &id, 1);
         let v = visible_columns(&cols, Table::Vault, None);
         assert_eq!(v[1].name, "Cancellation date");
         assert_eq!(v[0].name, "Name");
         let name = cols.iter().find(|c| c.id.0 == "name").unwrap().id.clone();
-        assert_eq!(remove_custom(&mut cols, &name), Err(ColumnError::Builtin));
-        remove_custom(&mut cols, &id).unwrap();
+        assert_eq!(
+            remove_custom(&mut cols, Table::Vault, &name),
+            Err(ColumnError::Builtin)
+        );
+        remove_custom(&mut cols, Table::Vault, &id).unwrap();
         assert!(cols.iter().all(|c| c.id != id));
         assert_eq!(
             kind_from("choice", " , ", "EUR"),
             Err(ColumnError::NoOptions)
         );
         assert_eq!(kind_from("formula", "", "EUR"), Err(ColumnError::NoFormula));
+    }
+
+    /// The vault and the contacts both have Website, Name and Notes: each table's own is
+    /// shown, moved and sized (0.2.4: Website in Contacts › Columns turned the vault's on).
+    #[test]
+    fn same_id_in_both_tables() {
+        let mut cols = default_vault_columns("EUR");
+        cols.extend(default_contact_columns());
+        let web = ColumnId("website".into());
+        find_mut(&mut cols, Table::Contacts, &web).unwrap().visible = true;
+        let shown = |cols: &[ColumnDef], t: Table| {
+            visible_columns(cols, t, None).iter().any(|c| c.id == web)
+        };
+        assert!(shown(&cols, Table::Contacts));
+        assert!(!shown(&cols, Table::Vault));
+        let vault_order: Vec<i32> = cols
+            .iter()
+            .filter(|c| c.table == Table::Vault)
+            .map(|c| c.order)
+            .collect();
+        reorder(&mut cols, Table::Contacts, &web, 1);
+        let after: Vec<i32> = cols
+            .iter()
+            .filter(|c| c.table == Table::Vault)
+            .map(|c| c.order)
+            .collect();
+        assert_eq!(
+            vault_order, after,
+            "the vault's columns stay where they were"
+        );
+        assert_eq!(visible_columns(&cols, Table::Contacts, None)[1].id, web);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, Entity, SharedString, Window, div, px};
 use std::path::{Path, PathBuf};

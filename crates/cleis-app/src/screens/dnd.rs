@@ -5,7 +5,7 @@ use crate::app::{CleisApp, Session};
 use crate::theme::*;
 use crate::ui::*;
 use cleis_core::ColumnId;
-use cleis_core::column::ColumnDef;
+use cleis_core::column::{ColumnDef, Table};
 use cleis_core::{EntryId, SpaceId};
 use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
@@ -32,11 +32,13 @@ pub struct DraggedSpace {
 /// The edge of a column's heading being dragged.
 #[derive(Clone)]
 pub struct ColResize {
+    pub table: Table,
     pub id: ColumnId,
 }
 
 /// A column's width while its edge is dragged.
 pub struct Resize {
+    pub table: Table,
     pub id: ColumnId,
     pub width: f32,
 }
@@ -137,7 +139,7 @@ pub fn no_ghost(
 /// The width of a column: the one being dragged, the one kept, or `default`.
 pub fn width(s: &Session, c: &ColumnDef, default: Option<f32>) -> Option<f32> {
     match &s.resize {
-        Some(r) if r.id == c.id => Some(r.width),
+        Some(r) if r.table == c.table && r.id == c.id => Some(r.width),
         _ => c.width.map(f32::from).or(default),
     }
 }
@@ -146,12 +148,16 @@ pub fn width(s: &Session, c: &ColumnDef, default: Option<f32>) -> Option<f32> {
 /// grey bar shows where it is, between two headings (`bar`: not after the last one); the accent
 /// line takes its place under the pointer.
 pub fn col_grip(
+    table: Table,
     id: &ColumnId,
     bar: bool,
     t: &Tokens,
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement + use<> {
-    let drag = ColResize { id: id.clone() };
+    let drag = ColResize {
+        table,
+        id: id.clone(),
+    };
     let fit = id.clone();
     let line = t.primary;
     let grey = t.line_strong;
@@ -194,7 +200,7 @@ pub fn col_grip(
         .on_click(cx.listener(move |this, e: &gpui_kit::ClickEvent, _, cx| {
             cx.stop_propagation();
             if e.click_count() >= 2 {
-                this.fit_column(&fit, cx);
+                this.fit_column(table, &fit, cx);
             }
         }))
         .test_support()
@@ -202,17 +208,20 @@ pub fn col_grip(
 
 /// Listener for a heading cell: the dragged edge follows the pointer.
 pub fn on_resize_move(
+    table: Table,
     id: &ColumnId,
     cx: &mut Context<CleisApp>,
 ) -> impl Fn(&gpui_kit::DragMoveEvent<ColResize>, &mut Window, &mut gpui_kit::App) + 'static {
     let id = id.clone();
     cx.listener(move |this, e: &gpui_kit::DragMoveEvent<ColResize>, _, cx| {
-        if e.drag(cx).id != id {
+        let d = e.drag(cx);
+        if d.table != table || d.id != id {
             return;
         }
         let w = f32::from(e.event.position.x - e.bounds.left()).clamp(MIN_COL, MAX_COL);
         if let Some(s) = this.session() {
             s.resize = Some(Resize {
+                table,
                 id: id.clone(),
                 width: w.round(),
             });
@@ -232,16 +241,21 @@ impl CleisApp {
     pub fn end_resize(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let Some(r) = s.resize.take() else { return };
-        if let Some(c) = s.columns.iter_mut().find(|c| c.id == r.id) {
+        if let Some(c) = cleis_core::column::find_mut(&mut s.columns, r.table, &r.id) {
             c.width = Some(r.width as u16);
         }
         self.save_columns(cx);
     }
 
     /// Double-click on the edge: as wide as the longest text shown.
-    pub fn fit_column(&mut self, id: &ColumnId, cx: &mut Context<Self>) {
+    pub fn fit_column(&mut self, table: Table, id: &ColumnId, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let Some(c) = s.columns.iter().find(|c| &c.id == id).cloned() else {
+        let Some(c) = s
+            .columns
+            .iter()
+            .find(|c| c.table == table && &c.id == id)
+            .cloned()
+        else {
             return;
         };
         let head = text_width(&crate::i18n::tr_owned(&c.name), true) + 16.;
@@ -270,7 +284,7 @@ impl CleisApp {
                 .fold(0., f32::max),
         };
         let w = (head.max(longest) + 24.).clamp(MIN_COL, MAX_COL).round();
-        if let Some(c) = s.columns.iter_mut().find(|c| &c.id == id) {
+        if let Some(c) = cleis_core::column::find_mut(&mut s.columns, table, id) {
             c.width = Some(w as u16);
         }
         self.save_columns(cx);
