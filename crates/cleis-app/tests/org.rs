@@ -548,6 +548,7 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
     let (h, app) = open(cx, &dir.path().join("lea.cleis"));
     cx.run_until_parked();
     act(cx, h, |w, cx| {
+        w.click("local-only", cx);
         w.click("new-password", cx);
         w.input("correct horse battery staple", cx);
         w.click("confirm-password", cx);
@@ -941,6 +942,7 @@ fn organization_in_shared_folder(cx: &mut TestAppContext) {
     let (lh, lea) = open(cx, &dir.path().join("lea.cleis"));
     cx.run_until_parked();
     act(cx, lh, |w, cx| {
+        w.click("local-only", cx);
         w.click("new-password", cx);
         w.input("correct horse battery staple", cx);
         w.click("confirm-password", cx);
@@ -1031,6 +1033,7 @@ fn organization_in_shared_folder(cx: &mut TestAppContext) {
     let (hh, hugo) = open(cx, &dir.path().join("hugo.cleis"));
     cx.run_until_parked();
     act(cx, hh, |w, cx| {
+        w.click("local-only", cx);
         w.click("new-password", cx);
         w.input("another horse battery staple", cx);
         w.click("confirm-password", cx);

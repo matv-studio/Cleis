@@ -4450,6 +4450,24 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
         }
         "pin-setup" => app.open_pin_setup(crate::opening::DEFAULT_PIN_LEN, window, cx),
+        // Mockup 40d: signed in to GitHub, the account's menu open (shown only, nothing sent).
+        "account" => {
+            let path = app.path.clone();
+            if let Some(s) = app.session() {
+                s.sync.provider = crate::sync::Provider::GitHub;
+                s.sync.place = Some(path);
+                s.sync.last_sync = Some(cleis_core::now() - 120);
+                s.sync.remote = Some(crate::remote::RemotePlace::GitHub {
+                    repo: "lea-example/cleis-vault".into(),
+                    path: "vault.cleis".into(),
+                    branch: "main".into(),
+                    api: "https://api.github.com".into(),
+                });
+                s.account_menu = true;
+                // Shown only: nothing is sent from a screenshot.
+                s.sync.auto = false;
+            }
+        }
         // Mockup 37q: Security policy › Organization PIN › Change.
         "org-pin-setup" => {
             if let Some(st) = app
@@ -4460,30 +4478,6 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 st.policy.pin.on = true;
             }
             app.open_org_pin_setup(window, cx);
-        }
-        // Mockup 37r: signed in with GitHub, no vault on the account.
-        "github-novault" => {
-            app.github = Some(crate::screens::github::GitHubSignIn {
-                no_vault: Some(crate::screens::github::Signed {
-                    login: "lea-example".into(),
-                    token: zeroize::Zeroizing::new(String::new()),
-                    hosts: app.github_hosts.clone(),
-                }),
-                ..Default::default()
-            });
-        }
-        "erase-account" => app.open_erase(window, cx),
-        "github" => {
-            app.github = Some(crate::screens::github::GitHubSignIn {
-                code: Some(crate::github_login::DeviceCode {
-                    device_code: String::new(),
-                    user_code: "WDJB-MJHT".into(),
-                    verification_uri: "https://github.com/login/device".into(),
-                    expires_in: 900,
-                    interval: 5,
-                }),
-                ..Default::default()
-            });
         }
         "ctx-password" => {
             if let Some(s) = app.session()
@@ -4743,6 +4737,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
 pub fn demo_welcome(app: &mut CleisApp, window: &mut Window, cx: &mut Context<CleisApp>) {
     if let crate::app::Phase::Welcome(w) = &mut app.phase {
         w.org = true;
+        w.choice = Some(super::welcome::Start::Org);
         w.join.info = Some(InviteInfo {
             org: tr("Example Studio").into(),
             name: tr("Lea Martin").into(),

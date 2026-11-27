@@ -16,6 +16,15 @@
   macOS pour le PIN et « Rien », GitHub sans coffre au premier lancement (« Create my vault »). Docs et
   builds rangés aussi dans `D:\.PRJCT_Perso\Dev\Cleis\` (pont du bureau : écriture seulement, pas de
   déplacement ni suppression).
+- Soir du 27/11 (D-91 à D-95, maquettes 39 et 40 validées) : retour / avance à la souris, page
+  « Account » unique (Security et Profile repliés, 2FA, Revoke access, Delete account), « Password »,
+  premier écran en deux temps (options seules puis « Unlock with » ; GitHub sans coffre → création
+  directe, avec coffre → ouverture sur la même carte ; le dialogue 37r est retiré), pastille du compte en
+  haut à droite, un seul bloc Sync, onglet du coffre personnel seulement avec une organisation, survols
+  des boutons visibles avec le bronze.
+- En attente de l'utilisateur : applications Microsoft (Entra) et Google (Cloud) à enregistrer, Client
+  IDs à fournir ; la connexion Microsoft / Google (coffre dans le dossier d'appli OneDrive, dossier
+  caché appDataFolder de Google Drive) se code ensuite sur le même parcours.
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

@@ -11,7 +11,9 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Div, Entity, PathPromptOptions, SharedString, Window, div, px};
+use gpui_kit::{
+    AnyElement, Context, Div, ElementId, Entity, PathPromptOptions, SharedString, Window, div, px,
+};
 use std::path::PathBuf;
 
 /// Screen 22: an existing vault from a sync place, opened with its master password.
@@ -26,6 +28,17 @@ pub struct Restore {
     /// GitHub / SFTP (D-65): the place being set up, then the one read.
     pub place: Option<super::places::PlaceDialog>,
     pub remote: Option<(crate::remote::RemotePlace, crate::remote::Secret)>,
+    /// Signed in from the first screen (mockup 40c): the account's vault is opened on the same
+    /// card, not on this restore screen.
+    pub signed: Option<String>,
+}
+
+/// What the first screen starts with (mockups 40).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Start {
+    Local,
+    Account,
+    Org,
 }
 
 fn tip(
@@ -224,10 +237,13 @@ pub(crate) fn choice_with(
     ico: &str,
     extra: Option<Div>,
 ) -> Div {
+    // A name alone is centred on its icon; with a line or boxes under it, it stays at the top.
+    let alone = sub.is_empty() && extra.is_none();
     div()
         .flex()
         .gap(px(12.))
-        .items_start()
+        .when(alone, |d| d.items_center())
+        .when(!alone, |d| d.items_start())
         .p(px(16.))
         .rounded(RADIUS_LG)
         .border_1()
@@ -355,6 +371,68 @@ fn opening_choice(
         .child(seg)
 }
 
+/// One option of the first screen (mockups 40): radio, name, icon, and what it holds. Only its
+/// head takes the click, so its boxes and buttons work as such.
+fn option(
+    id: &'static str,
+    t: &Tokens,
+    active: bool,
+    (title, tip_text, ico): (&str, &'static str, &str),
+    extra: Option<AnyElement>,
+    on_head: impl Fn(&mut CleisApp, &mut Window, &mut Context<CleisApp>) + 'static,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    let line = if active { t.accent_text } else { t.line_strong };
+    div()
+        .flex()
+        .flex_col()
+        .rounded(RADIUS_LG)
+        .border_1()
+        .border_color(line)
+        .bg(t.surface_raised)
+        .child(
+            div()
+                .id(id)
+                .flex()
+                .gap(px(12.))
+                .items_center()
+                .px(px(16.))
+                .py(px(12.))
+                .rounded(RADIUS_LG)
+                .cursor_pointer()
+                .when(!active, |d| d.hover(|d| d.bg(t.surface_hover)))
+                .tooltip(tip(tr(tip_text)))
+                .child(
+                    div()
+                        .size(px(16.))
+                        .rounded_full()
+                        .border(px(if active { 5. } else { 1.5 }))
+                        .border_color(if active { t.accent_text } else { t.text_faint }),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .font_weight(W_MEDIUM)
+                        .child(crate::i18n::tr_owned(title)),
+                )
+                .child(
+                    div()
+                        .size(px(32.))
+                        .rounded(RADIUS_LG)
+                        .bg(t.surface_active)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(icon(ico, 16., t.text)),
+                )
+                .on_click(cx.listener(move |this, _, window, cx| on_head(this, window, cx)))
+                .test_support(),
+        )
+        .when_some(extra, |d, e| {
+            d.child(div().px(px(16.)).pb(px(16.)).pl(px(44.)).child(e))
+        })
+}
+
 pub fn render(
     app: &mut CleisApp,
     window: &mut Window,
@@ -364,7 +442,12 @@ pub fn render(
     let Phase::Welcome(w) = &app.phase else {
         unreachable!()
     };
-    if let Some(r) = &w.restore {
+    // Restoring from a folder or SFTP keeps its own card; signing in to an account stays here.
+    if let Some(r) = w
+        .restore
+        .as_ref()
+        .filter(|r| r.signed.is_none() && app.github.is_none())
+    {
         let dlg = r
             .place
             .as_ref()
@@ -373,7 +456,184 @@ pub fn render(
             .relative()
             .when_some(dlg, |d, x| d.child(x));
     }
+    let opened = w.restore.as_ref().filter(|r| r.signed.is_some());
+    let login = opened
+        .and_then(|r| r.signed.clone())
+        .or_else(|| app.github_after.as_ref().map(|n| n.login.clone()));
+    let chosen = if opened.is_some() || app.github_after.is_some() {
+        Some(Start::Account)
+    } else {
+        w.choice
+    };
+    let signing = app.github.is_some() && chosen.is_none();
     let busy = w.busy;
+    let step2 = chosen.is_some();
+    // The head of an option: in the middle it chooses; once up, it brings the options back down.
+    let head = |c: Option<Start>| {
+        move |this: &mut CleisApp, window: &mut Window, cx: &mut Context<CleisApp>| {
+            let up = matches!(&this.phase, Phase::Welcome(w) if w.choice.is_some())
+                || this.github_after.is_some()
+                || matches!(&this.phase, Phase::Welcome(w) if w.restore.is_some());
+            if up {
+                this.welcome_back(cx);
+            } else if let Some(c) = c {
+                this.welcome_choose(c, window, cx);
+            }
+        }
+    };
+    let providers = |cx: &mut Context<CleisApp>| {
+        let acc = |id: &'static str,
+                   ico: &str,
+                   label: &str,
+                   planned: Option<&'static str>,
+                   cx: &mut Context<CleisApp>| {
+            button(id, &t, BtnKind::Default, true)
+                .child(icon(ico, 14., t.text))
+                .child(crate::i18n::tr_owned(label))
+                .when(id == "signin-github" && signing, |b| {
+                    b.border_color(t.focus)
+                })
+                .when_some(planned, |b, why| b.opacity(0.45).tooltip(tip(tr(why))))
+                .when(planned.is_none(), |b| {
+                    b.on_click(cx.listener(|this, _, window, cx| {
+                        this.sign_in_elsewhere(Provider::GitHub, window, cx)
+                    }))
+                })
+                .test_support()
+        };
+        div()
+            .flex()
+            .gap(px(8.))
+            .child(acc(
+                "signin-microsoft",
+                "window",
+                "Microsoft",
+                Some("Available once Cleis is registered with Microsoft"),
+                cx,
+            ))
+            .child(acc(
+                "signin-google",
+                "globe",
+                "Google",
+                Some("Available once Cleis is registered with Google"),
+                cx,
+            ))
+            .child(acc("signin-github", "repo", "GitHub", None, cx))
+            .into_any_element()
+    };
+    let account_row = |login: &str, cx: &mut Context<CleisApp>| {
+        div()
+            .id("signed-as")
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(avatar(
+                &t,
+                &login
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string(),
+                20.,
+            ))
+            .child(format!("@{login}"))
+            .child(chip(&t, Tone::Ok, "GitHub", true))
+            .child(div().flex_1())
+            .child(
+                button("signed-change", &t, BtnKind::Ghost, true)
+                    .child(tr("Change"))
+                    .tooltip(tip(tr("Another account or provider")))
+                    .on_click(cx.listener(|this, _, _, cx| this.welcome_back(cx)))
+                    .test_support(),
+            )
+            .test_support()
+            .into_any_element()
+    };
+    let options = div()
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .child(option(
+            "local-only",
+            &t,
+            chosen == Some(Start::Local),
+            (
+                "Local account",
+                "Your vault stays on this computer",
+                "laptop",
+            ),
+            None,
+            head(Some(Start::Local)),
+            cx,
+        ))
+        .child(option(
+            "sign-in",
+            &t,
+            chosen == Some(Start::Account) || signing,
+            (
+                "Sign in",
+                "Your vault follows you to your other computers",
+                "user",
+            ),
+            Some(match &login {
+                Some(l) => account_row(l, cx),
+                None => providers(cx),
+            }),
+            head(None),
+            cx,
+        ))
+        .child(option(
+            "org-server",
+            &t,
+            chosen == Some(Start::Org),
+            (
+                "Join an organization",
+                "Shared spaces, on top of your personal vault",
+                "server",
+            ),
+            (chosen == Some(Start::Org))
+                .then(|| super::org::join_fields(&w.join, &t, cx).into_any_element()),
+            head(Some(Start::Org)),
+            cx,
+        ));
+    // Moving up or down from where they were (mockups 40): half the height of what appears.
+    let shift = (w.below_h.get().max(160.) + 16.) / 2.;
+    let from = if w.up { shift } else { -shift };
+    let options: AnyElement = if w.round == 0 {
+        options.into_any_element()
+    } else {
+        use gpui_kit::AnimationExt;
+        options
+            .relative()
+            .with_animation(
+                ElementId::Name(format!("welcome-move-{}", w.round).into()),
+                gpui_kit::Animation::new(std::time::Duration::from_millis(PAGE_MS + 40))
+                    .with_easing(gpui_kit::ease_out_quint()),
+                move |d, v| d.top(px((1. - v) * from)),
+            )
+            .into_any_element()
+    };
+    let below: Option<AnyElement> = step2.then(|| {
+        let measure = w.below_h.clone();
+        let body = match opened {
+            Some(r) => open_here(r, login.as_deref().unwrap_or(""), &t, cx),
+            None => create_here(w, app.github_after.is_some(), &t, window, cx),
+        };
+        crate::ui::page_in(
+            format!("welcome-below-{}", w.round),
+            div().flex().flex_col().gap(px(16.)).child(body).child(
+                gpui_kit::canvas(
+                    move |b, _, _| measure.set(f32::from(b.size.height)),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            ),
+        )
+        .into_any_element()
+    });
+    let _ = busy;
     let card = div()
         .w(px(460.))
         .flex()
@@ -394,97 +654,40 @@ pub fn render(
                         .child(tr("Welcome to Cleis")),
                 ),
         )
+        .child(options)
+        .when_some(below, |d, b| d.child(b))
+        .when(!step2, |d| {
+            d.child(
+                div().flex().child(
+                    button("restore", &t, BtnKind::Ghost, false)
+                        .child(icon("sync", 16., t.text_muted))
+                        .child(tr("Restore my vault"))
+                        .tooltip(tip(tr("From OneDrive, Google Drive, a folder or SFTP")))
+                        .on_click(cx.listener(|this, _, window, cx| this.start_restore(window, cx)))
+                        .test_support(),
+                ),
+            )
+        });
+    stage(&t, card)
+}
+
+/// Under the options once one is chosen (mockups 40, 40b): how this computer opens the vault,
+/// then Create vault.
+fn create_here(
+    w: &crate::app::Welcome,
+    to_account: bool,
+    t: &Tokens,
+    window: &Window,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    let busy = w.busy;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
         .child(
-            div()
-                .id("local-only")
-                .cursor_pointer()
-                .child(choice(
-                    &t,
-                    !w.org,
-                    "This computer only",
-                    "Personal vault",
-                    "laptop",
-                ))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Phase::Welcome(w) = &mut this.phase {
-                        w.org = false;
-                        w.error = None;
-                    }
-                    cx.notify();
-                }))
-                .test_support(),
-        )
-        // Mockup 36d: the vault from another computer, through an account (D-80).
-        .child({
-            let acc = |id: &'static str,
-                       ico: &str,
-                       label: &str,
-                       planned: Option<&'static str>,
-                       cx: &mut Context<CleisApp>| {
-                button(id, &t, BtnKind::Default, true)
-                    .child(icon(ico, 14., t.text))
-                    .child(crate::i18n::tr_owned(label))
-                    .when_some(planned, |b, why| b.opacity(0.45).tooltip(tip(tr(why))))
-                    .when(planned.is_none(), |b| {
-                        b.on_click(cx.listener(|this, _, window, cx| {
-                            this.sign_in_elsewhere(Provider::GitHub, window, cx)
-                        }))
-                    })
-                    .test_support()
-            };
-            let buttons = div()
-                .flex()
-                .gap(px(8.))
-                .child(acc(
-                    "signin-microsoft",
-                    "window",
-                    "Microsoft",
-                    Some("Available once Cleis is registered with Microsoft"),
-                    cx,
-                ))
-                .child(acc(
-                    "signin-google",
-                    "globe",
-                    "Google",
-                    Some("Available once Cleis is registered with Google"),
-                    cx,
-                ))
-                .child(acc("signin-github", "repo", "GitHub", None, cx));
-            div().id("sign-in").child(choice_with(
-                &t,
-                false,
-                tr("Sign in"),
-                "My vault from my other computers",
-                "user",
-                Some(buttons),
-            ))
-        })
-        .child(
-            div()
-                .id("org-server")
-                .cursor_pointer()
-                .child(choice_with(
-                    &t,
-                    w.org,
-                    tr("Join an organization"),
-                    "Shared spaces, on top of your personal vault",
-                    "server",
-                    w.org.then(|| super::org::join_fields(&w.join, &t, cx)),
-                ))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Phase::Welcome(w) = &mut this.phase
-                        && !w.org
-                    {
-                        w.org = true;
-                        w.error = None;
-                    }
-                    cx.notify();
-                }))
-                .test_support(),
-        )
-        .child(
-            section(&t)
-                .child(opening_choice(w.opening, &t, cx))
+            section(t)
+                .child(opening_choice(w.opening, t, cx))
                 // Mockup 37h: the PIN's boxes, then the same again.
                 .when(w.opening == crate::opening::Mode::Pin, |d| {
                     let get: super::pin::Get = |app| match &mut app.phase {
@@ -504,7 +707,7 @@ pub fn render(
                     d.child(super::pin::boxes(
                         "first-pin",
                         &w.pin,
-                        &t,
+                        t,
                         window,
                         get,
                         next,
@@ -523,7 +726,7 @@ pub fn render(
                     .child(super::pin::boxes(
                         "first-pin-confirm",
                         &w.pin_confirm,
-                        &t,
+                        t,
                         window,
                         get2,
                         done,
@@ -532,12 +735,12 @@ pub fn render(
                 })
                 .when(w.opening == crate::opening::Mode::Password, |d| {
                     d.child(field(
-                        &t,
+                        t,
                         "Password",
                         Input::new(&w.password).id("new-password").mask_toggle(),
                     ))
                     .child(field(
-                        &t,
+                        t,
                         "Confirm",
                         Input::new(&w.confirm).id("confirm-password").mask_toggle(),
                     ))
@@ -548,33 +751,129 @@ pub fn render(
                 ),
         )
         .child(
+            div().flex().justify_end().child(
+                button("create", t, BtnKind::Primary, false)
+                    .when(busy, |b| b.opacity(0.6))
+                    .tooltip(tip(if to_account {
+                        tr("Then saved to a private repository cleis-vault on your account")
+                    } else {
+                        tr("A recovery key is shown next: it opens the vault on another computer")
+                    }))
+                    .child(if busy {
+                        tr("Creating…")
+                    } else {
+                        tr("Create vault")
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.create_vault(window, cx)))
+                    .test_support(),
+            ),
+        )
+}
+
+/// Signed in, a vault on the account (mockup 40c): opened here with its password or recovery
+/// key; while it is looked for, a line says so.
+fn open_here(r: &Restore, _login: &str, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let busy = r.busy;
+    let place_err = r.place.as_ref().and_then(|p| p.error.clone());
+    let label = r
+        .remote
+        .as_ref()
+        .map(|(p, _)| match p {
+            crate::remote::RemotePlace::GitHub { repo, .. } => repo.clone(),
+            other => other.label(),
+        })
+        .unwrap_or_default();
+    let found = !r.found.is_empty();
+    let mut sec = section(t);
+    if !found {
+        sec = sec.child(match place_err {
+            Some(e) => div()
+                .text_size(TEXT_SM)
+                .text_color(t.danger_text)
+                .child(crate::i18n::tr_dynamic(&e))
+                .into_any_element(),
+            None => div()
+                .id("finding-vault")
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .text_color(t.text_muted)
+                .child(icon("sync", 14., t.accent_text))
+                .child(tr("Finding your vault…"))
+                .into_any_element(),
+        });
+        return div().flex().flex_col().child(sec);
+    }
+    sec = sec
+        .child(
             div()
                 .flex()
-                .justify_between()
+                .items_center()
+                .gap(px(8.))
+                .child(icon("repo", 16., t.text_muted))
                 .child(
-                    button("restore", &t, BtnKind::Ghost, false)
-                        .child(icon("sync", 16., t.text_muted))
-                        .child(tr("Restore my vault"))
-                        .tooltip(tip(tr("From OneDrive, Google Drive or a folder")))
-                        .on_click(cx.listener(|this, _, window, cx| this.start_restore(window, cx)))
-                        .test_support(),
-                )
-                .child(
-                    button("create", &t, BtnKind::Primary, false)
-                        .when(busy, |b| b.opacity(0.6))
-                        .tooltip(tip(tr(
-                            "A recovery key is shown next: it opens the vault on another computer",
-                        )))
-                        .child(if busy {
-                            tr("Creating…")
-                        } else {
-                            tr("Create vault")
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| this.create_vault(window, cx)))
-                        .test_support(),
+                    div()
+                        .flex_1()
+                        .font_family(FONT_MONO)
+                        .text_size(TEXT_SM)
+                        .child(label),
                 ),
-        );
-    stage(&t, card)
+        )
+        .child(field(
+            t,
+            "Password or recovery key",
+            Input::new(&r.password).id("restore-password").mask_toggle(),
+        ))
+        .when_some(r.error.clone(), |d, e| {
+            d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+        });
+    div().flex().flex_col().gap(px(16.)).child(sec).child(
+        div().flex().justify_end().child(
+            button("restore-go", t, BtnKind::Primary, false)
+                .when(busy, |b| b.opacity(0.6))
+                .child(if busy {
+                    tr("Opening…")
+                } else {
+                    tr("Open vault")
+                })
+                .on_click(cx.listener(|this, _, window, cx| this.restore_vault(window, cx)))
+                .test_support(),
+        ),
+    )
+}
+
+impl CleisApp {
+    /// An option chosen in the middle of the first screen: the options move up and how the vault
+    /// opens appears under them (mockups 40).
+    pub fn welcome_choose(&mut self, c: Start, window: &mut Window, cx: &mut Context<Self>) {
+        if let Phase::Welcome(w) = &mut self.phase {
+            w.choice = Some(c);
+            w.org = c == Start::Org;
+            w.error = None;
+            w.round += 1;
+            w.up = true;
+            if w.opening == crate::opening::Mode::Password && c == Start::Local {
+                let pw = w.password.clone();
+                pw.update(cx, |s, cx| s.focus(window, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Changing one's mind: the options come back down, nothing under them.
+    pub fn welcome_back(&mut self, cx: &mut Context<Self>) {
+        self.github = None;
+        self.github_after = None;
+        if let Phase::Welcome(w) = &mut self.phase {
+            w.choice = None;
+            w.org = false;
+            w.restore = None;
+            w.error = None;
+            w.round += 1;
+            w.up = false;
+        }
+        cx.notify();
+    }
 }
 
 impl CleisApp {
@@ -591,6 +890,7 @@ impl CleisApp {
                 busy: false,
                 place: None,
                 remote: None,
+                signed: None,
             });
         }
         cx.notify();

@@ -707,13 +707,40 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   portée du coffre, élément ou contact ouvert (`nav.rs`, 50 vues). Les sélections rapprochées (flèches
   dans la liste, < 0,8 s) comptent pour un pas. Écouté pour toute la fenêtre (une barre ou un menu qui
   occulte ne l'arrête pas).
+- **D-92 Une seule page « Account »** (27/11/2026, maquettes 39a-39c validées). Paramètres › Account réunit
+  le compte (Sign out, Revoke access seulement connecté à GitHub), ce qui était Security (ouverture, double
+  authentification, verrouillage, presse-papiers) et Profile (ce que l'organisation sait de vous), puis
+  « Delete account » en bas. Plus de rubriques Security ni Profile (anciens noms gardés comme alias de
+  page). « Verification code » devient « Two-factor authentication » : c'est un code d'appli
+  d'authentification demandé à l'ouverture, en plus du mot de passe ou du PIN. Revoke access : GitHub ne
+  révoque une autorisation par l'API qu'avec le secret de l'application (impossible à garder dans une
+  appli de bureau) ; Cleis oublie son jeton puis ouvre la page Cleis des réglages GitHub.
+- **D-93 « Password »** au lieu de « Master password » partout (anglais et français « Mot de passe »),
+  demande de l'utilisateur ; les identifiants internes ne changent pas.
+- **D-94 Premier écran en deux temps** (27/11/2026, maquettes 40a-40f validées avec retouches). D'abord
+  les trois options seules (« Local account », « Sign in », « Join an organization »), au centre ; une option
+  choisie, elles montent (animation 190 ms, ease out quint, de la moitié de la hauteur mesurée de ce qui
+  apparaît) et « Unlock with » apparaît dessous ; un clic sur une option les fait redescendre et retire
+  le bloc. Connexion GitHub : « Sign in » est l'option choisie pendant le code ; sans coffre sur le compte,
+  la carte passe directement à la création (le coffre est envoyé une fois la clé de récupération rangée) ;
+  avec un coffre, il s'ouvre sur la même carte (mot de passe ou clé de récupération). L'ancien dialogue 37r
+  est retiré. « Restore my vault » (dossier, SFTP) reste en bas du premier temps.
+  Compte connecté : sa pastille en haut à droite (à la place de celle du membre d'organisation), menu
+  « Sync now », « Account », « Sign out ».
+- **D-95 Réglages et boutons** (27/11/2026, demandes de l'utilisateur). Sync & backups : un seul bloc
+  « Sync » (la place connectée, « Sync automatically », un trait, puis les places non connectées, sans
+  reproposer celle qui l'est). « Personal vault in its own tab » seulement avec une organisation (sinon un
+  seul coffre : réglage ignoré). Boutons principaux et destructeurs : survol vers la couleur du texte
+  (18 %, plus clair en sombre), appui vers la page (22 %), au lieu d'une opacité de 92 % qui assombrissait
+  à peine le bronze.
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
-4. Enregistrement des applications OAuth (Microsoft, Google) pour les places OneDrive / Google
-   Drive sans appli de bureau (D-50, D-58) ; GitHub n'en a plus besoin (D-65).
+4. Enregistrement des applications OAuth (Microsoft, Google) pour la connexion par compte et les places
+   OneDrive / Google Drive (D-50, D-58, D-80) : à créer par l'utilisateur (étapes données le 27/11/2026),
+   puis Client IDs à fournir ; GitHub fait (D-84).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 8. ~~Essai de Windows Hello et Touch ID~~ (retirés, D-71).

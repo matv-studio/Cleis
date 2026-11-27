@@ -42,7 +42,9 @@ for theme in ${THEMES:-dark}; do
   shot "pin-setup-$theme" --demo --unlocked --tab settings --page security --menu pin-setup --theme $theme
   shot "erase-account-$theme" --demo --unlocked --tab settings --page sync --menu erase-account --theme $theme
   shot "github-$theme" --demo --unlocked --tab settings --page account --menu github --theme $theme
-  shot "github-novault-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --restore --menu github-novault --theme $theme
+  shot "account-menu-$theme" --demo --unlocked --menu account --theme $theme
+  shot "account-page-$theme" --demo --unlocked --tab settings --page account --theme $theme
+  shot "welcome-local-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --welcome-local --theme $theme
   shot "org-pin-setup-$theme" --demo --unlocked --tab settings --page policy --menu org-pin-setup --theme $theme
   shot "ctx-password-$theme" --demo --unlocked --menu ctx-password --theme $theme
   shot "shortcuts-$theme" --demo --unlocked --tab settings --page shortcuts --theme $theme

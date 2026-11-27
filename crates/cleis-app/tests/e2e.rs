@@ -114,8 +114,16 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
     let (h, app) = open(cx, &path);
     cx.run_until_parked();
     app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Welcome(_))));
+    // Mockups 40: the three options alone; one chosen, they move up and the opening appears;
+    // a click on an option brings them back down.
+    assert!(!window_has(cx, h, "new-password"));
+    act(cx, h, |w, cx| w.click("local-only", cx));
+    assert!(window_has(cx, h, "new-password"));
+    act(cx, h, |w, cx| w.click("org-server", cx));
+    assert!(!window_has(cx, h, "new-password"));
 
     act(cx, h, |w, cx| {
+        w.click("local-only", cx);
         w.click("new-password", cx);
         w.input("short", cx);
         w.click("confirm-password", cx);
@@ -2220,6 +2228,7 @@ fn opening_without_password(cx: &mut TestAppContext) {
     let path = dir.path().join("vault.cleis");
     let (h, app) = open(cx, &path);
     cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("local-only", cx));
     act(cx, h, |w, cx| w.click("first-opening-Nothing", cx));
     act(cx, h, |w, cx| w.click("create", cx));
     let key = app.read_with(cx, |a, _| {
@@ -2933,31 +2942,32 @@ fn github_without_vault_creates_one(cx: &mut TestAppContext) {
     app.update(cx, |a, _| a.github_hosts = hosts.clone());
     cx.run_until_parked();
     act(cx, h, |w, cx| w.click("signin-github", cx));
+    // While the code waits, "Sign in" is the option shown chosen (mockup 40a).
+    assert!(window_has(cx, h, "github-dialog"));
     let mut seen = false;
     for _ in 0..30 {
         cx.executor()
             .advance_clock(std::time::Duration::from_secs(6));
         cx.run_until_parked();
-        if app.read_with(cx, |a, _| {
-            a.github.as_ref().is_some_and(|g| g.no_vault.is_some())
-        }) {
+        if app.read_with(cx, |a, _| a.github_after.is_some()) {
             seen = true;
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    assert!(seen, "the dialog says the account has no vault");
-    assert!(window_has(cx, h, "gh-account") && window_has(cx, h, "gh-create"));
-    // Restoring does not make a repository on its own.
-    assert!(!has_repo.load(Ordering::SeqCst));
-    act(cx, h, |w, cx| w.click("gh-create", cx));
+    // Mockup 40b: no dialog, the card goes on to the creation with the account kept.
+    assert!(seen, "signed in, no vault on the account");
     app.read_with(cx, |a, _| {
-        assert!(a.github.is_none() && a.github_after.is_some());
+        assert!(a.github.is_none());
         let Phase::Welcome(w) = &a.phase else {
             panic!()
         };
         assert!(w.restore.is_none());
+        assert_eq!(w.choice, Some(cleis_app::screens::welcome::Start::Account));
     });
+    assert!(window_has(cx, h, "signed-as") && window_has(cx, h, "create"));
+    // Restoring does not make a repository on its own.
+    assert!(!has_repo.load(Ordering::SeqCst));
     act(cx, h, |w, cx| {
         w.click("new-password", cx);
         w.input("correct horse battery staple", cx);
@@ -3109,6 +3119,11 @@ fn account_page_holds_security(cx: &mut TestAppContext) {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(window_has(cx, h, "acc-revoke"));
+    // Mockup 40d: the account's picture at the top right, its menu.
+    act(cx, h, |w, cx| w.click("acc-avatar", cx));
+    assert!(window_has(cx, h, "account-menu"));
+    act(cx, h, |w, cx| w.click("acc-menu-account", cx));
+    assert!(!window_has(cx, h, "account-menu"));
     act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };

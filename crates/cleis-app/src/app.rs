@@ -98,6 +98,14 @@ pub struct Welcome {
     pub restore: Option<crate::screens::welcome::Restore>,
     /// "Add an organization server" chosen (screen 03): joined once the vault exists.
     pub org: bool,
+    /// The option chosen (mockups 40, 27/11/2026): none, the three options alone in the middle;
+    /// one, they move up and how the vault opens appears under them.
+    pub choice: Option<crate::screens::welcome::Start>,
+    /// Counts the moves up and down (each one replays the animation), and the way of the last.
+    pub round: u32,
+    pub up: bool,
+    /// Height of what appears under the options, measured: how far they move.
+    pub below_h: std::rc::Rc<std::cell::Cell<f32>>,
     pub join: crate::screens::org::JoinForm,
     /// How this computer will open the vault (mockup 35i, D-76).
     pub opening: crate::opening::Mode,
@@ -192,6 +200,8 @@ pub struct Session {
     /// This device's sync place and backups (Settings › Sync & backups).
     pub sync: crate::sync::SyncConfig,
     pub sync_menu: bool,
+    /// The account's menu, under its picture at the top right (mockup 40d).
+    pub account_menu: bool,
     /// Health tab: space shown and issue filter.
     pub health: crate::screens::health::HealthUi,
     /// Open select of Settings › Preferences.
@@ -712,6 +722,10 @@ impl CleisApp {
             busy: false,
             restore: None,
             org: false,
+            choice: None,
+            round: 0,
+            up: true,
+            below_h: Default::default(),
             join,
             opening: crate::opening::Mode::Password,
             pin: crate::screens::pin::PinBoxes::new(crate::opening::DEFAULT_PIN_LEN, cx),
@@ -1229,6 +1243,7 @@ impl CleisApp {
             last_activity: std::time::Instant::now(),
             sync: crate::sync::load_config(&self.path),
             sync_menu: false,
+            account_menu: false,
             health: Default::default(),
             pref_menu: None,
             vault_filter: Default::default(),

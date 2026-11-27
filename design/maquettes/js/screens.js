@@ -1692,7 +1692,7 @@ function compteLocalRevoquer() {
 const welcomeCard = (inner, { org = false } = {}) => `<div class="app"><main class="main" style="margin:6px"><div class="center-stage">
     <div class="card" style="width:460px">
       <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>Welcome to Cleis</h1></div>${inner}</div></div></main></div>`;
-const chLocal = (on) => `<div class="choice ${on ? 'is-active' : ''}"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">This computer only</b></div><span class="ico">${i('laptop')}</span></div>`;
+const chLocal = (on) => `<div class="choice ${on ? 'is-active' : ''}"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Local account</b></div><span class="ico">${i('laptop')}</span></div>`;
 const chOrg = `<div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Join an organization</b></div><span class="ico">${i('server')}</span></div>`;
 const chSignIn = (state) => {
   const prov = (ico, n, on) => `<button class="btn btn--sm" ${on ? 'style="border-color:var(--focus);color:var(--text)"' : ''}>${i(ico)}${n}</button>`;
@@ -1708,9 +1708,7 @@ const pwFields = `<div class="field"><span class="label">Password</span><div cla
         <div class="field"><span class="label">Confirm</span><div class="input"><span class="grow"></span><span class="act">${i('eye')}</span></div></div>`;
 // 40a. GitHub clicked: "Sign in" is the choice, the code waits on github.com.
 function parcoursCode() {
-  return welcomeCard(`${chLocal(false)}${chSignIn('pick').replace('<div style="display:flex;gap:8px;margin-top:var(--s-3)">', '<div style="display:flex;gap:8px;margin-top:var(--s-3)">').replace(/(<button class="btn btn--sm")(>[\s\S]*?GitHub<\/button>)/, '$1 style="border-color:var(--focus);color:var(--text)"$2')}${chOrg}
-      <div class="section" style="gap:var(--s-3);opacity:.45">${unlockWith}</div>
-      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary" style="opacity:.6">Create vault</button></div>`)
+  return welcomeCard(`${chLocal(false)}${chSignIn('pick').replace('<div style="display:flex;gap:8px;margin-top:var(--s-3)">', '<div style="display:flex;gap:8px;margin-top:var(--s-3)">').replace(/(<button class="btn btn--sm")(>[\s\S]*?GitHub<\/button>)/, '$1 style="border-color:var(--focus);color:var(--text)"$2')}${chOrg}`)
     .replace('</main></div>', `${dlg('Sign in with GitHub', `<div class="code-box"><span class="code code--lg">WDJB-MJHT</span><button class="icon-btn icon-btn--sm" aria-label="Copy" title="Copy">${i('copy')}</button></div>
       <div style="display:flex;align-items:center;gap:var(--s-2);color:var(--text-muted)"><span class="spinner"></span>Waiting for GitHub…</div>
       <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary" title="github.com/login/device, the code copied">${i('external')}Open GitHub</button></div>`)}</main></div>`);
@@ -1729,6 +1727,12 @@ function parcoursOuvrir() {
         <div class="field"><span class="label">Password or recovery key</span><div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act">${i('eye')}</span></div></div>
       </div>
       <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Open vault</button></div>`);
+}
+// 40f. First screen, nothing chosen: the three options alone in the middle. Choosing one moves
+// them up and shows how the vault opens (40b); a click on an option brings them back here.
+function parcoursDebut() {
+  return welcomeCard(`${chLocal(false)}${chSignIn('none')}${chOrg}
+      <div style="display:flex"><button class="btn btn--ghost">${i('sync')}Restore my vault</button></div>`);
 }
 // 40d. Top bar: the account's picture at the right; its menu.
 function profilCompte() {
@@ -1893,6 +1897,7 @@ export const SCREENS = {
   '39b-compte-fusion-bas': ['Account — bottom, delete account', compteFusionBas],
   '39c-revoquer-github': ['Account — revoke GitHub access', revoquerGithub],
   '39d-compte-local': ['Account — local, GitHub access revocable', compteLocalRevoquer],
+  '40f-parcours-debut': ['First launch — the three options alone', parcoursDebut],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],

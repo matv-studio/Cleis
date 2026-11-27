@@ -381,6 +381,7 @@ fn topbar(
                 .gap(px(8.))
                 .children(update)
                 .child(sync_status(s, t, cx))
+                .children(account_button(s, t, cx))
                 .child(
                     // Opening with nothing (D-76): the padlock is drawn open (27/11/2026).
                     icon_button(
@@ -494,13 +495,131 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
         .when(s.org.is_some(), |d| {
             d.on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
         })
-        .when_some(s.org.as_ref().and_then(|o| o.me()), |d, m| {
-            d.child(
+        // Signed in to an account, its picture takes this place (mockup 40d).
+        .when_some(
+            s.org
+                .as_ref()
+                .and_then(|o| o.me())
+                .filter(|_| super::account::github_login(s).is_none()),
+            |d, m| {
+                d.child(
+                    div()
+                        .ml(px(4.))
+                        .child(avatar(t, &crate::org::initials(&m.name), 24.)),
+                )
+            },
+        )
+}
+
+/// Signed in to an account (mockup 40d): its picture at the top right, its menu under it.
+fn account_button(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
+    let login = super::account::github_login(s)?;
+    let initial = login
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_default();
+    let status: SharedString = match (&s.sync.last_error, s.sync.last_sync) {
+        _ if s.sync.busy => tr("Syncing…").into(),
+        (Some(_), _) => tr("Not synced").into(),
+        (None, Some(ts)) => crate::trf!("Synced {}", super::sync::ago(ts)).into(),
+        (None, None) => tr("Never synced").into(),
+    };
+    let tip_text: SharedString = format!("@{login} · GitHub").into();
+    let open = s.account_menu;
+    let menu = open.then(|| {
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(8.))
+            .pt(px(6.))
+            .pb(px(10.))
+            .child(avatar(t, &initial, 32.))
+            .child(
                 div()
-                    .ml(px(4.))
-                    .child(avatar(t, &crate::org::initials(&m.name), 24.)),
+                    .flex()
+                    .flex_col()
+                    .child(div().font_weight(W_MEDIUM).child(format!("@{login}")))
+                    .child(
+                        div()
+                            .text_size(TEXT_SM)
+                            .text_color(t.text_muted)
+                            .child(format!("GitHub · {status}")),
+                    ),
+            );
+        let sep = || div().my(px(4.)).h(px(1.)).bg(t.line);
+        gpui_kit::deferred(
+            menu_box(t)
+                .id("account-menu")
+                .top(px(32.))
+                .right_0()
+                .w(px(260.))
+                .child(head)
+                .child(sep())
+                .child(
+                    menu_item("acc-menu-sync", t, Some("sync"), tr("Sync now"), false)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(s) = this.session() {
+                                s.account_menu = false;
+                            }
+                            this.sync_now(cx);
+                        }))
+                        .test_support(),
+                )
+                .child(
+                    menu_item("acc-menu-account", t, Some("gear"), tr("Account"), false)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(s) = this.session() {
+                                s.account_menu = false;
+                                s.tab = Tab::Settings;
+                                s.settings_page = "Account";
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+                .child(sep())
+                .child(
+                    menu_item("acc-menu-signout", t, Some("logout"), tr("Sign out"), false)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(s) = this.session() {
+                                s.account_menu = false;
+                            }
+                            this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
+                        }))
+                        .test_support(),
+                )
+                .test_support(),
+        )
+        .with_priority(2)
+    });
+    Some(
+        div()
+            .relative()
+            .child(
+                div()
+                    .id("acc-avatar")
+                    .occlude()
+                    .cursor_pointer()
+                    .rounded_full()
+                    .when(open, |d| d.border_1().border_color(t.focus))
+                    .child(avatar(t, &initial, 24.))
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(tip_text.clone())
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.account_menu = !s.account_menu;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
             )
-        })
+            .when_some(menu, |d, m| d.child(m))
+            .into_any_element(),
+    )
 }
 
 /// Width of each built-in column, as in mockup 01.

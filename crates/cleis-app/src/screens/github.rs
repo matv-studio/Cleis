@@ -18,9 +18,6 @@ use std::time::Duration;
 pub struct GitHubSignIn {
     pub code: Option<DeviceCode>,
     pub error: Option<SharedString>,
-    /// Signed in on the first launch, but the account has no vault yet (mockup 37r): a new one
-    /// can be made here and saved to it.
-    pub no_vault: Option<Signed>,
     /// The code was typed: the repository is being found or made.
     pub finishing: bool,
     /// Counts the sign-ins: a cancelled one stops polling.
@@ -39,9 +36,6 @@ pub struct Signed {
 
 pub fn dialog(app: &CleisApp, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
     let g = app.github.as_ref()?;
-    if let Some(n) = &g.no_vault {
-        return Some(overlay(t, no_vault_card(n, t, cx)));
-    }
     let restoring = matches!(app.phase, Phase::Welcome(_));
     let code: SharedString = g
         .code
@@ -160,78 +154,6 @@ fn overlay(t: &Tokens, card: Div) -> AnyElement {
         .into_any_element()
 }
 
-/// Mockup 37r: signed in on the first launch, no vault on the account. The account is named;
-/// a new vault can be made here and saved to it, or another account tried.
-fn no_vault_card(n: &Signed, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    dialog_box(t)
-        .child(
-            div()
-                .text_size(TEXT_LG)
-                .line_height(px(20.))
-                .font_weight(W_MEDIUM)
-                .child(tr("No vault on this account")),
-        )
-        .child(
-            div()
-                .id("gh-account")
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .p(px(12.))
-                .bg(t.bg)
-                .border_1()
-                .border_color(t.line_strong)
-                .rounded(RADIUS_LG)
-                .child(icon("repo", 16., t.text_muted))
-                .child(div().flex_1().child(format!("@{}", n.login)))
-                .child(
-                    div()
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .child(tr("Signed in")),
-                )
-                .tooltip(tip(crate::trf!(
-                    "No private repository {} on this account",
-                    gl::REPO_NAME
-                )))
-                .test_support(),
-        )
-        .child(
-            div()
-                .pt(px(8.))
-                .flex()
-                .justify_end()
-                .gap(px(8.))
-                .child(
-                    button("gh-cancel", t, BtnKind::Default, false)
-                        .child(tr("Cancel"))
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_github(cx)))
-                        .test_support(),
-                )
-                .child(
-                    button("gh-other", t, BtnKind::Ghost, false)
-                        .child(tr("Other account"))
-                        .tooltip(tip(tr(
-                            "Sign out of github.com first, then sign in with the other account",
-                        )))
-                        .on_click(cx.listener(|this, _, window, cx| this.start_github(window, cx)))
-                        .test_support(),
-                )
-                .child(
-                    button("gh-create", t, BtnKind::Primary, false)
-                        .child(tr("Create my vault"))
-                        .tooltip(tip(crate::trf!(
-                            "A new vault on this computer, saved to the private repository {} of this account",
-                            gl::REPO_NAME
-                        )))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.create_for_github(window, cx)
-                        }))
-                        .test_support(),
-                ),
-        )
-}
-
 fn waiting(t: &Tokens, text: &str) -> Div {
     div()
         .flex()
@@ -296,23 +218,12 @@ impl CleisApp {
 
     pub fn cancel_github(&mut self, cx: &mut Context<Self>) {
         self.github = None;
-        cx.notify();
-    }
-
-    /// Mockup 37r › Create my vault: back to the first launch's creation, the account kept; once
-    /// the vault exists (and its recovery key is put away) it is saved to the account.
-    pub fn create_for_github(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(n) = self.github.take().and_then(|g| g.no_vault) else {
-            return;
-        };
-        if let Phase::Welcome(w) = &mut self.phase {
+        // The first screen: back to its options, nothing chosen.
+        if let Phase::Welcome(w) = &mut self.phase
+            && w.restore.as_ref().is_some_and(|r| r.signed.is_none())
+        {
             w.restore = None;
-            w.error = None;
-            let pw = w.password.clone();
-            pw.update(cx, |s, cx| s.focus(window, cx));
         }
-        self.toast(crate::trf!("Saved to GitHub @{} once created", n.login), cx);
-        self.github_after = Some(n);
         cx.notify();
     }
 
@@ -371,13 +282,23 @@ impl CleisApp {
                 };
                 match found {
                     Ok(Ok(_)) => {}
+                    // Mockup 40b: no vault on the account; the first screen goes on to make
+                    // one, saved to the account once its recovery key is put away.
                     Ok(Err(login)) => {
-                        g.finishing = false;
-                        g.no_vault = Some(Signed {
+                        this.github = None;
+                        this.github_after = Some(Signed {
                             login,
                             token,
                             hosts,
                         });
+                        if let Phase::Welcome(w) = &mut this.phase {
+                            w.restore = None;
+                            w.choice = Some(crate::screens::welcome::Start::Account);
+                            w.round += 1;
+                            w.up = true;
+                            let pw = w.password.clone();
+                            pw.update(cx, |s, cx| s.focus(window, cx));
+                        }
                     }
                     Err(e) => {
                         g.finishing = false;
@@ -477,6 +398,14 @@ impl CleisApp {
         cx: &mut Context<Self>,
     ) {
         self.open_place(Provider::GitHub, window, cx);
+        // Mockup 40c: on the first screen the account's vault opens on the same card.
+        if let Phase::Welcome(w) = &mut self.phase
+            && let Some(r) = w.restore.as_mut()
+        {
+            r.signed = repo.split('/').next().map(str::to_owned);
+            w.round += 1;
+            w.up = true;
+        }
         let Some(d) = self.place_slot().and_then(|p| p.as_mut()) else {
             return;
         };
