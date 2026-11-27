@@ -22,7 +22,12 @@
   directe, avec coffre → ouverture sur la même carte ; le dialogue 37r est retiré), pastille du compte en
   haut à droite, un seul bloc Sync, onglet du coffre personnel seulement avec une organisation, survols
   des boutons visibles avec le bronze.
-- En attente de l'utilisateur : applications Microsoft (Entra) et Google (Cloud) à enregistrer, Client
+- Fin du 27/11 (D-96, D-97) : sans mot de passe, plus de clé de récupération imposée ; la clé du coffre est
+  gardée dans le compte (`vault.key`) et un nouvel ordinateur ouvre le coffre en se connectant ; premier
+  écran : organisation → « Unlock with » après l'invitation vérifiée, tête « Sign in » sans survol.
+  GitHub App décidée (maquettes 41a-41b envoyées), à coder quand l'application existe.
+- En attente de l'utilisateur : suppression du dépôt `matv-studio/cleis-vault` (la session ne peut pas) ;
+  GitHub App à créer (Client ID + nom court) ; applications Microsoft (Entra) et Google (Cloud) à enregistrer, Client
   IDs à fournir ; la connexion Microsoft / Google (coffre dans le dossier d'appli OneDrive, dossier
   caché appDataFolder de Google Drive) se code ensuite sur le même parcours.
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,

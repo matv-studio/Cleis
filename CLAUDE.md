@@ -27,6 +27,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    (demande du 25/11/2026 ; `THEMES="dark light"` pour les deux) (Linux : Xvfb, ImageMagick,
    `mesa-vulkan-drivers` pour le rendu logiciel llvmpipe ; paquets de compilation GPUI listés dans la CI).
 5. Toute fonction d'interface nouvelle ou refaite passe d'abord par une maquette validée.
+6. Charte commune (`charte-design-apps.md`, canevas) : ne la mettre à jour que pour un gros changement
+   de principe ou une nouvelle logique de boutons ou d'animations, pas à chaque lot (demande du 27/11).
 
 ## Règles propres à l'app
 - **Auteur des commits : `Claude <noreply@anthropic.com>`.** Aucun nom ni adresse de compte personnel

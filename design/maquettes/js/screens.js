@@ -1758,6 +1758,24 @@ function compteLocal40() {
     </div>`);
 }
 
+// ---------- 41 (27/11/2026): GitHub App (D-97) — Cleis reaches only cleis-vault ----------
+// After the code (40a), GitHub has to let Cleis into one repository. Two steps in the same dialog,
+// each one a page of GitHub opened by its button; Cleis sees by itself when each is done.
+const ghStep = (n, title, state, btn, tip) => `<div class="row" style="padding:var(--s-2) 0"><span style="width:20px;height:20px;border-radius:999px;display:inline-grid;place-items:center;font-size:11px;${state === 'done' ? 'background:var(--accent);color:#000' : 'border:1px solid var(--line-strong);color:var(--text-muted)'}">${state === 'done' ? i('check') : n}</span><span class="row-label" ${tip ? `title="${tip}"` : ''}>${title}</span>${state === 'wait' ? '<span style="display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:var(--text-sm)"><span class="spinner"></span>Waiting for GitHub…</span>' : ''}${btn ? `<button class="btn ${state === 'next' ? 'btn--primary' : ''} btn--sm">${i('external')}${btn}</button>` : ''}</div>`;
+function ghAppCreer() {
+  return parcoursCode().replace(/<div class="overlay">[\s\S]*<\/div><\/div><\/main>/, `${dlg('Your vault on GitHub', `<div class="code-box" style="justify-content:flex-start"><span class="avatar" style="width:20px;height:20px;font-size:10px">L</span><span style="flex:1">@lea-example</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Signed in</span></div>
+      ${ghStep(1, 'Create the private repository cleis-vault', 'next', 'Create on GitHub', 'The page opens filled in: Private, cleis-vault. Click Create repository.')}
+      ${ghStep(2, 'Let Cleis use it, and only it', '', '', 'Install Cleis on your account › Only select repositories › cleis-vault')}
+      <div class="dialog-actions"><button class="btn">Cancel</button></div>`)}</main>`);
+}
+function ghAppInstaller() {
+  return parcoursCode().replace(/<div class="overlay">[\s\S]*<\/div><\/div><\/main>/, `${dlg('Your vault on GitHub', `<div class="code-box" style="justify-content:flex-start"><span class="avatar" style="width:20px;height:20px;font-size:10px">L</span><span style="flex:1">@lea-example</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Signed in</span></div>
+      ${ghStep(1, 'Create the private repository cleis-vault', 'done', '', '')}
+      ${ghStep(2, 'Let Cleis use it, and only it', 'next', 'Install on GitHub', 'Only select repositories › cleis-vault › Install')}
+      <div style="display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:var(--text-sm)"><span class="spinner"></span>Waiting for GitHub…</div>
+      <div class="dialog-actions"><button class="btn">Cancel</button></div>`)}</main>`);
+}
+
 // 38. Settings › Shortcuts (27/11/2026): every keyboard shortcut in one place, each one changed by
 // pressing the new keys. The global ones move here from Autofill (one place, not two).
 function raccourcisClavier() {
@@ -1898,6 +1916,8 @@ export const SCREENS = {
   '39c-revoquer-github': ['Account — revoke GitHub access', revoquerGithub],
   '39d-compte-local': ['Account — local, GitHub access revocable', compteLocalRevoquer],
   '40f-parcours-debut': ['First launch — the three options alone', parcoursDebut],
+  '41a-github-app-depot': ['GitHub App — create the repository', ghAppCreer],
+  '41b-github-app-installer': ['GitHub App — let Cleis use only it', ghAppInstaller],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],
