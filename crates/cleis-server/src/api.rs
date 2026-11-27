@@ -516,7 +516,7 @@ fn providers(app: &App) -> Vec<Provider> {
         .filter_map(|p| {
             Some(Provider {
                 method: crate::oidc::method_of(p)?,
-                issuer: p.issuer.replace("{tenantid}", "organizations"),
+                issuer: crate::oidc::reach(&p.issuer),
                 client_id: p.client_id.clone(),
                 client_secret: p.client_secret.clone(),
             })

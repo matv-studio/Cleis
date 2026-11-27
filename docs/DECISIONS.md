@@ -894,13 +894,27 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     de mot de passe n'est coupée par « , » ou « ; » que si elle donne autant de mots de passe que
     d'identifiants (un mot de passe peut contenir ces signes) ; un retour à la ligne sépare toujours.
 
+
+- **D-103 Microsoft multi-locataire par « common »** (27/11/2026, demande de l'utilisateur). Un
+  émetteur `https://login.microsoftonline.com/{tenantid}/v2.0` passe par `common` (page de connexion
+  donnée aux applis et clés du serveur, `oidc::reach`) au lieu d'`organizations` : comptes pro de tout
+  locataire (alunites.com : locataire `eb1faf27-…`) et comptes personnels Microsoft (locataire
+  `9188040d-6c67-4c5b-b112-36a304b66dad`, déjà accepté par le filtre `{tenantid}`). Inscription
+  Cleis-Sync (locataire personnel de l'utilisateur, ID `ab08c5d7-e197-4b7d-beea-105b96bc68b5`,
+  public, sans secret) : `signInAudience = AzureADandPersonalMicrosoftAccount`, adresse de retour
+  `http://127.0.0.1` posée dans le manifeste (le portail refuse `http` dans sa case ; le port est
+  ignoré). Pour n'accepter qu'une entreprise : l'émetteur de son locataire plutôt que `{tenantid}`
+  (`domains` n'est pas fiable en multi-locataire). Reste : un locataire qui interdit le consentement
+  des utilisateurs demande qu'un de ses administrateurs accepte Cleis-Sync une fois.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Enregistrement des applications OAuth (Microsoft, Google) pour la connexion par compte et les places
-   OneDrive / Google Drive (D-50, D-58, D-80) : à créer par l'utilisateur (étapes données le 27/11/2026),
-   puis Client IDs à fournir ; GitHub fait (D-84).
+   OneDrive / Google Drive (D-50, D-58, D-80) : Microsoft créé (D-103, ID connu ; permissions
+   `Files.ReadWrite.AppFolder` et `offline_access` à ajouter pour OneDrive) ; Google à créer (étapes
+   données le 27/11/2026), puis Client ID à fournir ; GitHub fait (D-84).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 8. ~~Essai de Windows Hello et Touch ID~~ (retirés, D-71).

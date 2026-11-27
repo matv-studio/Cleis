@@ -144,6 +144,13 @@ pub fn method_of(p: &Oidc) -> Option<Method> {
     }
 }
 
+/// The address an issuer is reached at. A multi-tenant Microsoft issuer (`{tenantid}`) goes
+/// through "common": work or school accounts of any tenant and personal Microsoft accounts
+/// (outlook.com…), whose sign-in page and keys "organizations" would refuse.
+pub fn reach(issuer: &str) -> String {
+    issuer.replace("{tenantid}", "common")
+}
+
 /// Checks `token` for `provider` at time `now`. Microsoft's "common" issuers carry the tenant in
 /// the token: `{tenantid}` in the configured issuer matches any tenant.
 pub fn verify(provider: &Oidc, token: &str, now: i64, cache: &KeyCache) -> Result<Claims, String> {
@@ -165,11 +172,8 @@ pub fn verify(provider: &Oidc, token: &str, now: i64, cache: &KeyCache) -> Resul
         return Err("token from another issuer".into());
     }
     let sig = B64.decode(s.as_bytes()).map_err(|e| e.to_string())?;
-    // A multi-tenant Microsoft issuer ("{tenantid}") publishes its keys under "organizations".
-    let keys = cache.keys(
-        &provider.issuer.replace("{tenantid}", "organizations"),
-        &header.kid,
-    )?;
+    // A multi-tenant Microsoft issuer ("{tenantid}") publishes its keys under "common".
+    let keys = cache.keys(&reach(&provider.issuer), &header.kid)?;
     let signed = keys
         .iter()
         .filter(|k| k.kty == "RSA" && (header.kid.is_empty() || k.kid == header.kid))
@@ -337,5 +341,15 @@ pub(crate) mod tests {
             "https://accounts.google.com",
             "https://accounts.google.com"
         ));
+        // Personal Microsoft accounts: the consumers tenant, reached through "common".
+        assert!(issuer_matches(
+            p,
+            "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0"
+        ));
+        assert_eq!(reach(p), "https://login.microsoftonline.com/common/v2.0");
+        assert_eq!(
+            reach("https://accounts.google.com"),
+            "https://accounts.google.com"
+        );
     }
 }

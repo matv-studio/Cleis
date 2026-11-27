@@ -66,11 +66,15 @@ can carry them out; add the section to `cleis-server.toml`, then restart the ser
 - **Google**: create an OAuth client of type *Desktop app* in Google Cloud, then
   `[[oidc]] name = "google"`, `issuer = "https://accounts.google.com"`, `client_id`,
   `client_secret` (a desktop client's secret is not secret: it is handed to the apps).
-- **Microsoft**: register an application in Microsoft Entra with the redirect address
-  `http://localhost` (public client), then `[[oidc]] name = "microsoft"`,
+- **Microsoft**: register an application in Microsoft Entra (no secret), with the redirect
+  address `http://127.0.0.1` as a public client: the portal refuses an `http` address in its
+  box, so add it in the manifest (`"publicClient": { "redirectUris": ["http://127.0.0.1"] }`;
+  the port Cleis picks is ignored). Then `[[oidc]] name = "microsoft"`,
   `issuer = "https://login.microsoftonline.com/<tenant id>/v2.0"`, `client_id`. With
-  `{tenantid}` in place of the id, any work account is accepted: then do not rely on `domains`,
-  since Microsoft does not guarantee that an account's address is verified.
+  `{tenantid}` in place of the id, any account the registration accepts signs in through
+  `common` (work or school accounts of any tenant, and personal Microsoft accounts when the
+  registration allows them): then do not rely on `domains`, since Microsoft does not guarantee
+  that a work account's address is verified.
 - `domains = ["example-studio.com"]` in an `[[oidc]]` section accepts only those addresses.
 - `max_token_age` (seconds, 600 by default): an ID token older than this is refused.
 
