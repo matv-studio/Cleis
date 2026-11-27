@@ -142,11 +142,19 @@ pub fn width(s: &Session, c: &ColumnDef, default: Option<f32>) -> Option<f32> {
     }
 }
 
-/// The edge of a heading: drag to resize, double-click to fit (mockup 35e).
-pub fn col_grip(id: &ColumnId, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement + use<> {
+/// The edge of a heading: drag to resize, double-click to fit (mockup 35e). Mockup 37c: a 1 px
+/// grey bar shows where it is, between two headings (`bar`: not after the last one); the accent
+/// line takes its place under the pointer.
+pub fn col_grip(
+    id: &ColumnId,
+    bar: bool,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement + use<> {
     let drag = ColResize { id: id.clone() };
     let fit = id.clone();
     let line = t.primary;
+    let grey = t.line_strong;
     div()
         .id(SharedString::from(format!("colgrip-{}", id.0)))
         .absolute()
@@ -157,7 +165,20 @@ pub fn col_grip(id: &ColumnId, t: &Tokens, cx: &mut Context<CleisApp>) -> impl I
         .flex()
         .justify_center()
         .cursor_col_resize()
+        .items_center()
         .group("colgrip")
+        .when(bar, |d| {
+            d.child(
+                div()
+                    .absolute()
+                    .top(px(8.))
+                    .bottom(px(8.))
+                    .right(px(0.))
+                    .w(px(1.))
+                    .bg(grey)
+                    .group_hover("colgrip", |d| d.invisible()),
+            )
+        })
         .child(
             div()
                 .w(px(2.))

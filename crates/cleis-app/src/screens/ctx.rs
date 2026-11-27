@@ -29,6 +29,8 @@ pub enum CtxTarget {
     ContactsVoid,
     /// The contacts' sidebar outside any folder.
     ContactsSidebar,
+    /// The password box of the panel on the right (mockup 37o).
+    PasswordField(EntryId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +117,11 @@ impl<'a> Rows<'a> {
     }
 }
 
+/// The keys of a shortcut inside Cleis, as chosen (mockup 38); none: not shown.
+fn keys_of(s: &Session, name: &str) -> String {
+    s.prefs.app_key(name)
+}
+
 /// A row with an optional shortcut on the right.
 fn item(
     id: impl Into<SharedString>,
@@ -126,7 +133,7 @@ fn item(
 ) -> Stateful<Div> {
     menu_item(id, t, Some(icon_name), label, danger)
         .child(div().flex_1())
-        .when_some(shortcut, |d, k| {
+        .when_some(shortcut.filter(|k| !k.is_empty()), |d, k| {
             d.child(
                 div()
                     .text_size(TEXT_XS)
@@ -253,6 +260,7 @@ pub fn render(
         CtxTarget::ListVoid => list_void_menu(s, m.sub, t, cx),
         CtxTarget::SidebarVoid => (sidebar_void_menu(s, t, cx), None),
         CtxTarget::ContactsVoid => (contacts_void_menu(s, t, cx), None),
+        CtxTarget::PasswordField(id) => (password_field_menu(s, id, t, cx)?, None),
         CtxTarget::ContactsSidebar => {
             let mut r = Rows::new(t);
             r.row(act(
@@ -375,7 +383,7 @@ fn list_void_menu(s: &Session, sub: Option<Sub>, t: &Tokens, cx: &mut Context<Cl
             t,
             "plus",
             tr("New password"),
-            Some(tr("Ctrl+N")),
+            Some(&*keys_of(s, "new")),
             false,
         ),
         cx,
@@ -473,7 +481,7 @@ fn contacts_void_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
             t,
             "plus",
             tr("New contact"),
-            Some(tr("Ctrl+N")),
+            Some(&*keys_of(s, "new")),
             false,
         ),
         cx,
@@ -548,26 +556,31 @@ fn sidebar_void_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div
         r.row(row);
         r.sep();
     }
-    r.row(
-        div()
-            .id("cx-shortcuts-head")
-            .h(px(24.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .text_size(TEXT_XS)
-            .font_weight(W_MEDIUM)
-            .text_color(t.text_muted)
-            .child(tr("Shortcuts"))
-            .tooltip(tip(tr(
-                "For this vault; Preferences › Vaults makes them the same everywhere",
-            ))),
-    );
+    // Shortcuts under each vault's name (37j): changed there, with Customize.
+    let split = super::sidebar::split_here(s);
+    if !split {
+        r.row(
+            div()
+                .id("cx-shortcuts-head")
+                .h(px(24.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .text_size(TEXT_XS)
+                .font_weight(W_MEDIUM)
+                .text_color(t.text_muted)
+                .child(tr("Shortcuts"))
+                .tooltip(tip(tr(
+                    "For this vault; Preferences › Vaults makes them the same everywhere",
+                ))),
+        );
+    }
     let key = super::sidebar::shortcut_key(s);
     let shown = s.prefs.shortcuts.of(&key);
     for (ix, label) in ["All items", "Favorites", "Renew soon"]
         .into_iter()
         .enumerate()
+        .filter(|_| !split)
     {
         let key = key.clone();
         // A tick does not close the menu: several can be changed in a row.
@@ -583,13 +596,99 @@ fn sidebar_void_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div
                 .test_support(),
         );
     }
-    r.sep();
+    if !split {
+        r.sep();
+    }
     r.row(act(
         item("cx-customize", t, "grip", tr("Customize"), None, false),
         cx,
         |this, _, cx| this.toggle_customize(cx),
     ));
     r.menu
+}
+
+/// Mockup 37o: the password box's own menu (the row's menu is mockup 33).
+fn password_field_menu(
+    s: &Session,
+    id: EntryId,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Option<Div> {
+    let e = s.entries.iter().find(|e| e.id == id)?;
+    let mut r = Rows::new(t);
+    if !e.password.is_empty() {
+        let v = e.password.clone();
+        r.row(act(
+            item(
+                "cx-pw-copy",
+                t,
+                "copy",
+                tr("Copy"),
+                Some(&*keys_of(s, "copy_pass")),
+                false,
+            ),
+            cx,
+            move |this, _, cx| this.copy_of(id, v.clone(), "Password", cx),
+        ));
+    }
+    r.row(act(
+        item(
+            "cx-pw-paste",
+            t,
+            "upload",
+            tr("Paste"),
+            Some(tr("Ctrl+V")),
+            false,
+        ),
+        cx,
+        move |this, window, cx| this.paste_password(id, window, cx),
+    ));
+    let shown = s.reveal;
+    r.row(act(
+        item(
+            "cx-pw-reveal",
+            t,
+            "eye",
+            if shown { tr("Hide") } else { tr("Show") },
+            None,
+            false,
+        ),
+        cx,
+        move |this, window, cx| this.set_reveal(!shown, window, cx),
+    ));
+    r.sep();
+    r.row(act(
+        item(
+            "cx-pw-gen",
+            t,
+            "refresh",
+            tr("Generate a password"),
+            None,
+            false,
+        ),
+        cx,
+        move |this, window, cx| this.generate_password(id, window, cx),
+    ));
+    if !e.password_history.is_empty() {
+        r.row(act(
+            item(
+                "cx-pw-history",
+                t,
+                "clock",
+                tr("Previous passwords"),
+                None,
+                false,
+            ),
+            cx,
+            |this, _, cx| {
+                if let Some(s) = this.session() {
+                    s.history_tab = true;
+                }
+                cx.notify();
+            },
+        ));
+    }
+    Some(r.menu)
 }
 
 fn entry_menu(
@@ -609,7 +708,7 @@ fn entry_menu(
                 t,
                 "user",
                 tr("Copy username"),
-                Some(tr("Ctrl+C")),
+                Some(&*keys_of(s, "copy_user")),
                 false,
             ),
             cx,
@@ -624,7 +723,7 @@ fn entry_menu(
                 t,
                 "key",
                 tr("Copy password"),
-                Some(tr("Ctrl+Shift+C")),
+                Some(&*keys_of(s, "copy_pass")),
                 false,
             ),
             cx,
@@ -638,7 +737,7 @@ fn entry_menu(
                 t,
                 "totp",
                 tr("Copy 2FA code"),
-                Some(tr("Ctrl+Alt+C")),
+                Some(&*keys_of(s, "copy_totp")),
                 false,
             ),
             cx,
@@ -683,7 +782,7 @@ fn entry_menu(
             t,
             "copy",
             tr("Duplicate"),
-            Some(tr("Ctrl+D")),
+            Some(&*keys_of(s, "duplicate")),
             false,
         ),
         cx,
@@ -706,7 +805,7 @@ fn entry_menu(
             t,
             "trash",
             tr("Move to trash"),
-            Some(tr("Del")),
+            Some(&*keys_of(s, "trash")),
             true,
         ),
         cx,
@@ -922,7 +1021,7 @@ fn contact_menu(
             t,
             "trash",
             tr("Delete"),
-            Some(tr("Del")),
+            Some(&*keys_of(s, "trash")),
             true,
         ),
         cx,
@@ -1303,24 +1402,26 @@ impl CleisApp {
                     return false;
                 };
                 let id = e.id;
-                match (cmd, m.shift, m.alt, k.key.as_str()) {
-                    (true, false, false, "c") if !e.username.is_empty() => {
-                        self.copy_of(id, e.username.clone(), "Username", cx)
-                    }
-                    (true, true, false, "c") if !e.password.is_empty() => {
-                        self.copy_of(id, e.password.clone(), "Password", cx)
-                    }
-                    (true, false, true, "c") if e.totp.is_some() => {
-                        let code = e.totp.as_ref().map(|t| t.code_at(cleis_core::now()));
-                        self.copy_of(id, code.unwrap_or_default(), "Code", cx)
-                    }
-                    (true, false, false, "d") => self.duplicate_entry(id, cx),
-                    _ if del => self.trash_entry(id, cx),
-                    _ => return false,
+                // Mockup 38: the keys chosen in Settings › Shortcuts.
+                let p = s.prefs.clone();
+                let on = |name: &str| super::keys::pressed(k, &p.app_key(name));
+                if on("copy_user") && !e.username.is_empty() {
+                    self.copy_of(id, e.username.clone(), "Username", cx)
+                } else if on("copy_pass") && !e.password.is_empty() {
+                    self.copy_of(id, e.password.clone(), "Password", cx)
+                } else if on("copy_totp") && e.totp.is_some() {
+                    let code = e.totp.as_ref().map(|t| t.code_at(cleis_core::now()));
+                    self.copy_of(id, code.unwrap_or_default(), "Code", cx)
+                } else if on("duplicate") {
+                    self.duplicate_entry(id, cx)
+                } else if on("trash") {
+                    self.trash_entry(id, cx)
+                } else {
+                    return false;
                 }
                 true
             }
-            Tab::Contacts if del => {
+            Tab::Contacts if del || super::keys::pressed(k, &s.prefs.app_key("trash")) => {
                 let Some(id) = s.selected_contact else {
                     return false;
                 };
@@ -1347,6 +1448,12 @@ impl CleisApp {
             return true;
         } else if s.confirm.is_some() {
             s.confirm = None;
+            true
+        } else if s.erase.as_ref().is_some_and(|e| !e.busy) {
+            s.erase = None;
+            true
+        } else if s.pin_setup.as_ref().is_some_and(|p| !p.busy) {
+            s.pin_setup = None;
             true
         } else if s.folder.is_some() || s.folder_menu.is_some() {
             s.folder = None;

@@ -36,6 +36,8 @@ pub enum SecDialog {
 pub enum SecMenu {
     Clipboard,
     Lock,
+    /// The PIN's wrong tries allowed (mockup 37e).
+    PinTries,
 }
 
 #[derive(Default)]
@@ -271,6 +273,18 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             None::<&'static str>,
         ),
         (
+            Mode::Pin,
+            "hash",
+            "PIN",
+            if rule.allows_hello() {
+                Some(
+                    "Digits only, on this computer; the master password after too many wrong tries",
+                )
+            } else {
+                Some("Not allowed by your organization")
+            },
+        ),
+        (
             Mode::Hello,
             "fingerprint",
             "Windows Hello",
@@ -306,6 +320,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         let on = s.opening == mode;
         let allowed = match mode {
             Mode::Password => true,
+            Mode::Pin => rule.allows_hello(),
             Mode::Hello => rule.allows_hello() && hello_ok,
             Mode::Nothing => rule.allows_nothing(),
         };
@@ -357,7 +372,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     } else if recovery.is_none() {
         "Make a recovery key first"
     } else if s.opening == Mode::Password {
-        "Choose Windows Hello or Nothing first"
+        "Choose a PIN, Windows Hello or Nothing first"
     } else {
         "The recovery key then opens your vault on another computer"
     };
@@ -381,6 +396,10 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .child(div().flex_1().child(tr("Unlock with")))
                 .child(seg),
         )
+        // Mockup 37e: the PIN's length, the tries allowed, a new PIN.
+        .when_some(crate::opening::pin_info(&s.vault.path().unwrap_or_default()), |d, info| {
+            d.children(pin_rows(s, info, t, cx))
+        })
         .child(
             row(t, true)
                 .child(
@@ -439,7 +458,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             let label = match rule {
                 cleis_core::org::UnlockRule::PasswordOnly => tr("Master password only"),
                 cleis_core::org::UnlockRule::PasswordOrHello => {
-                    tr("Master password or Windows Hello")
+                    tr("Master password, PIN or Windows Hello")
                 }
                 cleis_core::org::UnlockRule::Any => tr("Anything, also nothing"),
             };
@@ -456,6 +475,106 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .child(muted(label.into())),
             )
         })
+}
+
+/// The PIN's rows under "Unlock with" (mockup 37e).
+fn pin_rows(
+    s: &Session,
+    info: crate::opening::PinInfo,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Vec<Div> {
+    let mut len_seg = div()
+        .flex()
+        .flex_none()
+        .p(px(2.))
+        .gap(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD);
+    for n in crate::opening::PIN_LENGTHS {
+        let on = info.len == n;
+        len_seg = len_seg.child(
+            div()
+                .id(SharedString::from(format!("pin-len-{n}")))
+                .h(px(24.))
+                .w(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(RADIUS_SM)
+                .font_weight(W_MEDIUM)
+                .when(on, |d| d.bg(t.accent_soft).text_color(t.accent_text))
+                .when(!on, |d| d.text_color(t.text_muted).cursor_pointer())
+                .child(n.to_string())
+                .when(!on, |d| {
+                    d.tooltip(tip(tr("A new PIN of this length"))).on_click(
+                        cx.listener(move |this, _, window, cx| this.open_pin_setup(n, window, cx)),
+                    )
+                })
+                .test_support(),
+        );
+    }
+    let open = s.security.menu == Some(SecMenu::PinTries);
+    let mut menu = menu_box(t).relative().w(px(160.));
+    for n in crate::opening::PIN_TRIES {
+        menu = menu.child(
+            menu_item(format!("pin-tries-{n}"), t, None, n.to_string(), false)
+                .when(n == info.max_tries, |d| d.text_color(t.accent_text))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let path = this.path.clone();
+                    if let Some(s) = this.session() {
+                        s.security.menu = None;
+                        if let Err(e) = crate::opening::set_pin_tries(&path, n) {
+                            s.toast = Some(crate::i18n::tr_dynamic(&e).into());
+                        }
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        );
+    }
+    let tries = div()
+        .relative()
+        .child(
+            div()
+                .id("pin-tries")
+                .child(
+                    value_box(t)
+                        .w(px(160.))
+                        .cursor_pointer()
+                        .child(div().flex_1().child(info.max_tries.to_string()))
+                        .child(icon("chevron", 14., t.text_muted)),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_sec_menu(SecMenu::PinTries, cx)))
+                .test_support(),
+        )
+        .when(open, |d| d.child(popup_below(menu, px(28.))));
+    vec![
+        row(t, true)
+            .child(div().flex_1().child(tr("Length")))
+            .child(len_seg),
+        row(t, true)
+            .child(
+                div()
+                    .id("pin-tries-label")
+                    .flex_1()
+                    .child(tr("Wrong tries before locking"))
+                    .tooltip(tip(tr("Then the master password or the recovery key"))),
+            )
+            .child(tries),
+        row(t, true).child(div().flex_1().child(tr("PIN"))).child(
+            button("pin-change", t, BtnKind::Default, false)
+                .child(tr("Change"))
+                .on_click(
+                    cx.listener(move |this, _, window, cx| {
+                        this.open_pin_setup(info.len, window, cx)
+                    }),
+                )
+                .test_support(),
+        ),
+    ]
 }
 
 fn card(t: &Tokens, title: &str) -> Div {
@@ -832,6 +951,8 @@ impl CleisApp {
                 s.after_password = Some(Mode::Password);
                 self.start_change_password(window, cx);
             }
+            // Mockup 37f: the PIN typed twice first; kept only then.
+            Mode::Pin => self.open_pin_setup(crate::opening::DEFAULT_PIN_LEN, window, cx),
             Mode::Hello => {
                 let challenge = crate::opening::new_challenge();
                 cx.spawn_in(window, async move |this, cx| {
@@ -876,7 +997,7 @@ impl CleisApp {
             }
             Mode::Nothing => crate::opening::set_nothing(&path, &s.vault)
                 .map(|()| tr("Cleis opens without a password on this computer")),
-            Mode::Hello => return,
+            Mode::Hello | Mode::Pin => return,
         };
         match done {
             Ok(msg) => {

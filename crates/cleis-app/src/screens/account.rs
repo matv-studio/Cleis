@@ -28,28 +28,25 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     if signed_in(s) {
         return page.children(signed(s, t, cx));
     }
-    let prov =
-        |id: &'static str,
-         ico: &str,
-         name: &str,
-         sub: &str,
-         on: bool,
-         planned: Option<&'static str>,
-         cx: &mut Context<CleisApp>| {
-            // What each one is goes in its tooltip, no line under the name (27/11/2026).
-            div()
-                .id(id)
-                .when(planned.is_some(), |d| d.opacity(0.45))
-                .tooltip(tip(crate::i18n::tr_owned(planned.unwrap_or(sub))))
-                .when(planned.is_none(), |d| d.cursor_pointer())
-                .child(super::welcome::choice(t, on, name, "", ico))
-                .when(planned.is_none() && id == "acc-github", |d| {
-                    d.on_click(cx.listener(|this, _, window, cx| {
-                        this.open_place(Provider::GitHub, window, cx)
-                    }))
-                })
-                .test_support()
-        };
+    let prov = |id: &'static str,
+                ico: &str,
+                name: &str,
+                sub: &str,
+                on: bool,
+                planned: Option<&'static str>,
+                cx: &mut Context<CleisApp>| {
+        // What each one is goes in its tooltip, no line under the name (27/11/2026).
+        div()
+            .id(id)
+            .when(planned.is_some(), |d| d.opacity(0.45))
+            .tooltip(tip(crate::i18n::tr_owned(planned.unwrap_or(sub))))
+            .when(planned.is_none(), |d| d.cursor_pointer())
+            .child(super::welcome::choice(t, on, name, "", ico))
+            .when(planned.is_none() && id == "acc-github", |d| {
+                d.on_click(cx.listener(|this, _, window, cx| this.start_github(window, cx)))
+            })
+            .test_support()
+    };
     page.child(
         section(t)
             .child(
@@ -84,10 +81,8 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 div().flex().justify_end().child(
                     button("acc-signin", t, BtnKind::Primary, false)
                         .child(tr("Sign in"))
-                        .tooltip(tip(tr("With GitHub: a private repository and a token")))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_place(Provider::GitHub, window, cx)
-                        }))
+                        .tooltip(tip(tr("With GitHub: a code to type on github.com")))
+                        .on_click(cx.listener(|this, _, window, cx| this.start_github(window, cx)))
                         .test_support(),
                 ),
             ),
@@ -169,6 +164,9 @@ impl CleisApp {
     /// The welcome screen's "Sign in" (36d): the vault from another computer, through the account.
     pub fn sign_in_elsewhere(&mut self, p: Provider, window: &mut Window, cx: &mut Context<Self>) {
         self.start_restore(window, cx);
-        self.open_place(p, window, cx);
+        match p {
+            Provider::GitHub => self.start_github(window, cx),
+            _ => self.open_place(p, window, cx),
+        }
     }
 }

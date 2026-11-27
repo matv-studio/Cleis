@@ -333,6 +333,12 @@ impl Vault {
     /// Whether `password` opens this vault (asked again before changing it). Takes as long as
     /// an unlock: run it off the interface thread.
     pub fn check_password(&self, password: &str) -> Result<bool> {
+        self.password_check()?.check(password)
+    }
+
+    /// What checking the master password needs, read now and checked elsewhere (another thread:
+    /// the vault's connection stays here).
+    pub fn password_check(&self) -> Result<PasswordCheck> {
         let kdf: KdfParams = serde_json::from_slice(
             &meta_get(&self.conn, "kdf")?.ok_or(StoreError::Corrupt("kdf"))?,
         )?;
@@ -341,8 +347,7 @@ impl Vault {
             .try_into()
             .map_err(|_| StoreError::Corrupt("salt"))?;
         let sealed = meta_get(&self.conn, "account")?.ok_or(StoreError::Corrupt("account"))?;
-        let mk = derive_master_key(password, &salt, kdf)?;
-        Ok(open(&mk.encryption, b"cleis/account", &sealed).is_ok())
+        Ok(PasswordCheck { kdf, salt, sealed })
     }
 
     /// The vault's key derivation settings (kept when the password changes).
@@ -779,6 +784,21 @@ impl Vault {
         tx.commit()?;
         self.space_keys.remove(&id);
         Ok(rows.len())
+    }
+}
+
+/// The master password's check, apart from the vault (`Vault::password_check`).
+pub struct PasswordCheck {
+    kdf: KdfParams,
+    salt: [u8; 16],
+    sealed: Vec<u8>,
+}
+
+impl PasswordCheck {
+    /// Whether `password` opens the vault; takes as long as an unlock.
+    pub fn check(&self, password: &str) -> Result<bool> {
+        let mk = derive_master_key(password, &self.salt, self.kdf)?;
+        Ok(open(&mk.encryption, b"cleis/account", &self.sealed).is_ok())
     }
 }
 

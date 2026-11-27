@@ -643,6 +643,45 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Clic droit sur un élément : fonctionne dans la liste (vérifié par de vrais clics sous X11) ; le
     champ mot de passe du panneau de droite n'avait pas de menu : maquette 37o validée.
 
+- **D-82 Maquettes 37a à 37o validées et codées** (27/11/2026). Dossier nommé sur place (« + » de My
+  vault, double-clic sur un nom ; Entrée ou clic ailleurs garde, Échap annule, vide = rien) : la boîte
+  « New folder » / « Rename » disparaît (reste celle de suppression). Trait gris de 1 px entre deux
+  en-têtes de colonne. Point de connexion seul en haut, type en info-bulle (« Local », « GitHub ·
+  dépôt »). « Start in » : chaque onglet de coffre quand les coffres ont leur onglet (`vault:<clé>`,
+  appliqué après le chargement des organisations). Raccourcis par coffre aussi avec un seul onglet Vault
+  (`SidebarShortcuts::split` ; chaque coffre porte Favoris et À renouveler sous son nom, filtres
+  `FavoritesOf` / `RenewSoonOf`). Menu du clic droit sur le champ mot de passe du panneau (le champ gardait
+  le clic pour le menu du système, vide sous Windows ; vérifié sous X11 par de vrais clics : la liste,
+  elle, ouvrait bien son menu). Suppression de toutes les sauvegardes, et du compte (mot de passe maître,
+  ou le mot « supprimer » sans mot de passe ; copie de la place GitHub / SFTP / dossier en option ; fichiers
+  du coffre, sauvegardes, apparence, clé de cet ordinateur ; retour au premier lancement).
+- **D-83 PIN du coffre personnel** (27/11/2026, maquettes 37e à 37h). Mode d'ouverture `Pin` (D-76) :
+  clé = HKDF-SHA256(Argon2id(PIN, sel), secret de l'ordinateur scellé par DPAPI) (`derive_pin_key`, vecteur
+  RFC 5869 en essai). Un fichier copié ailleurs ne se force donc pas PIN après PIN (Bitwarden, lui, ne
+  protège le PIN que par la dérivation). 4, 6 ou 8 chiffres ; 3, 5 ou 10 essais faux puis le fichier
+  `.unlock` est retiré (mot de passe maître ou clé de récupération). Cases de la maquette 36h
+  (`screens/pin.rs`). Une règle d'organisation qui admet Windows Hello admet le PIN (libellé « Master
+  password, PIN or Windows Hello »).
+  - En suspens : sous macOS et Linux, `protect` ne scelle pas encore (Trousseau à brancher) : le PIN n'y est
+    protégé que par Argon2id, comme « Rien ». Le PIN de l'organisation (D-79) garde son champ simple.
+- **D-84 Connexion GitHub par code** (27/11/2026, maquette 37n, « comme Revel »). Application OAuth
+  « Cleis » de matv-studio (Client ID `Ov23li1POERzptJCQDPI`, device flow ; jetons sans expiration :
+  « Expire user access tokens » décoché par l'utilisateur). Portée `repo` ; dépôt privé `cleis-vault` créé au
+  premier usage (refus d'un dépôt public), fichier `vault.cleis`. Le jeton est gardé par ordinateur
+  (`SyncConfig::secret_key`), jamais dans la copie partagée. La place GitHub manuelle (dépôt + jeton) reste
+  dans Sync & backups. Contrepartie : `repo` donne accès à tous les dépôts privés du compte.
+- **D-85 Raccourcis clavier modifiables** (27/11/2026, maquettes 38, 38b). Paramètres › Shortcuts : ceux du
+  système (déplacés d'Autofill) et ceux de l'appli (`APP_KEYS` : verrouiller, nouveau, rechercher, copier
+  identifiant / mot de passe / code, dupliquer, corbeille), changés dans `Preferences::app_keys`. Touche
+  seule admise pour Suppr et F1–F24 ; Retour arrière : aucune ; conflits signalés « In use » sur les deux
+  lignes (le premier de la liste l'emporte) ; menus et info-bulles montrent les touches réglées.
+- **D-86 Notes de version en anglais seulement** (27/11/2026, demande de l'utilisateur) à partir de la
+  0.2.3 ; les versions publiées gardent les leurs.
+- **D-87 Charte** (27/11/2026) : règle « aucune phrase sous un libellé dans les réglages » écrite en 1.5,
+  plus les composants nouveaux (nom sur place, PIN, code à saisir ailleurs, point de connexion, ligne de
+  raccourci) dans `charte-design-apps.md` et sur le canevas « Charte de design des apps internes »
+  (planche « Mouvement et détails »).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

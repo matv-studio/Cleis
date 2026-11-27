@@ -96,9 +96,70 @@ pub fn derive_master_key(
     })
 }
 
+/// The key a PIN opens the vault with on one computer (mockups 37e-37h, 27/11/2026): Argon2id of
+/// the PIN, then HKDF-SHA256 salted with a secret of this computer (sealed by the system for the
+/// account: DPAPI on Windows). A PIN has few digits: without that secret, a copy of the files
+/// taken elsewhere could be tried PIN after PIN; with it, trying needs this account on this
+/// computer, where the app counts the wrong tries.
+pub fn derive_pin_key(
+    pin: &str,
+    salt: &[u8; 16],
+    device_secret: &[u8; 32],
+    params: KdfParams,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    let argon = Argon2::new(
+        Algorithm::Argon2id,
+        Version::V0x13,
+        Params::new(
+            params.memory_kib,
+            params.iterations,
+            params.parallelism,
+            Some(32),
+        )
+        .map_err(|_| CryptoError::Kdf)?,
+    );
+    let mut stretched = Zeroizing::new([0u8; 32]);
+    argon
+        .hash_password_into(pin.as_bytes(), salt, stretched.as_mut())
+        .map_err(|_| CryptoError::Kdf)?;
+    hkdf_sha256(device_secret, stretched.as_ref(), b"cleis/pin/v1")
+}
+
+/// HKDF-SHA256 (RFC 5869), 32 bytes out.
+fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8]) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
+    let mut out = Zeroizing::new([0u8; 32]);
+    hk.expand(info, out.as_mut())
+        .map_err(|_| CryptoError::Kdf)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RFC 5869, test case 1 (the first 32 bytes of its 42-byte OKM).
+    #[test]
+    fn hkdf_official_vector() {
+        let ikm = [0x0bu8; 22];
+        let salt: Vec<u8> = (0x00u8..=0x0c).collect();
+        let info: Vec<u8> = (0xf0u8..=0xf9).collect();
+        let okm = hkdf_sha256(&salt, &ikm, &info).unwrap();
+        assert_eq!(
+            crate::hex(okm.as_ref()),
+            "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
+        );
+    }
+
+    #[test]
+    fn pin_key_needs_pin_and_computer() {
+        let p = KdfParams::insecure_for_tests();
+        let a = derive_pin_key("123456", &[1; 16], &[7; 32], p).unwrap();
+        assert_eq!(a, derive_pin_key("123456", &[1; 16], &[7; 32], p).unwrap());
+        assert_ne!(a, derive_pin_key("123457", &[1; 16], &[7; 32], p).unwrap());
+        assert_ne!(a, derive_pin_key("123456", &[1; 16], &[8; 32], p).unwrap());
+        assert_ne!(a, derive_pin_key("123456", &[2; 16], &[7; 32], p).unwrap());
+    }
 
     #[test]
     fn deterministic_and_salted() {

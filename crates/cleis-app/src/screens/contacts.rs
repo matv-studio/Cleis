@@ -585,12 +585,13 @@ fn table(
         .text_size(TEXT_XS)
         .font_weight(W_MEDIUM)
         .text_color(t.text_muted);
-    for c in &cols {
+    let ncols = cols.len();
+    for (ci, c) in cols.iter().enumerate() {
         head = head.child(
             cell(contact_col_width(s, c))
                 .relative()
                 .on_drag_move(super::dnd::on_resize_move(&c.id, cx))
-                .child(super::dnd::col_grip(&c.id, t, cx))
+                .child(super::dnd::col_grip(&c.id, ci + 1 < ncols, t, cx))
                 .when(c.id.0 == "name", |d| {
                     d.text_color(t.text)
                         .child(format!("{} ↑", crate::i18n::tr_owned(&c.name)))

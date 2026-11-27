@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-80,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-87,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -13,12 +13,12 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
    [--page account|autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
-   profile|devices|spaces|server-here] [--menu filter|columns|new-column|open-code|invite|invite-code|
+   profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
-   [--quick-access] [--restore] [--unlock-with hello|nothing]
+   [--quick-access] [--restore] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
    `install [--print]`, `backup`, `restore`, `invite`, `status` ; configuration `cleis-server.toml`,
@@ -37,13 +37,14 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   build Windows en poussant sur `build/full-app`, faire essayer l'installateur ; **quand l'utilisateur
   valide**, pousser la branche `release/vX.Y.Z` sur le commit validé (`git push origin
   <sha>:refs/heads/release/vX.Y.Z`) : `tag.yml` pose l'étiquette (auteur Claude), lance `release.yml` sur
-  elle (brouillon) et retire la branche. Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes EN + FR
+  elle (brouillon) et retire la branche. Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes **en anglais seulement** (D-86, depuis la 0.2.3)
   dans `docs/notes/vX.Y.Z.md` avant l'étiquette : le brouillon les reprend ; l'utilisateur publie. Notes
   à corriger après coup : pousser `notes/vX.Y.Z` (`notes.yml` les réécrit dans la version). Secours : script `etiquette-vX.Y.Z.bat` dans
   `C:\MATV_LOCAL\_Interne\Cleis\` (modèle `etiquette-v0.2.0.ps1`).
 - Branches : `feat/<sujet>`, `fix/<sujet>`. Les choix validés sont poussés directement sur la
   branche de travail (`feat/full-app`), sans PR (demande de l'utilisateur). `main` reste vert.
-- Langue : anglais pour l'interface et le code ; anglais + français à la sortie des versions.
+- Langue : anglais pour l'interface et le code (interface traduite par `i18n/fr.json`) ; notes de
+  version en anglais seulement (D-86).
 - Chiffrement : aucune primitive écrite à la main ; tout passe par `cleis-crypto`, qui fixe les formats
   (octet de version en tête). Toute nouvelle combinaison reçoit un test avec un vecteur officiel.
 - Code repris ou adapté d'un projet tiers : mention dans le fichier et dans `THIRD_PARTY.md`.
@@ -81,7 +82,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   sur un NAS par SSH : QNAP .qpkg, systemd, D-78), `folder_org.rs` (organisation dans un dossier
   partagé : opérations signées, copie locale rejouée par `cleis_server::local`, D-78),
   `screens/wheel.rs` (roue chromatique), `opening.rs` (ouverture par
-  Windows Hello ou sans rien, fichier `<coffre>.unlock`, D-76), `instance.rs` (une seule
+  Windows Hello, PIN ou sans rien, fichier `<coffre>.unlock`, D-76, D-83), `screens/pin.rs` (cases du
+  PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84), `screens/keys.rs`
+  (Paramètres › Shortcuts, D-85), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
   `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
@@ -149,5 +152,16 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - Dossier partagé (D-78) : une opération est rejouée à sa date ; deux opérations à la même seconde
   se départagent par la clé du signataire : l'appli date les siennes après la dernière appliquée.
   Le registre des copies ouvertes est global au processus : sa clé est le dossier de la copie.
+- Un `div` qui doit être trouvé par les essais (`window_has`, `w.click`) porte `.test_support()`,
+  boîtes de dialogue comprises. Une page de réglages plus haute que la fenêtre : faire défiler au-dessus
+  d'un élément visible (`settings_bottom(cx, h, "<id>")`) avant de cliquer en bas.
+- Un clic sur un élément qui ne prend pas le clavier ne retire pas le focus d'un champ : pour « clic
+  ailleurs », `on_mouse_down_out` (dossier nommé sur place).
+- Les champs `Input` gardent le clic droit pour le menu du système : un menu à nous se pose par
+  `capture_any_mouse_down` sur leur conteneur (champ mot de passe, D-82).
+- Essais de la connexion GitHub : `app.github_hosts` vers `fake_github()` (device flow, `/user`, dépôt) ;
+  jamais github.com depuis un essai.
+- `appshots.sh` lance `cargo build` sans les variables du disque : les exporter avant (sinon tout se
+  recompile dans un autre profil).
 - Barre du haut (fenêtre sans cadre) : sous Windows, tout contrôle posé dedans doit avoir
   `.occlude()`, sinon le clic part en déplacement de fenêtre.

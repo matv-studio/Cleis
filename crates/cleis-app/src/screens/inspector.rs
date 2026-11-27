@@ -315,9 +315,24 @@ fn details(
                     .test_support(),
             );
         let inp = Input::new(&st).id("edit-password").suffix(actions);
+        // Mockup 37o: a right-click on the box opens its menu, in the charter's style (caught
+        // before the box, whose own menu is the system's).
+        let target = super::ctx::CtxTarget::PasswordField(id);
+        let open = cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, window, cx| {
+            if ev.button == gpui_kit::MouseButton::Right {
+                cx.stop_propagation();
+                this.open_ctx(target, ev.position, window, cx);
+            }
+        });
         d = d.child(
-            field(t, tr("Password"), boxed(t, ed, Field::Password, inp))
-                .child(strength(t, &e.password)),
+            div()
+                .id("password-box")
+                .capture_any_mouse_down(open)
+                .child(
+                    field(t, tr("Password"), boxed(t, ed, Field::Password, inp))
+                        .child(strength(t, &e.password)),
+                )
+                .test_support(),
         );
     }
 
@@ -620,6 +635,24 @@ fn history(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) -> Di
 }
 
 impl CleisApp {
+    /// The clipboard's text becomes the item's password; the old one goes to its history.
+    pub fn paste_password(
+        &mut self,
+        id: cleis_core::EntryId,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<CleisApp>,
+    ) {
+        let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else {
+            return;
+        };
+        let text = text.trim_end_matches(['\r', '\n']).to_owned();
+        if text.is_empty() {
+            return;
+        }
+        self.update_entry(id, |e| e.set_password(text, None), cx);
+        self.refresh_field(Field::Password, window, cx);
+    }
+
     /// New generated password for an item; the old one goes to its history.
     pub fn generate_password(
         &mut self,

@@ -418,4 +418,6 @@ pub fn page_with(
         .child(places)
         .child(device)
         .child(backups_sec)
+        // Mockup 37l: the deletions, at the very bottom (not on the organization's page).
+        .when(with_head, |d| d.child(super::erase::section(s, t, cx)))
 }

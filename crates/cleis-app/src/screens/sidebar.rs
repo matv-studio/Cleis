@@ -14,11 +14,69 @@ use gpui_kit::{Context, Div, SharedString, div, px};
 
 /// The vault whose shortcuts the sidebar shows (`SidebarShortcuts` keys).
 pub fn shortcut_key(s: &Session) -> String {
+    let sc = &s.prefs.shortcuts;
     match &s.scope {
         Scope::All => "all".into(),
-        Scope::Personal => "personal".into(),
-        Scope::Org(k) => k.clone(),
+        Scope::Personal => sc.key_for("personal", s.prefs.vault_tabs),
+        Scope::Org(k) => sc.key_for(k, s.prefs.vault_tabs),
     }
+}
+
+/// The single Vault tab with shortcuts per vault (mockup 37j): each section carries its own.
+pub fn split_here(s: &Session) -> bool {
+    s.scope == Scope::All && !s.prefs.vault_tabs && s.prefs.shortcuts.split
+}
+
+/// Favorites and Renew soon of one vault, under its name (mockup 37j); hidden ones shown dimmed
+/// with their eye while customizing.
+fn vault_shortcuts(
+    s: &Session,
+    t: &Tokens,
+    key: &str,
+    h: u64,
+    cx: &mut Context<CleisApp>,
+) -> Vec<gpui_kit::AnyElement> {
+    let editing = s.customize;
+    let shown = s.prefs.shortcuts.of(key);
+    let mut out = vec![];
+    for (ix, (ico, label, filter)) in [
+        (1usize, ("star", "Favorites", Filter::FavoritesOf(h))),
+        (2, ("clock", "Renew soon", Filter::RenewSoonOf(h))),
+    ] {
+        if !shown[ix] && !editing {
+            continue;
+        }
+        let n = s
+            .entries
+            .iter()
+            .filter(|e| {
+                s.in_vault(h, e.space)
+                    && if ix == 1 {
+                        e.favorite
+                    } else {
+                        e.subscription == cleis_core::Subscription::RenewSoon
+                    }
+            })
+            .count();
+        let id = format!("fv-{key}-{ix}");
+        let k = key.to_owned();
+        let r = row(s, t, &id, ico, tr(label).into(), Some(n), filter, 16., cx)
+            .when(editing && !shown[ix], |r| r.opacity(0.45))
+            .when(editing, |r| {
+                r.child(
+                    icon_button(SharedString::from(format!("{id}-eye")), t, "eye", true)
+                        .tooltip(tip(if shown[ix] { tr("Hide") } else { tr("Show") }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            let k = k.clone();
+                            this.update_prefs(|p| p.shortcuts.toggle(&k, ix), cx);
+                        }))
+                        .test_support(),
+                )
+            });
+        out.push(r.test_support().into_any_element());
+    }
+    out
 }
 
 /// Spaces in the order dragged in the sidebar, then by name.
@@ -74,8 +132,9 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
             gpui_kit::MouseButton::Right,
             super::ctx::on_right(super::ctx::CtxTarget::SidebarVoid, cx),
         );
+    let split = split_here(s);
     for (ix, (id, ico, label, filter)) in SHORTCUTS.into_iter().enumerate() {
-        if !shown[ix] && !editing {
+        if split || (!shown[ix] && !editing) {
             continue;
         }
         let n = match filter {
@@ -131,6 +190,9 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
                     cx,
                 )),
         );
+        if split {
+            d = d.children(vault_shortcuts(s, t, "personal", 0, cx));
+        }
         let folders = ordered(
             s,
             s.spaces
@@ -138,7 +200,15 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
                 .filter(|sp| !sp.for_contacts && sp.kind == SpaceKind::Personal && sp.id != home),
         );
         for sp in folders {
-            d = d.child(folder_row(s, t, sp, true, cx));
+            d = match &s.folder {
+                Some(FolderDialog::Rename(id, input)) if *id == sp.id => {
+                    d.child(super::folders::edit_row(input, t, cx))
+                }
+                _ => d.child(folder_row(s, t, sp, true, cx)),
+            };
+        }
+        if let Some(FolderDialog::New(input)) = &s.folder {
+            d = d.child(super::folders::edit_row(input, t, cx));
         }
     }
 
@@ -175,6 +245,9 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
                 .then_some((add_id, tr("New space"))),
             cx,
         ));
+        if split {
+            d = d.children(vault_shortcuts(s, t, &okey, h, cx));
+        }
         let spaces = ordered(
             s,
             s.spaces.iter().filter(|sp| {
@@ -472,6 +545,16 @@ fn folder_row(
             gpui_kit::MouseButton::Right,
             super::ctx::on_right(super::ctx::CtxTarget::Space(id), cx),
         )
+        // Mockup 37b: a double-click on a personal folder renames it in place.
+        .when(personal && !editing, |d| {
+            d.on_click(
+                cx.listener(move |this, e: &gpui_kit::ClickEvent, window, cx| {
+                    if e.click_count() >= 2 {
+                        this.open_folder_rename(id, window, cx);
+                    }
+                }),
+            )
+        })
         .child(inner.test_support())
         .when(personal && !editing, |d| {
             d.child(

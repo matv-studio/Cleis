@@ -4459,6 +4459,40 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         }
         "new-role" => app.open_new_role(window, cx),
         "new-folder" => app.open_new_folder(window, cx),
+        // Mockups 37b, 37f, 37m, 37n, 37o (captures).
+        "rename-folder" => {
+            let id = app
+                .session()
+                .and_then(|s| s.spaces.iter().find(|x| x.name == "Banking").map(|x| x.id));
+            if let Some(id) = id {
+                app.open_folder_rename(id, window, cx);
+            }
+        }
+        "pin-setup" => app.open_pin_setup(crate::opening::DEFAULT_PIN_LEN, window, cx),
+        "erase-account" => app.open_erase(window, cx),
+        "github" => {
+            app.github = Some(crate::screens::github::GitHubSignIn {
+                code: Some(crate::github_login::DeviceCode {
+                    device_code: String::new(),
+                    user_code: "WDJB-MJHT".into(),
+                    verification_uri: "https://github.com/login/device".into(),
+                    expires_in: 900,
+                    interval: 5,
+                }),
+                ..Default::default()
+            });
+        }
+        "ctx-password" => {
+            if let Some(s) = app.session()
+                && let Some(id) = s.selected
+            {
+                s.ctx = Some(super::ctx::CtxMenu {
+                    at: gpui_kit::point(gpui_kit::px(1200.), gpui_kit::px(300.)),
+                    target: super::ctx::CtxTarget::PasswordField(id),
+                    sub: None,
+                });
+            }
+        }
         "delete-folder" | "folder-menu" => {
             if let Some(s) = app.session() {
                 let id = s.spaces.iter().find(|x| x.name == "Banking").map(|x| x.id);

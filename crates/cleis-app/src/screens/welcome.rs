@@ -296,6 +296,11 @@ fn opening_choice(
     for (mode, label, why) in [
         (Mode::Password, "Password", None),
         (
+            Mode::Pin,
+            "PIN",
+            Some("Digits only, on this computer; the recovery key after too many wrong tries"),
+        ),
+        (
             Mode::Hello,
             "Windows Hello",
             Some(if hello_ok {
@@ -328,10 +333,13 @@ fn opening_choice(
                 .child(tr(label))
                 .when_some(why, |d, w| d.tooltip(tip(tr(w))))
                 .when(allowed, |d| {
-                    d.on_click(cx.listener(move |this, _, _, cx| {
+                    d.on_click(cx.listener(move |this, _, window, cx| {
                         if let Phase::Welcome(w) = &mut this.phase {
                             w.opening = mode;
                             w.error = None;
+                            if mode == Mode::Pin {
+                                window.focus(&w.pin.focus, cx);
+                            }
                         }
                         cx.notify();
                     }))
@@ -349,7 +357,7 @@ fn opening_choice(
 
 pub fn render(
     app: &mut CleisApp,
-    _window: &mut Window,
+    window: &mut Window,
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement {
     let t = app.tokens(cx).clone();
@@ -477,6 +485,51 @@ pub fn render(
         .child(
             section(&t)
                 .child(opening_choice(w.opening, &t, cx))
+                // Mockup 37h: the PIN's boxes, then the same again.
+                .when(w.opening == crate::opening::Mode::Pin, |d| {
+                    let get: super::pin::Get = |app| match &mut app.phase {
+                        Phase::Welcome(w) => Some(&mut w.pin),
+                        _ => None,
+                    };
+                    let get2: super::pin::Get = |app| match &mut app.phase {
+                        Phase::Welcome(w) => Some(&mut w.pin_confirm),
+                        _ => None,
+                    };
+                    let next: super::pin::Done = |app, window, cx| {
+                        if let Phase::Welcome(w) = &app.phase {
+                            window.focus(&w.pin_confirm.focus, cx);
+                        }
+                    };
+                    let done: super::pin::Done = |app, window, cx| app.create_vault(window, cx);
+                    d.child(super::pin::boxes(
+                        "first-pin",
+                        &w.pin,
+                        &t,
+                        window,
+                        get,
+                        next,
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .id("first-pin-confirm-label")
+                            .flex()
+                            .justify_center()
+                            .text_size(TEXT_SM)
+                            .text_color(t.text_muted)
+                            .child(tr("Confirm"))
+                            .tooltip(tip(tr("Typed a second time to confirm"))),
+                    )
+                    .child(super::pin::boxes(
+                        "first-pin-confirm",
+                        &w.pin_confirm,
+                        &t,
+                        window,
+                        get2,
+                        done,
+                        cx,
+                    ))
+                })
                 .when(w.opening == crate::opening::Mode::Password, |d| {
                     d.child(field(
                         &t,

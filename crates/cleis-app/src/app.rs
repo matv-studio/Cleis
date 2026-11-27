@@ -41,6 +41,10 @@ pub enum Filter {
     Personal,
     /// An organization's section: all its spaces (`org_hash` of its key).
     Org(u64),
+    /// One vault's favorites or items to renew, under its name (mockup 37j): `0` is the
+    /// personal vault, otherwise `org_hash` of the organization's key.
+    FavoritesOf(u64),
+    RenewSoonOf(u64),
     Trash,
 }
 
@@ -77,6 +81,8 @@ pub enum ConfirmAction {
     DisconnectPlace,
     /// D-76: no more master password.
     RemovePassword,
+    /// Mockup 37l: every dated copy on this computer.
+    DeleteBackups,
 }
 
 pub struct Welcome {
@@ -92,6 +98,9 @@ pub struct Welcome {
     pub join: crate::screens::org::JoinForm,
     /// How this computer will open the vault (mockup 35i, D-76).
     pub opening: crate::opening::Mode,
+    /// Mockup 37h: the PIN, typed twice, when the vault opens with one.
+    pub pin: crate::screens::pin::PinBoxes,
+    pub pin_confirm: crate::screens::pin::PinBoxes,
 }
 
 pub struct Unlock {
@@ -105,6 +114,10 @@ pub struct Unlock {
     /// The recovery key is being typed.
     pub recovery: bool,
     pub recovery_key: Entity<InputState>,
+    /// The PIN's boxes (mockup 37g), when this computer opens with a PIN.
+    pub pin: Option<crate::screens::pin::PinBoxes>,
+    /// "Use the master password" chosen over the PIN.
+    pub pin_off: bool,
 }
 
 impl Unlock {
@@ -120,6 +133,9 @@ impl Unlock {
             recovery: false,
             recovery_key: cx
                 .new(|cx| InputState::new(window, cx).placeholder("XXXX-XXXX-XXXX-XXXX-…")),
+            pin: crate::opening::pin_info(path)
+                .map(|i| crate::screens::pin::PinBoxes::new(i.len, cx)),
+            pin_off: false,
         }
     }
 }
@@ -218,6 +234,10 @@ pub struct Session {
     /// Settings › Organization: joining one from an open vault.
     pub join: crate::screens::org::JoinForm,
     pub join_subs: Vec<Subscription>,
+    /// Sync & backups › Delete account (mockup 37m).
+    pub erase: Option<crate::screens::erase::EraseAccount>,
+    /// Security › Opening Cleis › PIN: the new PIN typed twice (mockup 37f).
+    pub pin_setup: Option<crate::screens::pin::PinSetup>,
 }
 
 /// Vaults shown by the Vault tab: everything (one tab), the personal vault, or one organization
@@ -274,6 +294,16 @@ impl Session {
         }
     }
 
+    /// Whether a space belongs to vault `h` (`0`: personal, else `org_hash` of the key).
+    pub fn in_vault(&self, h: u64, space: cleis_core::SpaceId) -> bool {
+        if h == 0 {
+            self.scope_has(&Scope::Personal, space)
+        } else {
+            self.org_of(space)
+                .is_some_and(|o| org_hash(&o.m.key()) == h)
+        }
+    }
+
     pub fn refilter(&mut self) {
         let q = self.query.trim().to_owned();
         let mut v: Vec<usize> = self
@@ -289,6 +319,11 @@ impl Session {
                 Filter::Org(h) => self
                     .org_of(e.space)
                     .is_some_and(|o| org_hash(&o.m.key()) == h),
+                Filter::FavoritesOf(h) => e.favorite && self.in_vault(h, e.space),
+                Filter::RenewSoonOf(h) => {
+                    e.subscription == cleis_core::Subscription::RenewSoon
+                        && self.in_vault(h, e.space)
+                }
                 Filter::Trash => false,
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
@@ -413,7 +448,7 @@ impl Session {
         use crate::opening::Mode;
         let (rule, _) = self.unlock_rule();
         let forbidden = match self.opening {
-            Mode::Hello => !rule.allows_hello(),
+            Mode::Hello | Mode::Pin => !rule.allows_hello(),
             Mode::Nothing => !rule.allows_nothing(),
             Mode::Password => false,
         };
@@ -474,6 +509,10 @@ pub enum Phase {
 pub struct CleisApp {
     pub path: PathBuf,
     pub phase: Phase,
+    /// Sign in with GitHub under way (mockup 37n), whatever the phase.
+    pub github: Option<crate::screens::github::GitHubSignIn>,
+    /// Where GitHub is: github.com, or the tests' stand-in.
+    pub github_hosts: crate::github_login::Hosts,
     /// Theme forced on the command line (screenshots); otherwise preferences decide.
     pub forced_mode: Option<Mode>,
     /// The colour wheel's field to rewrite at the next render (it needs the window).
@@ -579,6 +618,8 @@ impl CleisApp {
                 ..Default::default()
             },
             toast_seen: None,
+            github: None,
+            github_hosts: Default::default(),
             _ticker: ticker,
             _subs: vec![],
         };
@@ -656,6 +697,8 @@ impl CleisApp {
             org: false,
             join,
             opening: crate::opening::Mode::Password,
+            pin: crate::screens::pin::PinBoxes::new(crate::opening::DEFAULT_PIN_LEN, cx),
+            pin_confirm: crate::screens::pin::PinBoxes::new(crate::opening::DEFAULT_PIN_LEN, cx),
         }));
         cx.notify();
     }
@@ -691,7 +734,9 @@ impl CleisApp {
                 },
             ),
         ];
-        if u.has_password {
+        if let Some(p) = u.pin.as_ref() {
+            window.focus(&p.focus, cx);
+        } else if u.has_password {
             u.password.update(cx, |s, cx| s.focus(window, cx));
         }
         let old = std::mem::replace(&mut self.phase, Phase::Unlock(u));
@@ -726,6 +771,23 @@ impl CleisApp {
             cx.notify();
             return;
         }
+        // Mockup 37h: a PIN, the same twice.
+        let pin = if opening == crate::opening::Mode::Pin {
+            if !w.pin.full() || !w.pin_confirm.full() {
+                w.error = Some(crate::trf!("The PIN has {} digits", w.pin.len).into());
+                cx.notify();
+                return;
+            }
+            if *w.pin.value != *w.pin_confirm.value {
+                w.error = Some(tr("The two PINs differ").into());
+                w.pin_confirm.clear();
+                cx.notify();
+                return;
+            }
+            Some((w.pin.value.clone(), w.pin.len))
+        } else {
+            None
+        };
         // Joining: the code must be checked and, without a name in the invitation, one typed.
         let join = if w.org {
             let read = |e: &Option<Entity<InputState>>| {
@@ -782,6 +844,17 @@ impl CleisApp {
                             }
                             (crate::opening::Mode::Nothing, _) => {
                                 crate::opening::set_nothing(&path, &v)?
+                            }
+                            (crate::opening::Mode::Pin, _) => {
+                                if let Some((pin, len)) = &pin {
+                                    crate::opening::set_pin(
+                                        &path,
+                                        &v,
+                                        pin,
+                                        *len,
+                                        crate::opening::DEFAULT_PIN_TRIES,
+                                    )?
+                                }
                             }
                             _ => {}
                         }
@@ -974,6 +1047,55 @@ impl CleisApp {
         }
     }
 
+    /// Mockup 37g: the PIN typed opens the vault on this computer (Argon2id: off the interface
+    /// thread); a wrong one is counted, the last allowed one sends back to the master password.
+    pub fn unlock_pin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Phase::Unlock(u) = &mut self.phase else {
+            return;
+        };
+        let Some(p) = u.pin.as_ref() else { return };
+        if u.busy || !p.full() {
+            return;
+        }
+        let pin = p.value.clone();
+        u.busy = true;
+        u.error = None;
+        cx.notify();
+        let path = self.path.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = cx
+                .background_executor()
+                .spawn(async move { crate::opening::open_pin(&path, &pin) })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                use crate::opening::PinError;
+                let msg: SharedString = match res {
+                    Ok(v) => return this.enter(v, window, cx),
+                    Err(PinError::Wrong(n)) => crate::trf!("Wrong PIN · {} tries left", n).into(),
+                    Err(PinError::Locked) => {
+                        if let Phase::Unlock(u) = &mut this.phase {
+                            u.mode = crate::opening::Mode::Password;
+                            u.pin = None;
+                            if u.has_password {
+                                u.password.update(cx, |s, cx| s.focus(window, cx));
+                            }
+                        }
+                        tr("Too many wrong PINs: use the master password").into()
+                    }
+                    Err(PinError::Other(e)) => crate::i18n::tr_dynamic(&e).into(),
+                };
+                if let Phase::Unlock(u) = &mut this.phase
+                    && let Some(p) = u.pin.as_mut()
+                {
+                    p.clear();
+                }
+                this.unlock_failed(msg, window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// The recovery key typed (D-76) opens the vault, master password or not.
     pub fn unlock_recovery(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Phase::Unlock(u) = &mut self.phase else {
@@ -1116,6 +1238,8 @@ impl CleisApp {
             scope: Scope::All,
             join: Default::default(),
             join_subs: vec![],
+            erase: None,
+            pin_setup: None,
         };
         match s.prefs.start_in.as_str() {
             "favorites" => s.filter = Filter::Favorites,
@@ -1126,6 +1250,24 @@ impl CleisApp {
         window.focus(&s.main_focus.clone(), cx);
         self.phase = Phase::Main(Box::new(s));
         self.load_org(cx);
+        // Start in a vault tab (mockup 37k): known once the organizations are loaded.
+        let start = self.session().and_then(|s| {
+            let key = s.prefs.start_in.strip_prefix("vault:")?;
+            if !s.prefs.vault_tabs {
+                return None;
+            }
+            if key == "personal" {
+                Some(Scope::Personal)
+            } else {
+                s.org_tabs()
+                    .iter()
+                    .any(|(k, _)| k == key)
+                    .then(|| Scope::Org(key.to_owned()))
+            }
+        });
+        if let Some(scope) = start {
+            self.open_tab(Tab::Vault, Some(scope), cx);
+        }
         self.open_gate(window, cx);
         if !cfg!(test) && !self.no_shortcuts {
             self.sync_autofill(cx);
@@ -1365,8 +1507,23 @@ impl Render for CleisApp {
                 crate::screens::security::gate(g, &self.tokens(cx).clone(), cx).into_any_element()
             }
             Phase::Main(_) => {
-                return crate::screens::main::render(self, window, cx).into_any_element();
+                let t = self.tokens(cx).clone();
+                let gh = crate::screens::github::dialog(self, &t, cx);
+                let main = crate::screens::main::render(self, window, cx).into_any_element();
+                return match gh {
+                    None => main,
+                    Some(dlg) => gpui_kit::div()
+                        .size_full()
+                        .relative()
+                        .child(main)
+                        .child(dlg)
+                        .into_any_element(),
+                };
             }
+        };
+        let gh = {
+            let t = self.tokens(cx).clone();
+            crate::screens::github::dialog(self, &t, cx)
         };
         // First launch and unlock: an empty title bar in the frame colour, so the window still
         // moves and keeps its system buttons.
@@ -1378,7 +1535,18 @@ impl Render for CleisApp {
             .bg(t.chrome)
             .child(crate::ui::title_bar(&t, window, gpui_kit::div()))
             .child(gpui_kit::div().flex_1().min_h_0().child(screen))
+            .when_some(gh, |d, dlg| d.relative().child(dlg))
             .into_any_element()
+    }
+}
+
+/// The appearance kept in clear, removed with the account (mockup 37m).
+pub fn forget_appearance() {
+    if cfg!(test) {
+        return;
+    }
+    if let Some(p) = appearance_path() {
+        let _ = std::fs::remove_file(p);
     }
 }
 

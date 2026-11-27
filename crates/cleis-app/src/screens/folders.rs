@@ -94,18 +94,8 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             .unwrap_or_default()
     };
     let (title, body, ok, danger): (String, Div, &str, bool) = match d {
-        FolderDialog::New(input) => (
-            tr("New folder").into(),
-            field(t, tr("Name"), Input::new(input).id("folder-name")),
-            "Create",
-            false,
-        ),
-        FolderDialog::Rename(id, input) => (
-            crate::trf!("Rename “{}”", name_of(*id)),
-            field(t, tr("Name"), Input::new(input).id("folder-name")),
-            "Rename",
-            false,
-        ),
+        // Mockups 37a, 37b: a new folder and a renamed one are named in place, in the sidebar.
+        FolderDialog::New(_) | FolderDialog::Rename(..) => return None,
         FolderDialog::Delete(id) => {
             let n = s.entries.iter().filter(|e| e.space == *id).count();
             let home = name_of(s.vault.home_space());
@@ -193,9 +183,16 @@ impl CleisApp {
             i.set_value(value, window, cx);
             i.focus(window, cx);
         });
-        let sub = cx.subscribe_in(&input, window, |this: &mut CleisApp, _, ev, _, cx| {
-            if let InputEvent::PressEnter { .. } = ev {
+        // Enter or leaving the field keeps a name; leaving it empty cancels (mockup 37a).
+        let sub = cx.subscribe_in(&input, window, |this: &mut CleisApp, _, ev, window, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                 this.folder_confirm(cx);
+                if let Some(s) = this.session()
+                    && s.folder.is_none()
+                {
+                    let f = s.main_focus.clone();
+                    window.focus(&f, cx);
+                }
             }
         });
         self._subs.push(sub);
@@ -203,9 +200,36 @@ impl CleisApp {
     }
 
     pub fn open_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The row appears under My vault: in an organization's own tab, the personal one opens.
+        if self
+            .session()
+            .is_some_and(|s| matches!(s.scope, crate::app::Scope::Org(_)))
+        {
+            self.open_tab(
+                crate::app::Tab::Vault,
+                Some(crate::app::Scope::Personal),
+                cx,
+            );
+        }
         let input = self.folder_input("", window, cx);
         if let Some(s) = self.session() {
+            s.folder_menu = None;
             s.folder = Some(FolderDialog::New(input));
+        }
+        cx.notify();
+    }
+
+    /// Esc in a folder named in place: nothing made, nothing renamed.
+    pub fn cancel_folder_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(s) = self.session()
+            && matches!(
+                s.folder,
+                Some(FolderDialog::New(_) | FolderDialog::Rename(..))
+            )
+        {
+            s.folder = None;
+            let f = s.main_focus.clone();
+            window.focus(&f, cx);
         }
         cx.notify();
     }
@@ -216,6 +240,7 @@ impl CleisApp {
             .and_then(|s| s.spaces.iter().find(|x| x.id == id).map(|x| x.name.clone()))
             .unwrap_or_default();
         let input = self.folder_input(&name, window, cx);
+        input.update(cx, |i, cx| i.select_all(window, cx));
         if let Some(s) = self.session() {
             s.folder_menu = None;
             s.folder = Some(FolderDialog::Rename(id, input));
@@ -229,8 +254,9 @@ impl CleisApp {
         let r = match &d {
             FolderDialog::New(input) | FolderDialog::Rename(_, input) => {
                 let name = input.read(cx).value().trim().to_string();
+                // Empty: cancelled (a new folder is not made, a renamed one keeps its name).
                 if name.is_empty() {
-                    s.folder = Some(d);
+                    cx.notify();
                     return;
                 }
                 match &d {
@@ -240,7 +266,14 @@ impl CleisApp {
                         .map(|id| {
                             s.filter = Filter::Space(id);
                         }),
-                    FolderDialog::Rename(id, _) => s.vault.rename_space(*id, &name),
+                    FolderDialog::Rename(id, _) => {
+                        let same = s.spaces.iter().any(|x| x.id == *id && x.name == name);
+                        if same {
+                            cx.notify();
+                            return;
+                        }
+                        s.vault.rename_space(*id, &name)
+                    }
                     FolderDialog::Delete(_) => Ok(()),
                 }
             }
@@ -263,4 +296,55 @@ impl CleisApp {
         }
         cx.notify();
     }
+}
+
+/// The row of a folder named in place (mockups 37a, 37b): the row itself is the field; Esc
+/// cancels, Enter or a click elsewhere keeps the name.
+pub fn edit_row(
+    input: &gpui_kit::Entity<InputState>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    div()
+        .id("folder-edit")
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .h(CONTROL_MD)
+        .pr(px(4.))
+        .rounded(RADIUS_MD)
+        .bg(t.bg)
+        .border_2()
+        .border_color(t.focus)
+        .pl(px(22.))
+        .child(icon("folder", 16., t.text_muted))
+        .child(
+            div().flex_1().min_w_0().child(
+                Input::new(input)
+                    .id("folder-name")
+                    .appearance(false)
+                    .h(px(22.)),
+            ),
+        )
+        // A click anywhere else keeps the name, or cancels when there is none (37a): a click on
+        // something that takes no keyboard would not move the focus, so it is caught here.
+        .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+            this.folder_confirm(cx);
+            if let Some(s) = this.session()
+                && s.folder.is_none()
+            {
+                let f = s.main_focus.clone();
+                window.focus(&f, cx);
+            }
+        }))
+        .capture_key_down(
+            cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                if ev.keystroke.key == "escape" {
+                    cx.stop_propagation();
+                    this.cancel_folder_edit(window, cx);
+                }
+            }),
+        )
+        .tooltip(tip("Enter or click elsewhere: keep · Esc: cancel"))
+        .test_support()
 }

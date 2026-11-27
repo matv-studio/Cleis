@@ -1,5 +1,20 @@
 # Cleis — état
 
+## 27/11/2026 (version 0.2.3, branche `feat/full-app`)
+- Retours sur la 0.2.2 (D-81 à D-87) : accent bronze, « New password », cadenas ouvert, survol des onglets,
+  réglages sans phrases ; maquettes 37a à 37o et 38 validées et codées : dossier nommé sur place, traits
+  entre en-têtes, point de connexion, Start in par onglet, raccourcis par coffre en un seul onglet, menu du
+  champ mot de passe, suppression des sauvegardes et du compte, PIN du coffre (Argon2id + DPAPI),
+  connexion GitHub par code (application OAuth « Cleis »), Paramètres › Shortcuts.
+- Constat : le mot de passe maître et les éléments vus après l'installation de la 0.2.2 étaient le coffre
+  d'essai du PC (`%APPDATA%\matv-studio\Cleis\data`), l'installateur n'en porte aucun.
+- Essais : 194 réussis (dont 9 nouveaux de bout en bout), clippy, fmt.
+- À essayer sur Windows : PIN (DPAPI réel), Windows Hello, connexion GitHub réelle (code sur
+  github.com/login/device), clic droit sur le champ mot de passe.
+- Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
+  disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
+  privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.
+
 ## 26/11/2026 (suite : version 0.2.2 en cours, branche `feat/full-app`)
 - v0.2.1 : brouillon prêt (étiquette posée par Actions, D-77), à publier par l'utilisateur.
 - Fait : coin de l'onglet actif d'un seul tracé, survol des onglets, sens de l'animation des

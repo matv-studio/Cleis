@@ -262,6 +262,14 @@ impl CleisApp {
                 tr("This device stops syncing there. The copy already there is kept.").to_owned(),
                 "Disconnect",
             ),
+            A::DeleteBackups => (
+                tr("Delete all backups?").to_owned(),
+                crate::trf!(
+                    "The {} dated copies on this computer. The vault stays.",
+                    crate::sync::backups(&s.vault.path().unwrap_or_default()).len()
+                ),
+                "Delete",
+            ),
             A::RemovePassword => (
                 tr("Remove the master password?").to_owned(),
                 tr("This computer opens Cleis as chosen; any other computer needs the recovery key. Your other devices follow at their next sync.")
@@ -317,6 +325,7 @@ impl CleisApp {
             ConfirmAction::RotateKey => self.org_rotate(cx),
             ConfirmAction::DisconnectPlace => self.disconnect_sync(cx),
             ConfirmAction::RemovePassword => self.remove_password(cx),
+            ConfirmAction::DeleteBackups => self.delete_backups(cx),
             ConfirmAction::EmptyTrash => {
                 let ids: Vec<_> = s.trash.iter().map(|e| e.id).collect();
                 let mut failed = 0;

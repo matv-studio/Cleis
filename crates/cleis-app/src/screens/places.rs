@@ -24,6 +24,8 @@ pub struct PlaceDialog {
     pub host_key: Option<String>,
     pub error: Option<SharedString>,
     pub busy: bool,
+    /// GitHub's API, when the sign-in (37n) gave it rather than the repository box.
+    pub api: Option<String>,
 }
 
 fn tip(
@@ -78,6 +80,7 @@ impl CleisApp {
                 host_key: None,
                 error: None,
                 busy: false,
+                api: None,
             });
         }
         cx.notify();
@@ -164,6 +167,7 @@ impl CleisApp {
         Some(match d.kind {
             Provider::GitHub => {
                 let (api, repo) = crate::remote::github_repo(&v[0]);
+                let api = d.api.clone().unwrap_or(api);
                 (
                     RemotePlace::GitHub {
                         repo,

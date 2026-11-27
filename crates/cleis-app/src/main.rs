@@ -52,6 +52,15 @@ fn main() {
             eprintln!("cleis: demo vault: {e}");
             std::process::exit(1);
         }
+        // Screenshots of mockup 37g: the demo vault opens with the PIN 123456 here.
+        if args
+            .windows(2)
+            .any(|w| w[0] == "--unlock-with" && w[1] == "pin")
+            && let Ok(v) = cleis_store::LockedVault::open(&path)
+                .and_then(|l| l.unlock(cleis_app::demo::PASSWORD))
+        {
+            let _ = cleis_app::opening::set_pin(&path, &v, "123456", 6, 5);
+        }
     }
     if try_autofill {
         // Steps and field kinds of each fill, never values, next to the program.
@@ -167,6 +176,7 @@ fn main() {
                     {
                         u.mode = match m {
                             "nothing" => cleis_app::opening::Mode::Nothing,
+                            "pin" => cleis_app::opening::Mode::Pin,
                             _ => cleis_app::opening::Mode::Hello,
                         };
                     }
@@ -230,6 +240,7 @@ fn main() {
                                     "profile" => "Profile",
                                     "devices" => "Devices",
                                     "spaces" => "Spaces",
+                                    "shortcuts" => "Shortcuts",
                                     _ => "Preferences",
                                 };
                                 if p == "org-backups"

@@ -65,7 +65,7 @@ pub fn logo_version(dark: bool, size: f32) -> Div {
 
 /// The ways into the vault (D-76): Windows Hello or "Open" on this computer, the master password,
 /// or the recovery key.
-fn ways_in(u: &Unlock, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn ways_in(u: &Unlock, t: &Tokens, window: &Window, cx: &mut Context<CleisApp>) -> Div {
     use crate::opening::Mode;
     let busy = u.busy;
     let error = u
@@ -121,11 +121,74 @@ fn ways_in(u: &Unlock, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .child(link("use-password", "Back", cx)),
             );
     }
+    // Mockup 37g: the PIN's boxes, Open, and the master password as the other way.
+    if u.mode == Mode::Pin
+        && !u.pin_off
+        && let Some(p) = u.pin.as_ref()
+    {
+        let full = p.full();
+        let get: super::pin::Get = |app| match &mut app.phase {
+            Phase::Unlock(u) => u.pin.as_mut(),
+            _ => None,
+        };
+        let done: super::pin::Done = |app, window, cx| app.unlock_pin(window, cx);
+        d = d
+            .child(
+                div()
+                    .id("pin-unlock-label")
+                    .flex()
+                    .justify_center()
+                    .text_color(t.text_muted)
+                    .child(tr("PIN"))
+                    .tooltip(tip(super::pin::digits_tip(p.len))),
+            )
+            .child(super::pin::boxes("unlock-pin", p, t, window, get, done, cx))
+            .children(error)
+            .child(
+                button("unlock-pin-open", t, BtnKind::Primary, false)
+                    .h(px(32.))
+                    .w_full()
+                    .when(busy || !full, |b| b.opacity(0.6))
+                    .child(if busy { tr("Unlocking…") } else { tr("Open") })
+                    .on_click(cx.listener(|this, _, window, cx| this.unlock_pin(window, cx)))
+                    .test_support(),
+            );
+        let has_password = u.has_password;
+        return d.child(
+            div().flex().justify_center().child(
+                div()
+                    .id("pin-other")
+                    .text_size(TEXT_SM)
+                    .text_color(t.text_muted)
+                    .cursor_pointer()
+                    .hover(|d| d.text_color(t.text))
+                    .child(if has_password {
+                        tr("Use the master password")
+                    } else {
+                        tr("Use the recovery key")
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Phase::Unlock(u) = &mut this.phase {
+                            u.error = None;
+                            if has_password {
+                                u.pin_off = true;
+                                u.password.update(cx, |s, cx| s.focus(window, cx));
+                            } else {
+                                u.recovery = true;
+                                u.recovery_key.update(cx, |s, cx| s.focus(window, cx));
+                            }
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            ),
+        );
+    }
     // This computer's way first: one click.
     let quick = match u.mode {
         Mode::Hello => Some(("unlock-hello", "fingerprint", "Unlock with Windows Hello")),
         Mode::Nothing => Some(("unlock-device", "laptop", "Open")),
-        Mode::Password => None,
+        Mode::Password | Mode::Pin => None,
     };
     if let Some((id, ico, label)) = quick {
         let hello = u.mode == Mode::Hello;
@@ -186,7 +249,7 @@ fn ways_in(u: &Unlock, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
 
 pub fn render(
     app: &mut CleisApp,
-    _window: &mut Window,
+    window: &mut Window,
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement {
     let t = app.tokens(cx).clone();
@@ -198,7 +261,7 @@ pub fn render(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
-    let body = ways_in(u, &t, cx);
+    let body = ways_in(u, &t, window, cx);
     let card = div()
         .w(px(360.))
         .flex()

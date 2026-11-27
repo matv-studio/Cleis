@@ -5,7 +5,6 @@ use crate::autofill::AutofillState;
 use crate::i18n::tr;
 use crate::theme::*;
 use crate::ui::*;
-use cleis_autofill::hotkeys::{Shortcut, Status};
 use cleis_core::settings::TypingSpeed;
 use cleis_core::settings::{ACCENTS, AccentScope, FillMethod, Preferences, Theme};
 use gpui_kit::KeyDownEvent;
@@ -13,12 +12,14 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, div, px};
 
-const ACCOUNT: [(&str, &str); 5] = [
+const ACCOUNT: [(&str, &str); 6] = [
     ("cloud", "Account"),
     ("lock", "Security"),
     ("gear", "Preferences"),
     ("fill", "Autofill"),
     ("sync", "Sync & backups"),
+    // Mockup 38: every keyboard shortcut, the system-wide ones included.
+    ("keyboard", "Shortcuts"),
 ];
 
 /// Pages of the navigation: `(group, organization key, [(icon, name)])`. Without an
@@ -163,7 +164,8 @@ pub fn page(
         .as_ref()
         .is_some_and(|o| o.can(cleis_core::org::Perm::Backups));
     let body = match s.settings_page {
-        "Autofill" => autofill(s, af, t, cx),
+        "Autofill" => autofill(s, t, cx),
+        "Shortcuts" => super::keys::page(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
         "Security" => super::security::page(s, t, cx),
         "Sync & backups" if manage => {
@@ -315,16 +317,19 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
 
 /// Mockup 35j: All items, Favorites and Renew soon shown or hidden, per vault or everywhere.
 fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let per_vault = p.vault_tabs && !p.shortcuts.same;
+    let per_vault = p.shortcuts.per_vault(p.vault_tabs);
+    let orgs = s.org_tabs();
     let mut vaults: Vec<(String, &'static str, String)> = Vec::new();
     if per_vault {
         vaults.push(("personal".into(), "user", s.personal_name()));
-        for (k, name) in s.org_tabs() {
+        for (k, name) in orgs.iter().cloned() {
             vaults.push((k, "users", name));
         }
     } else {
         vaults.push(("all".into(), "list", tr("Every vault").to_owned()));
     }
+    // One Vault tab, a set per vault (37i): All items is the vault's own name there.
+    let first = usize::from(per_vault && !p.vault_tabs);
     let mut d = div().flex().flex_col().child(
         row(t, true)
             .child(
@@ -336,7 +341,8 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
                     )))
                     .child(tr("Shortcuts")),
             )
-            .when(p.vault_tabs, |r| {
+            // Mockup 37i: per vault also with one Vault tab, as soon as there is more than one.
+            .when(!orgs.is_empty(), |r| {
                 r.child(
                     div()
                         .text_size(TEXT_SM)
@@ -346,8 +352,11 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
                 .child(toggle(
                     "shortcuts-same",
                     t,
-                    p.shortcuts.same,
-                    |p| p.shortcuts.same = !p.shortcuts.same,
+                    !per_vault,
+                    |p| {
+                        let tabs = p.vault_tabs;
+                        p.shortcuts.toggle_same(tabs)
+                    },
                     cx,
                 ))
             }),
@@ -375,6 +384,7 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
         for (ix, label) in ["All items", "Favorites", "Renew soon"]
             .into_iter()
             .enumerate()
+            .skip(first)
         {
             let k = key.clone();
             r = r.child(
@@ -386,7 +396,10 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let k = k.clone();
-                    this.update_prefs(|p| p.shortcuts.toggle(&k, ix), cx)
+                    this.update_prefs(|p| p.shortcuts.toggle(&k, ix), cx);
+                    if let Some(s) = this.session() {
+                        s.refilter();
+                    }
                 }))
                 .test_support(),
             );
@@ -636,10 +649,7 @@ fn preferences(
                             "start",
                             t,
                             menu_open == Some("start"),
-                            START_IN
-                                .iter()
-                                .map(|(k, name)| (*k, *name, p.start_in == *k))
-                                .collect(),
+                            start_options(s, p),
                             |p, v| p.start_in = v.to_owned(),
                             cx,
                         )),
@@ -655,28 +665,69 @@ const CURRENCIES: [(&str, &str); 5] = [
     ("CAD", "Canadian dollar (CA$)"),
 ];
 
+/// Start in (mockup 37k): with vaults in their own tabs, each vault tab first, then the views.
+fn start_options(s: &Session, p: &Preferences) -> Vec<(String, String, bool)> {
+    let mut v = vec![];
+    if p.vault_tabs {
+        v.push(("vault:personal".to_owned(), s.personal_name()));
+        for (k, name) in s.org_tabs() {
+            v.push((format!("vault:{k}"), name));
+        }
+    }
+    let first = v.len();
+    let mut out: Vec<(String, String, bool)> = v
+        .into_iter()
+        .map(|(k, n)| {
+            let on = p.start_in == k;
+            (k, n, on)
+        })
+        .collect();
+    if first > 0 {
+        out.push(("-".into(), String::new(), false));
+    }
+    for (k, name) in START_IN {
+        out.push((k.into(), tr(name).into(), p.start_in == k));
+    }
+    // A vault tab no longer there (tabs off, organization left): shown as All items.
+    if !out.iter().any(|o| o.2)
+        && let Some(o) = out.iter_mut().find(|o| o.0 == "all")
+    {
+        o.2 = true;
+    }
+    out
+}
+
 const START_IN: [(&str, &str); 3] = [
     ("all", "All items"),
     ("favorites", "Favorites"),
     ("contacts", "Contacts"),
 ];
 
-/// A select box of the preferences: its menu lists `(value, label, current)`.
-fn pref_select(
+/// A select box of the preferences: its menu lists `(value, label, current)`; a value `"-"` is a
+/// separator line.
+fn pref_select<V: Into<SharedString>, L: Into<SharedString>>(
     id: &'static str,
     t: &Tokens,
     open: bool,
-    options: Vec<(&'static str, &'static str, bool)>,
+    options: Vec<(V, L, bool)>,
     set: fn(&mut Preferences, &str),
     cx: &mut Context<CleisApp>,
 ) -> impl IntoElement {
+    let options: Vec<(SharedString, SharedString, bool)> = options
+        .into_iter()
+        .map(|(v, l, on)| (v.into(), l.into(), on))
+        .collect();
     let label = options
         .iter()
         .find(|o| o.2)
-        .map(|o| o.1)
+        .map(|o| o.1.clone())
         .unwrap_or_default();
     let mut menu = menu_box(t).relative().w(px(220.));
     for (value, name, on) in options {
+        if value.as_ref() == "-" {
+            menu = menu.child(div().h(px(1.)).my(px(4.)).bg(t.line));
+            continue;
+        }
         menu = menu.child(
             menu_item(format!("{id}-{value}"), t, None, name, false)
                 .when(on, |d| d.text_color(t.accent_text))
@@ -684,7 +735,8 @@ fn pref_select(
                     if let Some(s) = this.session() {
                         s.pref_menu = None;
                     }
-                    this.update_prefs(|p| set(p, value), cx);
+                    let v = value.clone();
+                    this.update_prefs(|p| set(p, &v), cx);
                 }))
                 .test_support(),
         );
@@ -698,7 +750,7 @@ fn pref_select(
                     value_box(t)
                         .w(px(200.))
                         .cursor_pointer()
-                        .child(div().flex_1().child(crate::i18n::tr_owned(label)))
+                        .child(div().flex_1().child(crate::i18n::tr_owned(&label)))
                         .child(icon("chevron", 14., t.text_muted)),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -852,114 +904,6 @@ fn scope_buttons(p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div
         .child(d)
 }
 
-/// Status chip of a shortcut: registered, refused by the system, or being recorded.
-/// One shortcut line of Settings › Autofill.
-struct ShortcutRow<'a> {
-    id: &'static str,
-    label: &'a str,
-    tip: Option<&'static str>,
-    keys: &'a str,
-    on: bool,
-    status: Option<&'a Status>,
-    recording: bool,
-    first: bool,
-}
-
-fn shortcut_row(r: ShortcutRow, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let ShortcutRow {
-        id,
-        label,
-        tip,
-        keys: keys_str,
-        on,
-        status,
-        recording,
-        first,
-    } = r;
-    let caps: Vec<String> = keys_str.split('+').map(|k| display_key(k.trim())).collect();
-    let caps_ref: Vec<&str> = caps.iter().map(String::as_str).collect();
-    let mut name = div().flex_1().child(crate::i18n::tr_owned(label));
-    if let Some(tip) = tip {
-        name = name.child(
-            div()
-                .id(SharedString::from(format!("{id}-tip")))
-                .absolute()
-                .size_full()
-                .tooltip(move |window, cx| {
-                    gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
-                }),
-        );
-    }
-    let state = match status {
-        Some(Status::Unavailable(why)) if on => {
-            let why: SharedString = why.clone().into();
-            Some(
-                div()
-                    .id(SharedString::from(format!("{id}-status")))
-                    .tooltip(move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(why.clone()).build(window, cx)
-                    })
-                    .child(chip(t, Tone::Warn, tr("Unavailable"), true))
-                    .into_any_element(),
-            )
-        }
-        _ => None,
-    };
-    row(t, first)
-        .child(name.relative())
-        .when_some(state, |d, s| d.child(s))
-        .child(if recording {
-            div()
-                .text_size(TEXT_SM)
-                .text_color(t.accent_text)
-                .child(tr("Press the new shortcut…"))
-                .into_any_element()
-        } else {
-            keys(t, &caps_ref).into_any_element()
-        })
-        .child(
-            button(
-                SharedString::from(format!("{id}-change")),
-                t,
-                BtnKind::Ghost,
-                true,
-            )
-            .child(if recording {
-                tr("Cancel")
-            } else {
-                tr("Change")
-            })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                if let Some(s) = this.session() {
-                    s.recording = if s.recording == Some(id) {
-                        None
-                    } else {
-                        Some(id)
-                    };
-                    if s.recording.is_some() {
-                        let f = s.keys_focus.clone();
-                        window.focus(&f, cx);
-                    }
-                }
-                cx.notify();
-            }))
-            .test_support(),
-        )
-}
-
-/// `Ctrl` reads as ⌘ on macOS (settings model).
-fn display_key(k: &str) -> String {
-    if cfg!(target_os = "macos") {
-        match k.to_ascii_lowercase().as_str() {
-            "ctrl" => return "⌘".into(),
-            "alt" => return "⌥".into(),
-            "shift" => return "⇧".into(),
-            _ => {}
-        }
-    }
-    k.to_owned()
-}
-
 /// Turns a key press into the stored form (`Ctrl+Shift+K`); `None` without a modifier, since a
 /// system-wide shortcut on a bare key would swallow that key everywhere.
 pub fn shortcut_from(ev: &KeyDownEvent) -> Option<String> {
@@ -992,14 +936,9 @@ pub fn shortcut_from(ev: &KeyDownEvent) -> Option<String> {
     Some(s)
 }
 
-fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn autofill(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let p = &s.prefs;
     let a = &p.autofill;
-    let status = |which: Shortcut| {
-        af.status
-            .as_ref()
-            .and_then(|st| st.iter().find(|(w, _)| *w == which).map(|(_, s)| s))
-    };
     let method_btns = div().flex().gap(px(2.)).children(
         [
             (FillMethod::Automatic, "Automatic", "Writes into the field through the system accessibility interface; types the keys when the app does not allow it"),
@@ -1173,37 +1112,10 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
     }
     let empty_links = s.entries.iter().all(|e| e.linked_apps.is_empty());
 
-    let recording = s.recording;
     div()
-        .track_focus(&s.keys_focus)
         .flex()
         .flex_col()
         .gap(px(16.))
-        .when(recording.is_some(), |d| {
-            d.capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                let Some(s) = this.session() else { return };
-                let Some(which) = s.recording else { return };
-                if ev.keystroke.key == "escape" {
-                    s.recording = None;
-                    cx.stop_propagation();
-                    cx.notify();
-                    return;
-                }
-                let Some(keys) = shortcut_from(ev) else { return };
-                s.recording = None;
-                cx.stop_propagation();
-                this.update_prefs(
-                    move |p| {
-                        if which == "qa" {
-                            p.autofill.quick_access.keys = keys;
-                        } else {
-                            p.autofill.fill_best_match.keys = keys;
-                        }
-                    },
-                    cx,
-                );
-            }))
-        })
         .child(
             div()
                 .flex()
@@ -1211,7 +1123,8 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
                 .child(
                     div()
                         .flex_1()
-                        .text_size(TEXT_XL).line_height(px(26.))
+                        .text_size(TEXT_XL)
+                        .line_height(px(26.))
                         .font_weight(W_STRONG)
                         .child(tr("Autofill")),
                 )
@@ -1222,62 +1135,6 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
                     |p| p.autofill.enabled = !p.autofill.enabled,
                     cx,
                 )),
-        )
-        .child(
-            section(t)
-                .when(!a.enabled, |d| d.opacity(0.45))
-                .child(section_title(t, tr("Shortcuts")))
-                .child(
-                    shortcut_row(
-                        ShortcutRow {
-                            id: "qa",
-                            label: "Quick Access",
-                            tip: None,
-                            keys: &a.quick_access.keys,
-                            on: a.enabled && a.quick_access.enabled,
-                            status: status(Shortcut::QuickAccess),
-                            recording: recording == Some("qa"),
-                            first: true,
-                        },
-                        t,
-                        cx,
-                    )
-                    .child(toggle(
-                        "af-qa",
-                        t,
-                        a.quick_access.enabled,
-                        |p| p.autofill.quick_access.enabled = !p.autofill.quick_access.enabled,
-                        cx,
-                    )),
-                )
-                .child(
-                    shortcut_row(
-                        ShortcutRow {
-                            id: "best",
-                            label: "Fill best match",
-                            tip: Some(
-                                "Fills the item linked to the window in front, without opening Quick Access",
-                            ),
-                            keys: &a.fill_best_match.keys,
-                            on: a.enabled && a.fill_best_match.enabled,
-                            status: status(Shortcut::FillBestMatch),
-                            recording: recording == Some("best"),
-                            first: false,
-                        },
-                        t,
-                        cx,
-                    )
-                    .child(toggle(
-                        "af-best",
-                        t,
-                        a.fill_best_match.enabled,
-                        |p| {
-                            p.autofill.fill_best_match.enabled =
-                                !p.autofill.fill_best_match.enabled
-                        },
-                        cx,
-                    )),
-                ),
         )
         .child(
             section(t)
@@ -1361,25 +1218,26 @@ fn autofill(s: &Session, af: &AutofillState, t: &Tokens, cx: &mut Context<CleisA
                 .when(!empty_links, |d| d.child(table)),
         )
         // Paused (D-38): shown greyed, as in the mockup (screen 19).
-
         .when(cfg!(target_os = "macos"), |d| {
             let allowed = cleis_autofill::accessibility_allowed();
             d.child(
-                section(t).child(section_title(t, tr("System permissions"))).child(
-                    row(t, true)
-                        .child(div().flex_1().child(tr("Accessibility")))
-                        .child(if allowed {
-                            chip(t, Tone::Ok, tr("Allowed"), true).into_any_element()
-                        } else {
-                            button("ax-allow", t, BtnKind::Default, true)
-                                .child(tr("Allow"))
-                                .on_click(cx.listener(|_, _, _, cx| {
-                                    cleis_autofill::request_accessibility();
-                                    cx.notify();
-                                }))
-                                .into_any_element()
-                        }),
-                ),
+                section(t)
+                    .child(section_title(t, tr("System permissions")))
+                    .child(
+                        row(t, true)
+                            .child(div().flex_1().child(tr("Accessibility")))
+                            .child(if allowed {
+                                chip(t, Tone::Ok, tr("Allowed"), true).into_any_element()
+                            } else {
+                                button("ax-allow", t, BtnKind::Default, true)
+                                    .child(tr("Allow"))
+                                    .on_click(cx.listener(|_, _, _, cx| {
+                                        cleis_autofill::request_accessibility();
+                                        cx.notify();
+                                    }))
+                                    .into_any_element()
+                            }),
+                    ),
             )
         })
 }

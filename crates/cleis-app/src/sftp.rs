@@ -176,6 +176,23 @@ pub fn upload(place: &RemotePlace, secret: &Secret, bytes: &[u8]) -> Result<(), 
     })
 }
 
+/// Removes the place's file (mockup 37m: the account deleted with its copy). Missing: done.
+pub fn remove(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
+    let path = path_of(place);
+    runtime()?.block_on(async {
+        let (sftp, _) = open(place, secret).await?;
+        let r = if sftp.try_exists(path.clone()).await.unwrap_or(false) {
+            sftp.remove_file(path.clone())
+                .await
+                .map_err(|e| RemoteError::Other(format!("{path}: {e}")))
+        } else {
+            Ok(())
+        };
+        let _ = sftp.close().await;
+        r
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

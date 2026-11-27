@@ -66,22 +66,100 @@ pub const DEFAULT_SHORTCUTS: [bool; 3] = [true, true, false];
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SidebarShortcuts {
+    /// Vaults in their own tabs: one set for every tab.
     pub same: bool,
+    /// The single Vault tab (mockups 37i, 37j, 27/11/2026): each vault has its own shortcuts,
+    /// under its name. Off by default: one set at the top, as before.
+    pub split: bool,
     pub sets: std::collections::BTreeMap<String, [bool; 3]>,
 }
 
 impl SidebarShortcuts {
-    /// The shortcuts shown for `vault` (`DEFAULT_SHORTCUTS` until changed).
-    pub fn of(&self, vault: &str) -> [bool; 3] {
-        let key = if self.same { "all" } else { vault };
+    /// Whether each vault has its own set, with vaults in their own tabs or not.
+    pub fn per_vault(&self, vault_tabs: bool) -> bool {
+        if vault_tabs { !self.same } else { self.split }
+    }
+
+    /// The key of the set `vault` uses.
+    pub fn key_for(&self, vault: &str, vault_tabs: bool) -> String {
+        if self.per_vault(vault_tabs) {
+            vault.to_owned()
+        } else {
+            "all".to_owned()
+        }
+    }
+
+    /// The shortcuts of the set `key` (`DEFAULT_SHORTCUTS` until changed).
+    pub fn of(&self, key: &str) -> [bool; 3] {
         self.sets.get(key).copied().unwrap_or(DEFAULT_SHORTCUTS)
     }
 
-    pub fn toggle(&mut self, vault: &str, which: usize) {
-        let key = if self.same { "all" } else { vault }.to_owned();
-        let mut v = self.of(&key);
+    pub fn toggle(&mut self, key: &str, which: usize) {
+        let mut v = self.of(key);
         v[which] = !v[which];
-        self.sets.insert(key, v);
+        self.sets.insert(key.to_owned(), v);
+    }
+
+    /// "Same for every vault" switched, in the mode shown.
+    pub fn toggle_same(&mut self, vault_tabs: bool) {
+        if vault_tabs {
+            self.same = !self.same;
+        } else {
+            self.split = !self.split;
+        }
+    }
+}
+
+/// Shortcuts inside Cleis (mockup 38, 27/11/2026): `(id, label, default)`. Changed ones are
+/// kept in `Preferences::app_keys`; written like the global ones (`Ctrl+Shift+C`, `Ctrl` is ⌘ on
+/// macOS), a bare key allowed only for `Del`, `Backspace` and F1-F24.
+pub const APP_KEYS: [(&str, &str, &str); 8] = [
+    ("lock", "Lock", "Ctrl+L"),
+    ("new", "New password", "Ctrl+N"),
+    ("search", "Search", "Ctrl+F"),
+    ("copy_user", "Copy username", "Ctrl+C"),
+    ("copy_pass", "Copy password", "Ctrl+Shift+C"),
+    ("copy_totp", "Copy 2FA code", "Ctrl+Alt+C"),
+    ("duplicate", "Duplicate", "Ctrl+D"),
+    ("trash", "Move to trash", "Del"),
+];
+
+/// A shortcut written `Ctrl+Alt+Shift+K`, read for comparing: modifiers and the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct KeyCombo<'a> {
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    /// Lower case: `k`, `del`, `f5`, `space`.
+    pub key: &'a str,
+}
+
+/// Reads `Ctrl+Shift+C`; `None` for an empty text.
+pub fn parse_keys(s: &str) -> Option<KeyCombo<'_>> {
+    let mut c = KeyCombo::default();
+    let mut key = None;
+    for part in s.split('+').map(str::trim).filter(|p| !p.is_empty()) {
+        match part.to_ascii_lowercase().as_str() {
+            "ctrl" | "cmd" | "⌘" => c.ctrl = true,
+            "alt" | "option" | "⌥" => c.alt = true,
+            "shift" | "⇧" => c.shift = true,
+            _ => key = Some(part),
+        }
+    }
+    c.key = key?;
+    Some(c)
+}
+
+/// Two shortcuts are the same keys, written any way.
+pub fn same_keys(a: &str, b: &str) -> bool {
+    match (parse_keys(a), parse_keys(b)) {
+        (Some(x), Some(y)) => {
+            x.ctrl == y.ctrl
+                && x.alt == y.alt
+                && x.shift == y.shift
+                && x.key.eq_ignore_ascii_case(y.key)
+        }
+        _ => false,
     }
 }
 
@@ -196,6 +274,8 @@ pub struct Preferences {
     pub dark_logo: bool,
     /// Sidebar shortcuts per vault (26/11/2026).
     pub shortcuts: SidebarShortcuts,
+    /// Shortcuts inside Cleis changed from `APP_KEYS` (mockup 38); `""`: none.
+    pub app_keys: std::collections::BTreeMap<String, String>,
     /// Order of the folders and spaces in the sidebar (dragged); the others follow by name.
     pub space_order: Vec<crate::SpaceId>,
     pub sort_by: SortBy,
@@ -225,6 +305,7 @@ impl Default for Preferences {
             update_prereleases: true,
             dark_logo: false,
             shortcuts: SidebarShortcuts::default(),
+            app_keys: Default::default(),
             space_order: Vec::new(),
             sort_by: SortBy::Name,
             item_order: Vec::new(),
@@ -283,6 +364,44 @@ impl Default for Policy {
 }
 
 impl Preferences {
+    /// The keys of the shortcut `id` of `APP_KEYS` (its default until changed).
+    pub fn app_key(&self, id: &str) -> String {
+        self.app_keys.get(id).cloned().unwrap_or_else(|| {
+            APP_KEYS
+                .iter()
+                .find(|(k, _, _)| *k == id)
+                .map(|(_, _, d)| (*d).to_owned())
+                .unwrap_or_default()
+        })
+    }
+
+    /// Every shortcut's id and keys, in Cleis and system-wide (autofill), for finding clashes.
+    pub fn all_keys(&self) -> Vec<(String, String)> {
+        let mut v: Vec<(String, String)> = APP_KEYS
+            .iter()
+            .map(|(id, _, _)| ((*id).to_owned(), self.app_key(id)))
+            .collect();
+        if self.autofill.quick_access.enabled {
+            v.push(("qa".into(), self.autofill.quick_access.keys.clone()));
+        }
+        if self.autofill.fill_best_match.enabled {
+            v.push(("best".into(), self.autofill.fill_best_match.keys.clone()));
+        }
+        v
+    }
+
+    /// The other shortcut using the same keys as `id`, if any.
+    pub fn clash(&self, id: &str) -> Option<String> {
+        let all = self.all_keys();
+        let mine = all.iter().find(|(k, _)| k == id)?.1.clone();
+        if mine.is_empty() {
+            return None;
+        }
+        all.into_iter()
+            .find(|(k, keys)| k != id && same_keys(keys, &mine))
+            .map(|(k, _)| k)
+    }
+
     /// Brings preferences saved by an older Cleis up to date (D-81: the old default accent).
     pub fn upgraded(mut self) -> Self {
         if self.accent.as_deref() == Some(OLD_DEFAULT_ACCENT) {
@@ -338,6 +457,16 @@ mod tests {
         let blue: Preferences = serde_json::from_str(r##"{"accent":"#3b82f6"}"##).unwrap();
         assert_eq!(blue.upgraded().accent.as_deref(), Some("#3b82f6"));
         assert_eq!(DEFAULT_SHORTCUTS, [true, true, false]);
+        // Mockup 38: defaults, a change, a clash found both ways, written any way.
+        let mut k = Preferences::default();
+        assert_eq!(k.app_key("copy_pass"), "Ctrl+Shift+C");
+        assert!(k.clash("lock").is_none());
+        k.app_keys.insert("copy_pass".into(), "ctrl+l".into());
+        assert_eq!(k.clash("lock").as_deref(), Some("copy_pass"));
+        assert_eq!(k.clash("copy_pass").as_deref(), Some("lock"));
+        assert!(same_keys("Ctrl+Shift+C", "shift+ctrl+c"));
+        assert!(!same_keys("Ctrl+C", "Ctrl+Shift+C"));
+        assert_eq!(parse_keys("Del").unwrap().key, "Del");
         assert_eq!(
             SidebarShortcuts::default().of("personal"),
             [true, true, false]

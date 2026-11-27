@@ -84,39 +84,30 @@ pub fn render(
                     cx.stop_propagation();
                     return;
                 }
-                let cmd = if cfg!(target_os = "macos") {
-                    k.modifiers.platform
-                } else {
-                    k.modifiers.control
-                };
-                if !cmd || k.modifiers.alt || k.modifiers.shift {
+                // Mockup 38: the keys chosen in Settings › Shortcuts.
+                let Some(p) = this.session().map(|s| s.prefs.clone()) else {
                     return;
-                }
-                match k.key.as_str() {
-                    // Tooltip of the lock button (mockup 01): "Lock (Ctrl+L)".
-                    "l" => {
-                        cx.stop_propagation();
-                        this.lock(window, cx);
+                };
+                use super::keys::pressed;
+                if pressed(k, &p.app_key("lock")) {
+                    cx.stop_propagation();
+                    this.lock(window, cx);
+                } else if pressed(k, &p.app_key("new")) {
+                    // Audit U-3: a new item or contact (as the top bar's button).
+                    cx.stop_propagation();
+                    match this.session().map(|s| s.tab) {
+                        Some(crate::app::Tab::Vault) => this.new_entry(window, cx),
+                        Some(crate::app::Tab::Contacts) => this.new_contact(window, cx),
+                        _ => {}
                     }
-                    // Audit U-3: Ctrl+N, a new item or contact (as the top bar's button).
-                    "n" => {
-                        cx.stop_propagation();
-                        match this.session().map(|s| s.tab) {
-                            Some(crate::app::Tab::Vault) => this.new_entry(window, cx),
-                            Some(crate::app::Tab::Contacts) => this.new_contact(window, cx),
-                            _ => {}
-                        }
+                } else if pressed(k, &p.app_key("search")) {
+                    cx.stop_propagation();
+                    if let Some(s) = this.session() {
+                        let search = s.search.clone();
+                        s.tab = crate::app::Tab::Vault;
+                        search.update(cx, |st, cx| st.focus(window, cx));
                     }
-                    "f" => {
-                        cx.stop_propagation();
-                        if let Some(s) = this.session() {
-                            let search = s.search.clone();
-                            s.tab = crate::app::Tab::Vault;
-                            search.update(cx, |st, cx| st.focus(window, cx));
-                        }
-                        cx.notify();
-                    }
-                    _ => {}
+                    cx.notify();
                 }
             }),
         )
@@ -173,6 +164,10 @@ pub fn render(
         })
         .when_some(super::org::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(super::folders::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(super::erase::dialog(s, &t, cx), |d, dlg| d.child(dlg))
+        .when_some(super::pin::setup_dialog(s, &t, window, cx), |d, dlg| {
+            d.child(dlg)
+        })
         .when_some(super::places::dialog(s, &t, cx), |d, dlg| d.child(dlg))
         .when_some(update_dialog, |d, dlg| d.child(dlg))
         .when_some(super::ctx::outside(s, cx), |d, m| d.child(m))
@@ -368,9 +363,13 @@ fn topbar(
                         false,
                     )
                     .no_drag()
-                    .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(tr("Lock (Ctrl+L)"))
-                            .build(window, cx)
+                    .tooltip({
+                        let k = super::ctx::keys(&s.prefs.app_key("lock"));
+                        let text: SharedString = crate::trf!("Lock ({})", k).into();
+                        move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(text.clone())
+                                .build(window, cx)
+                        }
                     })
                     .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx)))
                     .test_support(),
@@ -398,19 +397,25 @@ fn topbar(
 /// Top bar: where the vault lives and whether it is in step (mockup: "Synced").
 fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
     let (dot, label, tip_text): (gpui_kit::Hsla, String, String) = match &s.org {
+        // Mockup 37d: the dot alone; its tooltip names the connection ("Local", not "On this
+        // computer"), or the place the personal vault syncs with.
         None => (
             t.success_text,
-            tr("On this computer").into(),
-            tr("Personal vault, on this computer").into(),
+            String::new(),
+            match (&s.sync.place, &s.sync.remote) {
+                (Some(_), Some(r)) => format!("{} · {}", s.sync.provider.name(), r.label()),
+                (Some(p), None) => format!("{} · {}", s.sync.provider.name(), p.display()),
+                _ => tr("Local").into(),
+            },
         ),
         Some(o) if o.busy && o.local.last_ok.is_none() => (
             t.text_faint,
-            tr("Syncing…").into(),
+            String::new(),
             crate::trf!("Reaching {}", o.m.address),
         ),
         Some(o) if o.error.is_some() || o.offline_locked => (
             t.warning_text,
-            tr("Offline").into(),
+            String::new(),
             crate::trf!(
                 "{} not reached{}",
                 o.m.address,
@@ -422,7 +427,7 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
         ),
         Some(o) => (
             t.success_text,
-            tr("Synced").into(),
+            String::new(),
             o.local.last_ok.map_or(String::new(), |ts| {
                 crate::trf!(
                     "Synced with {} · {}",
@@ -445,8 +450,16 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
         .tooltip(move |window, cx| {
             gpui_kit::component::tooltip::Tooltip::new(tip_text.clone()).build(window, cx)
         })
-        .child(div().size(px(6.)).rounded_full().bg(dot))
-        .child(crate::i18n::tr_owned(&label))
+        // A target large enough to point at, the dot in its middle.
+        .child(
+            div()
+                .size(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(div().size(px(6.)).rounded_full().bg(dot)),
+        )
+        .when(!label.is_empty(), |d| d.child(label))
         .when(s.org.is_some(), |d| {
             d.on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
         })
@@ -994,7 +1007,8 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
         cleis_core::settings::SortBy::Renewal => Some(("renewal", "↑")),
         _ => None,
     };
-    for c in &cols {
+    let ncols = cols.len();
+    for (ci, c) in cols.iter().enumerate() {
         let arrow = sorted.filter(|(id, _)| c.id.0 == *id).map(|(_, a)| a);
         head = head.child(
             cell_box(c, vault_width(s, c))
@@ -1005,7 +1019,7 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                         .child(format!("{} {a}", crate::i18n::tr_owned(&c.name)))
                 })
                 .when(arrow.is_none(), |d| d.child(crate::i18n::tr_owned(&c.name)))
-                .child(super::dnd::col_grip(&c.id, t, cx)),
+                .child(super::dnd::col_grip(&c.id, ci + 1 < ncols, t, cx)),
         );
     }
     let count = s.visible.len();

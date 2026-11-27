@@ -195,6 +195,8 @@ fn autofill_settings_and_quick_access(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("set-Autofill", cx));
     act(cx, h, |w, cx| w.click("method-Typing", cx));
     act(cx, h, |w, cx| w.click("speed-Slow", cx));
+    // Mockup 38: the system-wide shortcuts are in Settings › Shortcuts.
+    act(cx, h, |w, cx| w.click("set-Shortcuts", cx));
     act(cx, h, |w, cx| w.click("qa-change", cx));
     act(cx, h, |w, cx| w.press("ctrl-shift-k", cx));
     app.read_with(cx, |a, _| match &a.phase {
@@ -207,6 +209,7 @@ fn autofill_settings_and_quick_access(cx: &mut TestAppContext) {
         }
         _ => panic!("locked"),
     });
+    act(cx, h, |w, cx| w.click("set-Autofill", cx));
 
     let fg = Foreground {
         window: WindowRef(42),
@@ -1060,6 +1063,13 @@ Yann,Sample,yann@example-legal.com,,Example Legal\n",
     });
 }
 
+/// Whether an element with this id is drawn.
+fn window_has(cx: &mut TestAppContext, h: WindowHandle<Root>, id: &str) -> bool {
+    let id = gpui_kit::SharedString::from(id.to_owned());
+    cx.update_window(h.into(), move |_, w, _| w.try_find(id).is_some())
+        .unwrap()
+}
+
 /// Personal folders (D-62): a folder is made from the sidebar, an item moved into it from the
 /// inspector menu, the folder renamed, then deleted: its item goes back to My vault.
 #[gpui_kit::test]
@@ -1074,12 +1084,34 @@ fn personal_folders(cx: &mut TestAppContext) {
         w.input(cleis_app::demo::PASSWORD, cx);
         w.press("enter", cx);
     });
+    let folders = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => s.spaces.len(),
+            _ => panic!(),
+        })
+    };
+    let before = folders(cx);
+    // Mockup 37a: "+" makes a row named in place. Esc: nothing made.
+    act(cx, h, |w, cx| w.click("new-folder-v", cx));
+    assert!(window_has(cx, h, "folder-edit"));
+    act(cx, h, |w, cx| {
+        w.input("Draft", cx);
+        w.press("escape", cx);
+    });
+    assert!(!window_has(cx, h, "folder-edit"));
+    assert_eq!(folders(cx), before);
+    // Left empty, a click elsewhere: nothing made either.
+    act(cx, h, |w, cx| w.click("new-folder-v", cx));
+    act(cx, h, |w, cx| w.click("f-all", cx));
+    assert!(!window_has(cx, h, "folder-edit"));
+    assert_eq!(folders(cx), before);
+    // A name, then Enter: kept.
     act(cx, h, |w, cx| w.click("new-folder-v", cx));
     act(cx, h, |w, cx| {
-        w.click("folder-name", cx);
         w.input("Savings", cx);
-        w.click("folder-ok", cx);
+        w.press("enter", cx);
     });
+    assert_eq!(folders(cx), before + 1);
     let (bank, home, dropbox) = app.read_with(cx, |a, _| match &a.phase {
         Phase::Main(s) => {
             let b = s
@@ -1118,19 +1150,35 @@ fn personal_folders(cx: &mut TestAppContext) {
         }
         _ => panic!(),
     });
-    // Rename, then delete: the item goes back to My vault.
+    // Rename from its menu (the name is selected: typing replaces it), then by a double-click
+    // (mockup 37b) kept by a click elsewhere; Esc keeps the old name.
     act(cx, h, |w, cx| w.hover(format!("sp-{bank}"), cx));
     act(cx, h, |w, cx| w.click(format!("fmore-{bank}"), cx));
     act(cx, h, |w, cx| w.click(format!("frename-{bank}"), cx));
     act(cx, h, |w, cx| {
-        w.press("ctrl-a", cx);
         w.input("Home", cx);
         w.press("enter", cx);
     });
-    app.read_with(cx, |a, _| match &a.phase {
-        Phase::Main(s) => assert!(s.spaces.iter().any(|x| x.id == bank && x.name == "Home")),
-        _ => panic!(),
+    let name_of = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => s.spaces.iter().find(|x| x.id == bank).unwrap().name.clone(),
+            _ => panic!(),
+        })
+    };
+    assert_eq!(name_of(cx), "Home");
+    act(cx, h, |w, cx| w.double_click(format!("pfw-{bank}"), cx));
+    assert!(window_has(cx, h, "folder-edit"));
+    act(cx, h, |w, cx| {
+        w.input("Old", cx);
+        w.press("escape", cx);
     });
+    assert_eq!(name_of(cx), "Home");
+    act(cx, h, |w, cx| w.double_click(format!("pfw-{bank}"), cx));
+    act(cx, h, |w, cx| {
+        w.input("House", cx);
+        w.click("f-all", cx);
+    });
+    assert_eq!(name_of(cx), "House");
     act(cx, h, |w, cx| w.hover(format!("sp-{bank}"), cx));
     act(cx, h, |w, cx| w.click(format!("fmore-{bank}"), cx));
     act(cx, h, |w, cx| w.click(format!("fdelete-{bank}"), cx));
@@ -1205,7 +1253,23 @@ fn fake_github() -> (String, RepoFile) {
                 }
                 let path_ok =
                     line.contains("/api/v3/repos/lea-example/cleis-vault/contents/vault.cleis");
-                let (status, out): (u16, Vec<u8>) = if auth != "Bearer github_pat_example" {
+                // Sign in with GitHub (37n): the device flow, the account, its repository.
+                let device = if line.contains("/login/device/code") {
+                    Some(
+                        r#"{"device_code":"dc","user_code":"WDJB-MJHT","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"#,
+                    )
+                } else if line.contains("/login/oauth/access_token") {
+                    Some(r#"{"access_token":"github_pat_example","token_type":"bearer"}"#)
+                } else if line.contains("/api/v3/user ") {
+                    Some(r#"{"login":"lea-example"}"#)
+                } else if line.contains("/api/v3/repos/lea-example/cleis-vault ") {
+                    Some(r#"{"default_branch":"main","private":true}"#)
+                } else {
+                    None
+                };
+                let (status, out): (u16, Vec<u8>) = if let Some(d) = device {
+                    (200, d.as_bytes().to_vec())
+                } else if auth != "Bearer github_pat_example" {
                     (401, br#"{"message":"Bad credentials"}"#.to_vec())
                 } else if !path_ok {
                     (404, br#"{"message":"Not Found"}"#.to_vec())
@@ -2336,6 +2400,312 @@ fn contact_photo(cx: &mut TestAppContext) {
 /// restore with the GitHub place.
 #[gpui_kit::test]
 fn account_sign_in(cx: &mut TestAppContext) {
+    let (addr, file) = fake_github();
+    let hosts = cleis_app::github_login::Hosts {
+        web: addr.clone(),
+        api: format!("{addr}/api/v3"),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    app.update(cx, |a, _| a.github_hosts = hosts.clone());
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    // Microsoft waits for its registration: nothing opens.
+    act(cx, h, |w, cx| w.click("acc-microsoft", cx));
+    app.read_with(cx, |a, _| assert!(a.github.is_none()));
+    // GitHub (37n): the code to type on github.com.
+    act(cx, h, |w, cx| w.click("acc-signin", cx));
+    app.read_with(cx, |a, _| assert!(a.github.is_some()));
+    act(cx, h, |w, cx| w.click("gh-cancel", cx));
+    app.read_with(cx, |a, _| assert!(a.github.is_none()));
+
+    // A new computer (36d): Sign in › GitHub, then the vault already on the account comes.
+    let (h2, app2) = open(cx, &dir.path().join("new/vault.cleis"));
+    app2.update(cx, |a, _| a.github_hosts = hosts.clone());
+    cx.run_until_parked();
+    *file.lock().unwrap() = Some(("sha0".into(), std::fs::read(&path).unwrap()));
+    act(cx, h2, |w, cx| w.click("signin-github", cx));
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        if app2.read_with(cx, |a, _| a.github.is_none()) {
+            break;
+        }
+    }
+    for _ in 0..20 {
+        cx.run_until_parked();
+        let found = app2.read_with(cx, |a, _| match &a.phase {
+            Phase::Welcome(w) => w.restore.as_ref().is_some_and(|r| !r.found.is_empty()),
+            _ => false,
+        });
+        if found {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    app2.read_with(cx, |a, _| {
+        let Phase::Welcome(w) = &a.phase else {
+            panic!()
+        };
+        let r = w.restore.as_ref().expect("restore");
+        assert_eq!(r.provider, Some(cleis_app::sync::Provider::GitHub));
+        assert_eq!(r.found.len(), 1, "the vault of the account, ready to open");
+    });
+}
+
+/// Scrolls the settings page to its bottom (the sections below the window), over `over`.
+fn settings_bottom(cx: &mut TestAppContext, h: WindowHandle<Root>, over: &'static str) {
+    act(cx, h, |w, cx| {
+        w.scroll(
+            over,
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-4000.))),
+            cx,
+        )
+    });
+}
+
+/// Feedback on 0.2.2 (27/11/2026): shortcuts per vault in the single Vault tab (37i, 37j), Start
+/// in a vault tab (37k), the password box's menu (37o).
+#[gpui_kit::test]
+fn split_shortcuts_start_in_and_password_menu(cx: &mut TestAppContext) {
+    use cleis_app::app::{Filter, Scope};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+    });
+    cx.run_until_parked();
+    let studio = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.org_tabs()[0].0.clone()
+    });
+    // One Vault tab: one set at the top until "Same for every vault" is switched off.
+    assert!(window_has(cx, h, "f-all"));
+    assert!(!window_has(cx, h, "fv-personal-1"));
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("shortcuts-same", cx));
+    // Per vault: All items is the vault's own name, so only two tags each.
+    assert!(window_has(cx, h, "sc-personal-1"));
+    assert!(!window_has(cx, h, "sc-personal-0"));
+    act(cx, h, |w, cx| w.click(format!("sc-{studio}-2"), cx));
+    act(cx, h, |w, cx| w.click("tab-Vault", cx));
+    assert!(!window_has(cx, h, "f-all"));
+    assert!(window_has(cx, h, "fv-personal-1"));
+    assert!(!window_has(cx, h, "fv-personal-2"));
+    assert!(window_has(cx, h, format!("fv-{studio}-2").as_str()));
+    // A vault's Favorites list only that vault's favorites.
+    act(cx, h, |w, cx| w.click("fv-personal-1", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.filter, Filter::FavoritesOf(0));
+        assert!(
+            s.visible
+                .iter()
+                .all(|i| s.entries[*i].favorite && s.in_vault(0, s.entries[*i].space))
+        );
+    });
+
+    // Start in: with vault tabs, the organization's tab is offered and used at the next unlock.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("vault-tabs", cx));
+    settings_bottom(cx, h, "vault-tabs");
+    act(cx, h, |w, cx| w.click("start", cx));
+    assert!(window_has(cx, h, format!("start-vault:{studio}").as_str()));
+    act(cx, h, |w, cx| w.click("start-vault:personal", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.start_in, "vault:personal");
+    });
+    act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        // The demo organization lives in memory only: the personal tab is the one checked here.
+        assert_eq!(s.scope, Scope::Personal);
+    });
+
+    // The password box's own menu: Generate keeps the old one in History.
+    act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
+    let (id, before) = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s
+            .visible
+            .iter()
+            .map(|i| &s.entries[*i])
+            .find(|e| !e.password.is_empty())
+            .unwrap();
+        (e.id, e.password.clone())
+    });
+    app.update(cx, |a, cx| {
+        if let Phase::Main(s) = &mut a.phase {
+            s.selected = Some(id);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.right_click("password-box", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(matches!(
+            s.ctx.as_ref().map(|m| m.target),
+            Some(cleis_app::screens::ctx::CtxTarget::PasswordField(x)) if x == id
+        ));
+    });
+    act(cx, h, |w, cx| w.click("cx-pw-gen", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s.entries.iter().find(|e| e.id == id).unwrap();
+        assert_ne!(e.password, before);
+        assert!(e.password_history.iter().any(|h| h.password == before));
+        assert!(s.ctx.is_none());
+    });
+}
+
+/// Mockups 37l, 37m: all backups deleted; then the account, with a wrong then the right master
+/// password: back to the first launch, nothing left beside the vault.
+#[gpui_kit::test]
+fn delete_backups_and_account(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let backups = dir.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    std::fs::write(backups.join("demo-2026-11-27-101010.cleis"), b"x").unwrap();
+    std::fs::write(dir.path().join("demo.cleis.sync.json"), b"{}").unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+    settings_bottom(cx, h, "kit");
+    act(cx, h, |w, cx| w.click("erase-backups", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 0);
+    assert!(path.exists());
+
+    act(cx, h, |w, cx| w.click("erase-account", cx));
+    act(cx, h, |w, cx| {
+        w.input("not it", cx);
+        w.click("erase-ok", cx);
+    });
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s.erase.as_ref().expect("still asked");
+        assert!(e.error.is_some() && !e.busy);
+    });
+    assert!(path.exists());
+    act(cx, h, |w, cx| {
+        w.click("erase-password", cx);
+        w.press("ctrl-a", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.click("erase-ok", cx);
+    });
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Welcome(_))));
+    assert!(!path.exists());
+    assert!(!dir.path().join("demo.cleis.sync.json").exists());
+    assert!(!backups.exists());
+}
+
+/// Mockup 37n: Settings › Account › Sign in: the code, then the account's repository becomes the
+/// sync place with the token GitHub gave (nothing typed but the code, on GitHub).
+#[gpui_kit::test]
+fn sign_in_with_github(cx: &mut TestAppContext) {
+    let (addr, file) = fake_github();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    app.update(cx, |a, _| {
+        a.github_hosts = cleis_app::github_login::Hosts {
+            web: addr.clone(),
+            api: format!("{addr}/api/v3"),
+        };
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-signin", cx));
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let g = a.github.as_ref().expect("dialog");
+        assert_eq!(g.code.as_ref().unwrap().user_code, "WDJB-MJHT");
+    });
+    // GitHub's interval passes: the code was typed there.
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| a.github.is_none()) {
+            break;
+        }
+    }
+    app.read_with(cx, |a, _| {
+        assert!(
+            a.github.is_none(),
+            "{:?}",
+            a.github.as_ref().and_then(|g| g.error.clone())
+        );
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.sync.provider, cleis_app::sync::Provider::GitHub);
+        assert!(matches!(
+            &s.sync.remote,
+            Some(cleis_app::remote::RemotePlace::GitHub { repo, path, .. })
+                if repo == "lea-example/cleis-vault" && path == "vault.cleis"
+        ));
+    });
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(2));
+        cx.run_until_parked();
+        if file.lock().unwrap().is_some() {
+            break;
+        }
+    }
+    assert!(file.lock().unwrap().is_some(), "the vault was sent");
+}
+
+/// Mockups 37e-37g: a PIN for the personal vault, typed twice in its boxes; at the next unlock,
+/// a wrong PIN is counted, the right one opens; the master password stays the other way in.
+#[gpui_kit::test]
+fn pin_for_my_vault(cx: &mut TestAppContext) {
+    use cleis_app::opening::Mode;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("demo.cleis");
     cleis_app::demo::create(&path).unwrap();
@@ -2347,29 +2717,148 @@ fn account_sign_in(cx: &mut TestAppContext) {
         w.press("enter", cx);
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Account", cx));
-    act(cx, h, |w, cx| w.click("acc-microsoft", cx));
-    let place = |cx: &mut TestAppContext| {
-        app.read_with(cx, |a, _| {
-            let Phase::Main(s) = &a.phase else { panic!() };
-            s.place.as_ref().map(|p| p.kind)
-        })
-    };
-    assert_eq!(place(cx), None);
-    act(cx, h, |w, cx| w.click("acc-signin", cx));
-    assert_eq!(place(cx), Some(cleis_app::sync::Provider::GitHub));
-
-    let (h2, app2) = open(cx, &dir.path().join("new/vault.cleis"));
-    cx.run_until_parked();
-    act(cx, h2, |w, cx| w.click("signin-github", cx));
-    app2.read_with(cx, |a, _| {
-        let Phase::Welcome(w) = &a.phase else {
-            panic!()
-        };
-        let r = w.restore.as_ref().expect("restore");
-        assert_eq!(
-            r.place.as_ref().map(|p| p.kind),
-            Some(cleis_app::sync::Provider::GitHub)
+    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("opening-Pin", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(
+            s.pin_setup.is_some(),
+            "dialog state; opening {:?}",
+            s.opening
         );
     });
+    assert!(window_has(cx, h, "pin-dialog"));
+    // Two different PINs: refused, the second boxes emptied.
+    act(cx, h, |w, cx| {
+        w.input("123456", cx);
+        w.input("654321", cx);
+    });
+    cx.run_until_parked();
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let d = s.pin_setup.as_ref().unwrap();
+        assert!(d.error.is_some() && d.confirm.value.is_empty());
+    });
+    act(cx, h, |w, cx| w.input("123456", cx));
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if app.read_with(
+            cx,
+            |a, _| matches!(&a.phase, Phase::Main(s) if s.pin_setup.is_none()),
+        ) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.pin_setup.is_none());
+        assert_eq!(s.opening, Mode::Pin);
+    });
+    assert_eq!(cleis_app::opening::mode(&path), Mode::Pin);
+    assert!(window_has(cx, h, "pin-len-4") && window_has(cx, h, "pin-tries"));
+
+    // Locked: the boxes have the keyboard.
+    act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    assert!(window_has(cx, h, "unlock-pin"));
+    act(cx, h, |w, cx| w.input("000000", cx));
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| matches!(&a.phase, Phase::Unlock(u) if !u.busy)) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    app.read_with(cx, |a, _| {
+        let Phase::Unlock(u) = &a.phase else { panic!() };
+        assert!(u.error.as_ref().unwrap().contains('4'), "{:?}", u.error);
+    });
+    act(cx, h, |w, cx| {
+        w.click("unlock-pin", cx);
+        w.input("123456", cx);
+    });
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| matches!(a.phase, Phase::Main(_))) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+    assert_eq!(cleis_app::opening::pin_info(&path).unwrap().tries_left, 5);
+
+    // The master password is still the other way in.
+    act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    act(cx, h, |w, cx| w.click("pin-other", cx));
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    for _ in 0..50 {
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| matches!(a.phase, Phase::Main(_))) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+}
+
+/// Mockup 38: a shortcut inside Cleis changed by pressing the new keys, used at once, marked when
+/// it clashes, put back; Backspace leaves one without keys.
+#[gpui_kit::test]
+fn keyboard_shortcuts(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let count = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => s.entries.len(),
+            _ => 0,
+        })
+    };
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Shortcuts", cx));
+    // Duplicate on Ctrl+Shift+D.
+    act(cx, h, |w, cx| w.click("duplicate-change", cx));
+    act(cx, h, |w, cx| w.press("ctrl-shift-d", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.app_key("duplicate"), "Ctrl+Shift+D");
+        assert!(s.recording.is_none());
+    });
+    assert!(window_has(cx, h, "duplicate-reset"));
+    // Lock on Ctrl+D... taken by nothing now: no clash. Then Copy password on Ctrl+L: clash.
+    act(cx, h, |w, cx| w.click("copy_pass-change", cx));
+    act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    assert!(window_has(cx, h, "lock-clash") && window_has(cx, h, "copy_pass-clash"));
+    act(cx, h, |w, cx| w.click("copy_pass-reset", cx));
+    assert!(!window_has(cx, h, "lock-clash"));
+    // Backspace: no keys.
+    act(cx, h, |w, cx| w.click("copy_totp-change", cx));
+    act(cx, h, |w, cx| w.press("backspace", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.app_key("copy_totp"), "");
+    });
+    // The new keys work in the vault; the old ones no longer.
+    act(cx, h, |w, cx| w.click("tab-Vault", cx));
+    let first = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.entries[s.visible[0]].id,
+        _ => panic!(),
+    });
+    act(cx, h, |w, cx| w.click(format!("row-{first}"), cx));
+    let n = count(cx);
+    act(cx, h, |w, cx| w.press("ctrl-d", cx));
+    assert_eq!(count(cx), n);
+    act(cx, h, |w, cx| w.press("ctrl-shift-d", cx));
+    assert_eq!(count(cx), n + 1);
 }

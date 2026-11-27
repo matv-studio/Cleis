@@ -11,6 +11,7 @@ pub mod editor;
 pub mod folder_org;
 pub mod folder_store;
 pub mod format;
+pub mod github_login;
 pub mod host;
 pub mod i18n;
 pub mod instance;

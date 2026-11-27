@@ -132,6 +132,20 @@ pub fn upload(
     }
 }
 
+/// Removes the place's file (mockup 37m). GitHub keeps the earlier, sealed versions in the
+/// repository's history until it is pruned (D-72) or deleted. Missing: done.
+pub fn remove(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
+    match place {
+        RemotePlace::GitHub {
+            repo,
+            path,
+            branch,
+            api,
+        } => GitHub::new(api, repo, path, branch, &secret.token)?.delete(),
+        RemotePlace::Sftp { .. } => crate::sftp::remove(place, secret),
+    }
+}
+
 /// The organization's backup copies (D-65): the place and its secret, sealed in the vault.
 pub const ORG_BACKUP_SETTING: &str = "org_backup_place";
 
@@ -298,6 +312,34 @@ impl GitHub {
             return Err(github_error(status, &bytes));
         }
         Ok(Some((o.sha, bytes)))
+    }
+
+    fn delete(&self) -> Result<(), RemoteError> {
+        let Some((sha, _)) = self.read()? else {
+            return Ok(());
+        };
+        let body = serde_json::json!({
+            "message": "Cleis: account deleted",
+            "sha": sha,
+            "branch": self.branch,
+            "committer": {"name": "Cleis", "email": "cleis@users.noreply.github.com"},
+        });
+        let mut r = self
+            .agent
+            .delete(&self.url)
+            .header("Authorization", &format!("Bearer {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "Cleis")
+            .force_send_body()
+            .send_json(&body)
+            .map_err(|e| e.to_string())?;
+        let status = r.status().as_u16();
+        let body = r.body_mut().read_to_vec().unwrap_or_default();
+        match status {
+            200 | 404 => Ok(()),
+            s => Err(github_error(s, &body)),
+        }
     }
 
     fn write(&self, bytes: &[u8], sha: Version) -> Result<(), RemoteError> {
