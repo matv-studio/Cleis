@@ -131,6 +131,19 @@ impl Vault {
         Ok(())
     }
 
+    /// No password and no recovery key either (D-96): this computer's key, and the key kept in
+    /// the account the vault syncs with, if any, are the only ways in. The person chose it.
+    pub fn remove_password_only(&mut self) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.conn.execute(
+            "DELETE FROM meta WHERE key IN ('account', 'kdf', 'salt')",
+            [],
+        )?;
+        meta_set(&self.conn, "password_changed", &now_ms().to_be_bytes())?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// The account secrets sealed with a key of this computer, for the application to keep
     /// outside the vault (Windows Hello, or nothing).
     pub fn seal_for_device(&self, key: &[u8; 32]) -> Result<Vec<u8>> {

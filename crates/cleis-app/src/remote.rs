@@ -132,6 +132,95 @@ pub fn upload(
     }
 }
 
+/// The account key (D-96): a vault without a password opens on a new computer with the key kept
+/// next to it in the account (`vault.key` beside `vault.cleis`). Whoever reaches the account
+/// reaches the vault: chosen by the person, only while the vault has no password.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AccountKey {
+    pub v: u8,
+    /// Hex of the 32-byte key.
+    pub key: String,
+    /// Base64 of the account secrets sealed with it (`Vault::seal_for_device`).
+    pub sealed: String,
+}
+
+impl AccountKey {
+    pub fn make(v: &cleis_store::Vault) -> Result<Self, String> {
+        let key: [u8; 32] = cleis_crypto::random_bytes().map_err(|e| e.to_string())?;
+        let sealed = v.seal_for_device(&key).map_err(|e| e.to_string())?;
+        Ok(Self {
+            v: 1,
+            key: cleis_crypto::hex(&key),
+            sealed: data_encoding::BASE64.encode(&sealed),
+        })
+    }
+
+    /// Opens the vault at `path` with it.
+    pub fn open(&self, path: &Path) -> Result<cleis_store::Vault, String> {
+        let key: [u8; 32] = data_encoding::HEXLOWER
+            .decode(self.key.as_bytes())
+            .ok()
+            .and_then(|k| k.try_into().ok())
+            .ok_or("unreadable account key")?;
+        let sealed = data_encoding::BASE64
+            .decode(self.sealed.as_bytes())
+            .map_err(|e| e.to_string())?;
+        cleis_store::LockedVault::open(path)
+            .and_then(|l| l.unlock_device(&key, &sealed))
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// The place of the account key: the vault's file with `.key` in place of its extension.
+pub fn key_place(place: &RemotePlace) -> RemotePlace {
+    let swap = |p: &str| match p.rsplit_once('.') {
+        Some((stem, _)) => format!("{stem}.key"),
+        None => format!("{p}.key"),
+    };
+    let mut k = place.clone();
+    match &mut k {
+        RemotePlace::GitHub { path, .. } | RemotePlace::Sftp { path, .. } => *path = swap(path),
+    }
+    k
+}
+
+/// The account key kept beside the vault, if any.
+pub fn read_key(place: &RemotePlace, secret: &Secret) -> Result<Option<AccountKey>, RemoteError> {
+    let tmp = std::env::temp_dir().join(format!(
+        "cleis-key-{}-{}",
+        std::process::id(),
+        cleis_core::now()
+    ));
+    let v = download(&key_place(place), secret, &tmp)?;
+    if v.is_none() && !tmp.exists() {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(&tmp).map_err(|e| e.to_string());
+    let _ = std::fs::remove_file(&tmp);
+    Ok(serde_json::from_slice(&bytes?).ok())
+}
+
+/// Keeps the account key beside the vault (written over any earlier one).
+pub fn write_key(place: &RemotePlace, secret: &Secret, k: &AccountKey) -> Result<(), RemoteError> {
+    let kp = key_place(place);
+    let tmp = std::env::temp_dir().join(format!(
+        "cleis-key-{}-{}",
+        std::process::id(),
+        cleis_core::now()
+    ));
+    let version = download(&kp, secret, &tmp)?;
+    let _ = std::fs::remove_file(&tmp);
+    write_atomic(&tmp, &serde_json::to_vec(k).map_err(|e| e.to_string())?)?;
+    let r = upload(&kp, secret, &tmp, version);
+    let _ = std::fs::remove_file(&tmp);
+    r
+}
+
+/// Takes the account key away (a password was set, or the account is left).
+pub fn remove_key(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
+    remove(&key_place(place), secret)
+}
+
 /// Removes the place's file (mockup 37m). GitHub keeps the earlier, sealed versions in the
 /// repository's history until it is pruned (D-72) or deleted. Missing: done.
 pub fn remove(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {

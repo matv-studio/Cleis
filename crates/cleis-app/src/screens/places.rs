@@ -238,32 +238,69 @@ impl CleisApp {
         let c2 = cache.clone();
         let task = cx.background_spawn(async move {
             if first_sftp {
-                return crate::sftp::server_key(&p, &sec).map(Some);
+                return crate::sftp::server_key(&p, &sec).map(|k| (Some(k), None));
             }
-            crate::remote::download(&p, &sec, &c2).map(|_| None)
+            crate::remote::download(&p, &sec, &c2)?;
+            // D-96: restoring, the key kept beside a vault without a password, if any.
+            let key = if restoring && c2.exists() {
+                crate::remote::read_key(&p, &sec).ok().flatten()
+            } else {
+                None
+            };
+            Ok((None, key))
         });
         cx.spawn(async move |this, cx| {
             let r = task.await;
             this.update(cx, |app, cx| {
                 let path = app.path.clone();
+                let web = app.github_hosts.web.clone();
                 if let Phase::Welcome(w) = &mut app.phase {
                     let Some(rs) = w.restore.as_mut() else { return };
+                    // Signed in from the first screen, the repository there but empty: a vault
+                    // is made here and sent to it (as with no repository, mockup 40b).
+                    if let (
+                        Ok((None, _)),
+                        Some(login),
+                        crate::remote::RemotePlace::GitHub { api, .. },
+                    ) = (&r, rs.signed.clone(), &place)
+                        && !cache.exists()
+                    {
+                        app.github_after = Some(crate::screens::github::Signed {
+                            login,
+                            token: zeroize::Zeroizing::new(secret.token.clone()),
+                            hosts: crate::github_login::Hosts {
+                                web,
+                                api: api.clone(),
+                            },
+                        });
+                        if let Phase::Welcome(w) = &mut app.phase {
+                            w.restore = None;
+                            w.choice = Some(crate::screens::welcome::Start::Account);
+                        }
+                        cx.notify();
+                        return;
+                    }
+                    let Phase::Welcome(w) = &mut app.phase else {
+                        return;
+                    };
+                    let Some(rs) = w.restore.as_mut() else { return };
                     match r {
-                        Ok(Some(key)) => {
+                        Ok((Some(key), _)) => {
                             if let Some(d) = rs.place.as_mut() {
                                 d.busy = false;
                                 d.host_key = Some(key);
                             }
                         }
-                        Ok(None) if cache.exists() => {
+                        Ok((None, account_key)) if cache.exists() => {
                             rs.place = None;
                             rs.provider = Some(kind);
                             rs.found = vec![cache];
                             rs.chosen = 0;
                             rs.dir = None;
                             rs.remote = Some((place, secret));
+                            rs.account_key = account_key;
                         }
-                        Ok(None) => {
+                        Ok((None, _)) => {
                             if let Some(d) = rs.place.as_mut() {
                                 d.busy = false;
                                 d.error = Some(tr("No vault at this place yet").into());
@@ -281,13 +318,13 @@ impl CleisApp {
                 }
                 let Some(s) = app.session() else { return };
                 match r {
-                    Ok(Some(key)) => {
+                    Ok((Some(key), _)) => {
                         if let Some(d) = s.place.as_mut() {
                             d.busy = false;
                             d.host_key = Some(key);
                         }
                     }
-                    Ok(None) => {
+                    Ok((None, _)) => {
                         let key = s.sync.secret_key();
                         let _ = s.vault.set_org_setting(&key, &Some(secret));
                         s.sync.remote = Some(place);

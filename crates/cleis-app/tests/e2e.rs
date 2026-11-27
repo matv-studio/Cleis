@@ -1209,7 +1209,7 @@ type RepoFile = std::sync::Arc<std::sync::Mutex<Option<(String, Vec<u8>)>>>;
 
 /// A stand-in for GitHub's contents API on 127.0.0.1: one file, its sha checked on writes.
 fn fake_github() -> (String, RepoFile) {
-    let (addr, file, _) = fake_github_account(true);
+    let (addr, file, _, _) = fake_github_account(true);
     (addr, file)
 }
 
@@ -1221,12 +1221,16 @@ fn fake_github_account(
     String,
     RepoFile,
     std::sync::Arc<std::sync::atomic::AtomicBool>,
+    RepoFile,
 ) {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::sync::atomic::Ordering;
     let file: RepoFile = Default::default();
     let has_repo = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(repo));
     let made = has_repo.clone();
+    // The account key beside the vault (D-96).
+    let keyfile: RepoFile = Default::default();
+    let kf = keyfile.clone();
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = format!("http://{}", l.local_addr().unwrap());
     let f = file.clone();
@@ -1275,8 +1279,11 @@ fn fake_github_account(
                     body.resize(len, 0);
                     r.read_exact(&mut body).unwrap();
                 }
-                let path_ok =
-                    line.contains("/api/v3/repos/lea-example/cleis-vault/contents/vault.cleis");
+                let is_key =
+                    line.contains("/api/v3/repos/lea-example/cleis-vault/contents/vault.key");
+                let path_ok = is_key
+                    || line.contains("/api/v3/repos/lea-example/cleis-vault/contents/vault.cleis");
+                let f = if is_key { kf.clone() } else { f.clone() };
                 // Sign in with GitHub (37n): the device flow, the account, its repository.
                 let device = if line.contains("/login/device/code") {
                     Some(
@@ -1312,6 +1319,9 @@ fn fake_github_account(
                     (401, br#"{"message":"Bad credentials"}"#.to_vec())
                 } else if !path_ok || !made.load(Ordering::SeqCst) {
                     (404, br#"{"message":"Not Found"}"#.to_vec())
+                } else if line.starts_with("DELETE") {
+                    *f.lock().unwrap() = None;
+                    (200, b"{}".to_vec())
                 } else if line.starts_with("GET") {
                     match &*f.lock().unwrap() {
                         None => (404, br#"{"message":"Not Found"}"#.to_vec()),
@@ -1351,7 +1361,7 @@ fn fake_github_account(
             }
         }
     });
-    (addr, file, has_repo)
+    (addr, file, has_repo, keyfile)
 }
 
 /// Scenario (mockup 23b, D-65): sync with a file in a GitHub repository; another device's copy
@@ -2231,19 +2241,24 @@ fn opening_without_password(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("local-only", cx));
     act(cx, h, |w, cx| w.click("first-opening-Nothing", cx));
     act(cx, h, |w, cx| w.click("create", cx));
-    let key = app.read_with(cx, |a, _| {
+    app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else {
             panic!("created and open")
         };
         assert_eq!(s.opening, Mode::Nothing);
         assert!(!s.vault.has_password().unwrap());
-        match &s.security.dialog {
-            Some(cleis_app::screens::security::SecDialog::RecoveryKey(k)) => k.to_string(),
-            _ => panic!("the recovery key is shown"),
-        }
+        // D-96: no password, no recovery key forced.
+        assert!(s.security.dialog.is_none());
+        assert!(s.vault.recovery_saved().unwrap().is_none());
     });
-    act(cx, h, |w, cx| w.click("recovery-key-done", cx));
     assert_eq!(cleis_app::opening::mode(&path), Mode::Nothing);
+    // One made later (Settings › Account) opens it too.
+    let key = app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        s.vault.new_recovery_key().unwrap().to_string()
+    });
 
     // Locked: one click opens it; no password box.
     act(cx, h, |w, cx| w.click("lock", cx));
@@ -2932,7 +2947,7 @@ fn keyboard_shortcuts(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn github_without_vault_creates_one(cx: &mut TestAppContext) {
     use std::sync::atomic::Ordering;
-    let (addr, file, has_repo) = fake_github_account(false);
+    let (addr, file, has_repo, _) = fake_github_account(false);
     let hosts = cleis_app::github_login::Hosts {
         web: addr.clone(),
         api: format!("{addr}/api/v3"),
@@ -3143,4 +3158,67 @@ fn account_page_holds_security(cx: &mut TestAppContext) {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert!(s.sync.remote.is_none() && s.sync.place.is_none());
     });
+}
+
+/// Scenario (D-96, 27/11/2026): a vault made without a password while signed in to GitHub keeps
+/// its key in the account and asks for no recovery key; a new computer signs in and opens it with
+/// nothing to type. Once a password is set, the key leaves the account.
+#[gpui_kit::test]
+fn no_password_opens_on_a_new_computer(cx: &mut TestAppContext) {
+    let (addr, file, _repo, key) = fake_github_account(false);
+    let hosts = cleis_app::github_login::Hosts {
+        web: addr.clone(),
+        api: format!("{addr}/api/v3"),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let wait = |cx: &mut TestAppContext, done: &dyn Fn(&mut TestAppContext) -> bool| {
+        for _ in 0..60 {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_secs(6));
+            cx.run_until_parked();
+            if done(cx) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+    };
+    // First computer: GitHub, no vault on the account, "Nothing" to open it.
+    let (h, app) = open(cx, &dir.path().join("a/vault.cleis"));
+    app.update(cx, |a, _| a.github_hosts = hosts.clone());
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("signin-github", cx));
+    wait(cx, &|cx| app.read_with(cx, |a, _| a.github_after.is_some()));
+    act(cx, h, |w, cx| w.click("first-opening-Nothing", cx));
+    act(cx, h, |w, cx| w.click("create", cx));
+    wait(cx, &|_| {
+        key.lock().unwrap().is_some() && file.lock().unwrap().is_some()
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.security.dialog.is_none(), "no recovery key forced");
+        assert!(s.vault.recovery_saved().unwrap().is_none());
+        assert!(s.sync.key_sent);
+    });
+    assert!(file.lock().unwrap().is_some(), "the vault was sent");
+    assert!(
+        key.lock().unwrap().is_some(),
+        "its key is kept in the account"
+    );
+
+    // A new computer: Sign in › GitHub, the vault opens with nothing to type.
+    let (h2, app2) = open(cx, &dir.path().join("b/vault.cleis"));
+    app2.update(cx, |a, _| a.github_hosts = hosts.clone());
+    cx.run_until_parked();
+    act(cx, h2, |w, cx| w.click("signin-github", cx));
+    wait(cx, &|cx| {
+        app2.read_with(cx, |a, _| {
+            matches!(&a.phase, Phase::Welcome(w) if w.restore.as_ref().is_some_and(|r| r.account_key.is_some()))
+        })
+    });
+    assert!(!window_has(cx, h2, "restore-password"), "nothing to type");
+    act(cx, h2, |w, cx| w.click("restore-go", cx));
+    wait(cx, &|cx| {
+        app2.read_with(cx, |a, _| matches!(a.phase, Phase::Main(_)))
+    });
+    app2.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
 }

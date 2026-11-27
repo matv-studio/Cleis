@@ -868,7 +868,13 @@ impl CleisApp {
                     let mut v = Vault::create(&path, &pw, KdfParams::default())
                         .map_err(|e| e.to_string())?;
                     let finish = || -> Result<_, String> {
-                        let key = v.new_recovery_key().map_err(|e| e.to_string())?;
+                        // D-96: no password, no recovery key forced either: this computer's key
+                        // (and the account's, once synced) open it; one can be made later.
+                        let key = if opening == crate::opening::Mode::Password {
+                            Some(v.new_recovery_key().map_err(|e| e.to_string())?)
+                        } else {
+                            None
+                        };
                         match (opening, hello) {
                             (crate::opening::Mode::Hello, Some(k)) => {
                                 crate::opening::set_hello(&path, &v, challenge, &k)?
@@ -890,7 +896,7 @@ impl CleisApp {
                             _ => {}
                         }
                         if opening != crate::opening::Mode::Password {
-                            v.remove_password().map_err(|e| e.to_string())?;
+                            v.remove_password_only().map_err(|e| e.to_string())?;
                         }
                         Ok(key)
                     };
@@ -907,7 +913,7 @@ impl CleisApp {
                 })
                 .await;
             let (res, recovery) = match res {
-                Ok((v, key)) => (Ok(v), Some(key)),
+                Ok((v, key)) => (Ok(v), key),
                 Err(e) => (Err(e), None),
             };
             let res = match (res, join) {
@@ -937,12 +943,16 @@ impl CleisApp {
                         None => None,
                     };
                     this.enter(v, window, cx);
-                    // The recovery key, shown once (mockup 35i: "shown next").
-                    if let Some(key) = recovery
-                        && let Some(s) = this.session()
-                    {
-                        s.security.dialog =
-                            Some(crate::screens::security::SecDialog::RecoveryKey(key));
+                    // The recovery key, shown once (mockup 35i: "shown next"); without one, the
+                    // account (if signed in) is reached at once.
+                    match recovery {
+                        Some(key) => {
+                            if let Some(s) = this.session() {
+                                s.security.dialog =
+                                    Some(crate::screens::security::SecDialog::RecoveryKey(key));
+                            }
+                        }
+                        None => this.resume_github(window, cx),
                     }
                     if let Some(e) = failed {
                         this.toast_for(crate::trf!("Not joined: {}", e), 8, cx);

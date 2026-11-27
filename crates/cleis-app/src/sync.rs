@@ -57,6 +57,10 @@ pub struct SyncConfig {
     pub device: String,
     /// GitHub: when this device last pruned the branch's history (audit L-9).
     pub last_prune: Option<i64>,
+    /// The account key is beside the vault at the place (D-96): kept there while the vault has
+    /// no password, taken away once it has one.
+    #[serde(default)]
+    pub key_sent: bool,
     /// Last try, successful or not: paces automatic syncs (not saved).
     #[serde(skip)]
     pub last_attempt: Option<i64>,
@@ -72,6 +76,7 @@ impl Default for SyncConfig {
             provider: Provider::Folder,
             auto: true,
             last_prune: None,
+            key_sent: false,
             keep: 30,
             last_sync: None,
             last_error: None,
@@ -359,9 +364,51 @@ impl CleisApp {
                 app.sync_done(quiet, outcome, cx);
                 if ok {
                     app.prune_place(cx);
+                    app.account_key_at_place(cx);
                 }
             })
             .ok();
+        })
+        .detach();
+    }
+
+    /// D-96: without a password the vault's key is kept beside it in the account (a new computer
+    /// signs in and opens it); with a password it is taken away.
+    pub fn account_key_at_place(&mut self, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let Some(remote) = s.sync.remote.clone() else {
+            return;
+        };
+        let secret = s.sync.secret(&s.vault);
+        let want = !s.vault.has_password().unwrap_or(true);
+        if want == s.sync.key_sent {
+            return;
+        }
+        let key = if want {
+            match crate::remote::AccountKey::make(&s.vault) {
+                Ok(k) => Some(k),
+                Err(_) => return,
+            }
+        } else {
+            None
+        };
+        let task = cx.background_spawn(async move {
+            match key {
+                Some(k) => crate::remote::write_key(&remote, &secret, &k),
+                None => crate::remote::remove_key(&remote, &secret),
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            if task.await.is_ok() {
+                this.update(cx, |app, _| {
+                    if let Some(s) = app.session() {
+                        s.sync.key_sent = want;
+                        save_config(&path, &s.sync);
+                    }
+                })
+                .ok();
+            }
         })
         .detach();
     }

@@ -31,6 +31,9 @@ pub struct Restore {
     /// Signed in from the first screen (mockup 40c): the account's vault is opened on the same
     /// card, not on this restore screen.
     pub signed: Option<String>,
+    /// The key kept in the account beside a vault without a password (D-96): it opens here with
+    /// nothing to type.
+    pub account_key: Option<crate::remote::AccountKey>,
 }
 
 /// What the first screen starts with (mockups 40).
@@ -376,7 +379,7 @@ fn opening_choice(
 fn option(
     id: &'static str,
     t: &Tokens,
-    active: bool,
+    (active, clickable): (bool, bool),
     (title, tip_text, ico): (&str, &'static str, &str),
     extra: Option<AnyElement>,
     on_head: impl Fn(&mut CleisApp, &mut Window, &mut Context<CleisApp>) + 'static,
@@ -399,8 +402,10 @@ fn option(
                 .px(px(16.))
                 .py(px(12.))
                 .rounded(RADIUS_LG)
-                .cursor_pointer()
-                .when(!active, |d| d.hover(|d| d.bg(t.surface_hover)))
+                // Only a head that does something looks clickable ("Sign in" in the middle does
+                // nothing: its providers do).
+                .when(clickable, |d| d.cursor_pointer())
+                .when(clickable && !active, |d| d.hover(|d| d.bg(t.surface_hover)))
                 .tooltip(tip(tr(tip_text)))
                 .child(
                     div()
@@ -557,7 +562,7 @@ pub fn render(
         .child(option(
             "local-only",
             &t,
-            chosen == Some(Start::Local),
+            (chosen == Some(Start::Local), true),
             (
                 "Local account",
                 "Your vault stays on this computer",
@@ -570,7 +575,7 @@ pub fn render(
         .child(option(
             "sign-in",
             &t,
-            chosen == Some(Start::Account) || signing,
+            (chosen == Some(Start::Account) || signing, step2),
             (
                 "Sign in",
                 "Your vault follows you to your other computers",
@@ -586,7 +591,7 @@ pub fn render(
         .child(option(
             "org-server",
             &t,
-            chosen == Some(Start::Org),
+            (chosen == Some(Start::Org), true),
             (
                 "Join an organization",
                 "Shared spaces, on top of your personal vault",
@@ -614,14 +619,16 @@ pub fn render(
             )
             .into_any_element()
     };
-    let below: Option<AnyElement> = step2.then(|| {
+    // Joining: how the vault opens appears once the invitation is checked, as after GitHub.
+    let ready = chosen != Some(Start::Org) || w.join.info.is_some();
+    let below: Option<AnyElement> = (step2 && ready).then(|| {
         let measure = w.below_h.clone();
         let body = match opened {
             Some(r) => open_here(r, login.as_deref().unwrap_or(""), &t, cx),
             None => create_here(w, app.github_after.is_some(), &t, window, cx),
         };
         crate::ui::page_in(
-            format!("welcome-below-{}", w.round),
+            format!("welcome-below-{}-{}", w.round, ready),
             div().flex().flex_col().gap(px(16.)).child(body).child(
                 gpui_kit::canvas(
                     move |b, _, _| measure.set(f32::from(b.size.height)),
@@ -819,11 +826,14 @@ fn open_here(r: &Restore, _login: &str, t: &Tokens, cx: &mut Context<CleisApp>) 
                         .child(label),
                 ),
         )
-        .child(field(
-            t,
-            "Password or recovery key",
-            Input::new(&r.password).id("restore-password").mask_toggle(),
-        ))
+        // D-96: no password on this vault, its key kept in the account: nothing to type.
+        .when(r.account_key.is_none(), |d| {
+            d.child(field(
+                t,
+                "Password or recovery key",
+                Input::new(&r.password).id("restore-password").mask_toggle(),
+            ))
+        })
         .when_some(r.error.clone(), |d, e| {
             d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
         });
@@ -891,6 +901,7 @@ impl CleisApp {
                 place: None,
                 remote: None,
                 signed: None,
+                account_key: None,
             });
         }
         cx.notify();
@@ -946,6 +957,8 @@ impl CleisApp {
             return;
         }
         let pw = r.password.read(cx).value().to_string();
+        let account_key = r.account_key.clone();
+        let had_key = account_key.is_some();
         let provider = r.provider.unwrap_or_default();
         let remote = r.remote.clone();
         r.busy = true;
@@ -964,7 +977,20 @@ impl CleisApp {
                         return Err(tr("A vault already exists on this computer").to_owned());
                     }
                     std::fs::copy(&src, &d2).map_err(|e| e.to_string())?;
-                    // The master password, or the recovery key typed in its place (D-76).
+                    // D-96: the key kept in the account; this computer then opens with nothing.
+                    if let Some(k) = &account_key {
+                        let v = k.open(&d2);
+                        let v = v.and_then(|v| {
+                            crate::opening::set_nothing(&d2, &v)?;
+                            Ok(v)
+                        });
+                        if v.is_err() {
+                            let _ = std::fs::remove_file(&d2);
+                            crate::opening::forget(&d2);
+                        }
+                        return v.map(|v| (v, src));
+                    }
+                    // The password, or the recovery key typed in its place (D-76).
                     let v = cleis_store::LockedVault::open(&d2)
                         .and_then(|l| {
                             if cleis_store::parse_recovery(&pw).is_some() {
@@ -987,6 +1013,7 @@ impl CleisApp {
                     let mut cfg = crate::sync::SyncConfig {
                         place: Some(src.clone()),
                         provider,
+                        key_sent: had_key,
                         ..Default::default()
                     };
                     if let Some((place, secret)) = remote {

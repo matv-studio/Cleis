@@ -995,8 +995,12 @@ impl CleisApp {
     /// Confirmed (D-76): the recovery key and this computer's key open the vault from now on.
     pub fn remove_password(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        match s.vault.remove_password() {
-            Ok(()) => self.toast(tr("Password removed"), cx),
+        // D-96: no recovery key required; a synced vault keeps its key in the account instead.
+        match s.vault.remove_password_only() {
+            Ok(()) => {
+                self.toast(tr("Password removed"), cx);
+                self.account_key_at_place(cx);
+            }
             Err(e) => {
                 s.toast = Some(crate::trf!("Not changed: {}", e).into());
                 cx.notify();
@@ -1183,6 +1187,8 @@ impl CleisApp {
                         if let Some(then) = this.session().and_then(|s| s.after_password.take()) {
                             this.apply_opening(then, cx);
                         }
+                        // D-96: a password now: the key kept in the account is taken away.
+                        this.account_key_at_place(cx);
                     }
                     other => {
                         if let Some(SecDialog::ChangePassword { error, busy, .. }) =

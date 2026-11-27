@@ -733,6 +733,28 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   seul coffre : réglage ignoré). Boutons principaux et destructeurs : survol vers la couleur du texte
   (18 %, plus clair en sombre), appui vers la page (22 %), au lieu d'une opacité de 92 % qui assombrissait
   à peine le bronze.
+- **D-96 Sans mot de passe : la clé dans le compte, pas de clé de récupération imposée** (27/11/2026, choix
+  de l'utilisateur parmi trois : clé dans le compte / validation par un autre appareil / les deux).
+  Un coffre créé sans mot de passe (PIN, Windows Hello, Rien) n'a plus de clé de récupération imposée
+  (`Vault::remove_password_only`) ; on peut en créer une plus tard (Account). Tant qu'il n'a pas de mot de
+  passe et qu'il est synchronisé avec un compte, sa clé est gardée à côté de lui (`vault.key` : clé de 32
+  octets + secrets du compte scellés avec, `remote::AccountKey`) : un nouvel ordinateur se connecte au
+  compte et l'ouvre sans rien saisir, puis s'ouvre avec « Rien » (réglable dans Account). Un mot de
+  passe posé retire `vault.key`. Contrepartie acceptée : qui entre dans le compte (ou le dépôt) ouvre le
+  coffre ; d'où la GitHub App (D-97) et la double authentification du compte GitHub recommandée.
+  Premier écran : « Join an organization » ne montre « Unlock with » qu'une fois l'invitation vérifiée ;
+  la tête « Sign in » n'a plus de survol au premier temps (elle ne fait rien, ses fournisseurs oui). Un
+  dépôt `cleis-vault` vide après connexion passe à la création (comme sans dépôt).
+- **D-97 GitHub App au lieu de l'application OAuth** (27/11/2026, accord de l'utilisateur). But : un jeton
+  qui n'atteint que `cleis-vault` (permissions Contents lecture-écriture, Metadata lecture) au lieu de
+  tous les dépôts (portée `repo`). La création du dépôt par l'application n'est pas sûre sur un compte
+  personnel (des retours de 2026 donnent 403 sur `POST /user/repos` avant installation) : parcours prévu,
+  essayer la création par l'API, sinon ouvrir `github.com/new` prérempli (privé, `cleis-vault`), puis
+  installer l'application sur ce seul dépôt. L'application est créée par l'utilisateur (Client ID et nom
+  court à fournir) ; maquette du parcours à faire avant le code.
+  - En suspens : dépôt `matv-studio/cleis-vault` à supprimer par l'utilisateur (la session ne peut pas
+    supprimer un dépôt) ; enregistrement Microsoft : un compte personnel n'a pas d'annuaire Entra
+    (AADSTS50020), il faut un annuaire (essai gratuit Azure) ou le Microsoft 365 de l'entreprise.
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
