@@ -86,6 +86,9 @@ pub fn configure(conn: &Connection) -> rusqlite::Result<()> {
         ("members", "pin_fails", "INTEGER NOT NULL DEFAULT 0"),
         // Shared folder (D-78): the public key of the proof an invitation code gives.
         ("invites", "proof_key", "BLOB"),
+        // Rights in a space below the role (D-101): no editing, passwords not shown.
+        ("access", "no_edit", "INTEGER NOT NULL DEFAULT 0"),
+        ("access", "no_show", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         let has: bool = conn
             .prepare(&format!(

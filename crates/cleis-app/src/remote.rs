@@ -58,6 +58,46 @@ pub struct Secret {
     /// SFTP: OpenSSH private key (and its passphrase in `token`).
     #[serde(default)]
     pub key: String,
+    /// GitHub App sign-in (D-101): the token lasts 8 hours; this one (6 months) gets the next.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub refresh: String,
+    /// When `token` ends (Unix seconds); 0: it does not.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub expires: i64,
+}
+
+fn is_zero(v: &i64) -> bool {
+    *v == 0
+}
+
+impl Secret {
+    /// A GitHub token about to end (5 minutes left) that can be renewed.
+    pub fn renewable(&self) -> bool {
+        self.expires > 0 && !self.refresh.is_empty() && cleis_core::now() >= self.expires - 300
+    }
+}
+
+/// D-101: a GitHub place's token renewed when it is about to end (device flow: no client secret
+/// needed). `None`: nothing to renew, or not a GitHub place.
+pub fn renewed(place: &RemotePlace, secret: &Secret) -> Option<Result<Secret, String>> {
+    let RemotePlace::GitHub { api, .. } = place else {
+        return None;
+    };
+    if !secret.renewable() {
+        return None;
+    }
+    let hosts = crate::github_login::Hosts::of_api(api);
+    Some(
+        crate::github_login::refresh(&hosts, &secret.refresh).map(|g| {
+            let expires = g.expires_at();
+            Secret {
+                token: g.token,
+                key: String::new(),
+                refresh: g.refresh,
+                expires,
+            }
+        }),
+    )
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -9,7 +9,7 @@
 
 use crate::{MemberId, SpaceId};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Byte strings travel as base64 in the JSON messages.
 pub mod b64 {
@@ -857,6 +857,19 @@ pub struct MemberView {
     /// locked itself after wrong tries opens again once this is later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin_reset: Option<i64>,
+    /// The member's photo (D-101), `data:image/…` URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
+    /// Spaces where the member may do less than the role allows (D-101, mockup 46f).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub limits: BTreeMap<SpaceId, SpaceLimit>,
+}
+
+impl MemberView {
+    /// What the role allows (`role`), narrowed in `space`.
+    pub fn may_in(&self, role: &Role, space: SpaceId, p: Perm) -> bool {
+        role.can(p) && self.limits.get(&space).is_none_or(|l| l.allows(p))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1145,14 +1158,50 @@ pub struct MemberChange {
     pub spaces: Option<Vec<SpaceId>>,
     #[serde(default)]
     pub export: Option<bool>,
+    /// D-101 (mockup 46f): what the member may not do in these spaces, below the role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<BTreeMap<SpaceId, SpaceLimit>>,
 }
 
-/// A member's own name and e-mail (Settings › Profile).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// What a member may not do in one space although the role allows it (D-101, mockup 46f): a
+/// space narrows the role, never widens it. Administrators have none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceLimit {
+    /// No adding, changing or moving to the trash (checked by the server).
+    #[serde(default)]
+    pub no_edit: bool,
+    /// Passwords never shown, only copied and filled (checked by the app, as `Perm::See`).
+    #[serde(default)]
+    pub no_show: bool,
+}
+
+impl SpaceLimit {
+    pub fn is_none(&self) -> bool {
+        !self.no_edit && !self.no_show
+    }
+
+    /// Whether `p` stays allowed in the space.
+    pub fn allows(&self, p: Perm) -> bool {
+        match p {
+            Perm::Edit | Perm::Delete => !self.no_edit,
+            Perm::See => !self.no_show,
+            _ => true,
+        }
+    }
+}
+
+/// A member's own name and e-mail (Settings › Profile), and photo (D-101, mockup 46c).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProfileChange {
     pub name: String,
     pub email: String,
+    /// `data:image/…` URL; `Some("")` takes it away; `None` leaves it (older apps).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
 }
+
+/// Largest member photo kept by the server (a 96 px JPEG weighs about 5 KB).
+pub const PHOTO_MAX: usize = 24 * 1024;
 
 /// A computer where this member is signed in or remembered (Settings › Devices).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

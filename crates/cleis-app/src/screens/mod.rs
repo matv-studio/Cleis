@@ -15,6 +15,7 @@ pub mod main;
 pub mod org;
 pub mod pin;
 pub mod places;
+pub mod profile;
 pub mod quick_access;
 pub mod security;
 pub mod settings;

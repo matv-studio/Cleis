@@ -71,6 +71,12 @@ fn server(dir: PathBuf) -> (String, String) {
 }
 
 /// Runs syncs until the app has nothing left to do with the server.
+fn window_has(cx: &mut TestAppContext, h: WindowHandle<Root>, id: &str) -> bool {
+    let id = gpui_kit::SharedString::from(id.to_owned());
+    cx.update_window(h.into(), move |_, w, _| w.try_find(id).is_some())
+        .unwrap()
+}
+
 fn sync(cx: &mut TestAppContext, app: &Entity<CleisApp>) {
     for _ in 0..4 {
         app.update(cx, |a, cx| a.org_sync(None, cx));
@@ -773,13 +779,116 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
         );
     });
     let hugo_id = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.member);
+    let lea_id = session(cx, &lea, |s| s.org.as_ref().unwrap().m.member);
+
+    // Mockup 46f (D-101): Settings › Spaces, General unfolded; Lea takes from Hugo the editing
+    // and the showing of passwords there (his role keeps both elsewhere). An administrator's
+    // boxes cannot be clicked.
+    act(cx, lh, |w, cx| w.click("set-Spaces", cx));
+    act(cx, lh, |w, cx| w.click(format!("space-row-{general}"), cx));
+    assert!(window_has(cx, lh, &format!("sm-edit-{general}-{hugo_id}")));
+    act(cx, lh, |w, cx| {
+        w.click(format!("sm-edit-{general}-{lea_id}"), cx)
+    });
+    act(cx, lh, |w, cx| {
+        w.click(format!("sm-edit-{general}-{hugo_id}"), cx)
+    });
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| {
+        w.click(format!("sm-show-{general}-{hugo_id}"), cx)
+    });
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        let h = st.members.iter().find(|m| m.id == hugo_id).unwrap();
+        let l = h.limits.get(&general).copied().unwrap_or_default();
+        assert!(l.no_edit && l.no_show, "{l:?}");
+        let me = st.members.iter().find(|m| m.id == lea_id).unwrap();
+        assert!(me.limits.is_empty(), "an administrator keeps everything");
+    });
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        assert!(!s.may(general, cleis_core::org::Perm::Edit));
+        assert!(!s.may(general, cleis_core::org::Perm::See));
+        assert!(s.may(general, cleis_core::org::Perm::Fill));
+    });
+    // Written behind the interface's back: the server refuses it, the app puts it back.
+    hugo.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        let e = s.entries.iter_mut().find(|e| e.id == figma).unwrap();
+        e.password = "changed-in-general".into();
+        e.touch(None);
+        s.vault.put_entry(e).unwrap();
+    });
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let e = s.vault.entries().unwrap();
+        assert_eq!(
+            e.iter().find(|e| e.id == figma).unwrap().password,
+            "figma-pass-2026"
+        );
+    });
+    // Given back: Edit again.
+    act(cx, lh, |w, cx| {
+        w.click(format!("sm-edit-{general}-{hugo_id}"), cx)
+    });
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        assert!(s.may(general, cleis_core::org::Perm::Edit))
+    });
+
+    // Mockup 46c (D-101): Lea's profile from the picture at the top right, a photo with it;
+    // the organization shows them to Hugo.
+    let photo = dir.path().join("lea.png");
+    image::RgbImage::from_pixel(300, 200, image::Rgb([120, 90, 60]))
+        .save(&photo)
+        .unwrap();
+    act(cx, lh, |w, cx| w.click("acc-avatar", cx));
+    act(cx, lh, |w, cx| w.click("acc-menu-profile", cx));
+    lea.update(cx, |a, cx| a.profile_photo_from(&photo, cx));
+    act(cx, lh, |w, cx| {
+        w.click("profile-me-name", cx);
+        w.press("ctrl-a", cx);
+        w.input("Léa Martin", cx);
+        w.click("profile-me-email", cx);
+        w.press("ctrl-a", cx);
+        w.input("lea@example-studio.com", cx);
+        w.click("profile-me-save", cx);
+    });
+    cx.run_until_parked();
+    session(cx, &lea, |s| {
+        if let Some(e) = s.profile_edit.as_ref() {
+            panic!("not saved: {:?}", e.error);
+        }
+    });
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        assert_eq!(s.prefs.profile.name, "Léa Martin");
+        assert!(
+            s.prefs
+                .profile
+                .photo
+                .as_deref()
+                .is_some_and(|p| p.starts_with("data:image/jpeg"))
+        );
+    });
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        let l = st.members.iter().find(|m| m.id == lea_id).unwrap();
+        assert_eq!(l.name, "Léa Martin");
+        assert!(l.photo.is_some(), "the photo reached the organization");
+    });
+
     lea.update(cx, |a, cx| {
         a.org_member(
             cleis_core::org::MemberChange {
                 member: hugo_id,
                 role: Some("read_only".into()),
-                spaces: None,
-                export: None,
+                ..Default::default()
             },
             cx,
         )

@@ -223,6 +223,7 @@ pub fn menu_open(s: &Session) -> bool {
         || s.wheel.is_some()
         || s.sync_menu
         || s.account_menu
+        || s.profile_edit.is_some()
         || s.pref_menu.is_some()
         || s.folder_menu.is_some()
         || s.security.menu.is_some()
@@ -1318,6 +1319,7 @@ impl CleisApp {
         let wheel = s.wheel.take().is_some();
         s.sync_menu = false;
         s.account_menu = false;
+        s.profile_edit = None;
         s.pref_menu = None;
         s.folder_menu = None;
         s.security.menu = None;

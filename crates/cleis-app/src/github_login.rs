@@ -1,20 +1,24 @@
-//! Sign in with GitHub as Revel does (mockup 37n, 27/11/2026): the OAuth device flow of the
-//! "Cleis" OAuth app of matv-studio. Cleis shows a code, the person types it on
-//! github.com/login/device, Cleis polls for the token; no token to make by hand, no client
-//! secret in the app (the device flow needs none). The token does not expire (the app's
-//! "Expire user access tokens" is off, user's choice of 27/11/2026); it is kept per computer,
-//! sealed in the vault like any place secret (`SyncConfig::secret_key`). The vault goes to a
-//! private repository `cleis-vault` of the account, made the first time.
+//! Sign in with GitHub (mockup 37n, D-97, D-101): the OAuth device flow of the GitHub App
+//! "cleis-sync" of matv-studio. Cleis shows a code, the person types it on github.com/login/device,
+//! Cleis polls for the token; no token to make by hand, no client secret in the app (the device
+//! flow needs none, to sign in or to renew). A GitHub App token reaches only the repositories the
+//! app is installed on: the vault's private repository `cleis-vault`, made by Cleis when GitHub lets
+//! it, else on GitHub's page filled in by Cleis, then the app installed on it (mockups 41). The
+//! token lasts 8 hours and is renewed with its refresh token (6 months); both are kept per
+//! computer, sealed in the vault like any place secret (`SyncConfig::secret_key`).
 //!
-//! Docs: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow
+//! Docs: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app#using-the-device-flow-to-generate-a-user-access-token
+//! and …/refreshing-user-access-tokens ("client_secret: required unless the user access token
+//! was generated using the device flow").
 
 use serde::Deserialize;
 use std::time::Duration;
 
-/// Client ID of the OAuth app "Cleis" (matv-studio), device flow on. Not a secret.
-pub const CLIENT_ID: &str = "Ov23li1POERzptJCQDPI";
-/// `repo`: the private repository that keeps the vault (made, read, written).
-pub const SCOPE: &str = "repo";
+/// Client ID of the GitHub App "cleis-sync" (matv-studio, App ID 5954662), device flow on.
+/// Not a secret. Permissions: Contents read and write, Metadata read.
+pub const CLIENT_ID: &str = "Iv23liCw3sj1xvHc6oUh";
+/// The app's short name: github.com/apps/cleis-sync.
+pub const APP_SLUG: &str = "cleis-sync";
 /// The repository made in the account the first time.
 pub const REPO_NAME: &str = "cleis-vault";
 
@@ -23,6 +27,45 @@ pub const REPO_NAME: &str = "cleis-vault";
 pub struct Hosts {
     pub web: String,
     pub api: String,
+}
+
+impl Hosts {
+    /// The web side of an API address: api.github.com is github.com; GitHub Enterprise and the
+    /// tests' stand-in serve the API under `/api/v3` of the site.
+    pub fn of_api(api: &str) -> Self {
+        let api = api.trim_end_matches('/');
+        let web = if api == "https://api.github.com" {
+            "https://github.com".to_owned()
+        } else {
+            api.trim_end_matches("/api/v3").to_owned()
+        };
+        Self {
+            web,
+            api: api.to_owned(),
+        }
+    }
+
+    fn web(&self) -> &str {
+        self.web.trim_end_matches('/')
+    }
+
+    /// GitHub's page making the vault's repository, filled in: private, `cleis-vault`.
+    pub fn create_page(&self) -> String {
+        format!(
+            "{}/new?owner=%40me&name={REPO_NAME}&visibility=private&description=Cleis+vault",
+            self.web()
+        )
+    }
+
+    /// GitHub's page installing Cleis (the person picks "Only select repositories › cleis-vault").
+    pub fn install_page(&self) -> String {
+        format!("{}/apps/{APP_SLUG}/installations/new", self.web())
+    }
+
+    /// GitHub's page of the apps the account authorized, where Cleis's access is revoked.
+    pub fn authorizations_page(&self) -> String {
+        format!("{}/settings/apps/authorizations", self.web())
+    }
 }
 
 impl Default for Hosts {
@@ -46,13 +89,42 @@ pub struct DeviceCode {
     pub interval: u64,
 }
 
+/// What GitHub gives once the code is typed (or a refresh token used).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grant {
+    pub token: String,
+    /// Empty when the app's tokens do not expire.
+    pub refresh: String,
+    /// Seconds the token lasts (28800); 0: it does not end.
+    pub expires_in: u64,
+}
+
+impl Grant {
+    /// When the token ends (Unix seconds); 0: it does not.
+    pub fn expires_at(&self) -> i64 {
+        if self.expires_in == 0 {
+            0
+        } else {
+            cleis_core::now() + self.expires_in as i64
+        }
+    }
+
+    fn of(v: &serde_json::Value) -> Option<Self> {
+        Some(Self {
+            token: v["access_token"].as_str()?.to_owned(),
+            refresh: v["refresh_token"].as_str().unwrap_or_default().to_owned(),
+            expires_in: v["expires_in"].as_u64().unwrap_or(0),
+        })
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Poll {
     /// Not typed yet: ask again after the interval.
     Pending,
     /// Asked too often: wait 5 seconds more from now on (RFC 8628 §3.5).
     SlowDown,
-    Token(String),
+    Token(Grant),
     /// The person refused, or the code expired: start again.
     Failed(String),
 }
@@ -112,7 +184,8 @@ fn post_form(url: &str, body: &str) -> Result<(u16, Vec<u8>), String> {
 /// Step 1: a code for the person to type on GitHub.
 pub fn start(h: &Hosts) -> Result<DeviceCode, String> {
     let url = format!("{}/login/device/code", h.web.trim_end_matches('/'));
-    let (status, body) = post_form(&url, &form(&[("client_id", CLIENT_ID), ("scope", SCOPE)]))?;
+    // A GitHub App takes no scope: its permissions are the app's.
+    let (status, body) = post_form(&url, &form(&[("client_id", CLIENT_ID)]))?;
     if status != 200 {
         return Err(format!("GitHub: HTTP {status}"));
     }
@@ -140,8 +213,8 @@ pub fn poll(h: &Hosts, device_code: &str) -> Result<Poll, String> {
     )?;
     let v: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|_| format!("GitHub: HTTP {status}, answer not read"))?;
-    if let Some(t) = v["access_token"].as_str() {
-        return Ok(Poll::Token(t.to_owned()));
+    if let Some(g) = Grant::of(&v) {
+        return Ok(Poll::Token(g));
     }
     Ok(match v["error"].as_str().unwrap_or_default() {
         "authorization_pending" => Poll::Pending,
@@ -154,6 +227,34 @@ pub fn poll(h: &Hosts, device_code: &str) -> Result<Poll, String> {
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("GitHub: {other}")),
         ),
+    })
+}
+
+/// A new token from the refresh token (D-101). The refresh token is spent: the answer has the
+/// next one.
+pub fn refresh(h: &Hosts, refresh_token: &str) -> Result<Grant, String> {
+    let url = format!("{}/login/oauth/access_token", h.web());
+    let (status, body) = post_form(
+        &url,
+        &form(&[
+            ("client_id", CLIENT_ID),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ]),
+    )?;
+    let v: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|_| format!("GitHub: HTTP {status}, answer not read"))?;
+    Grant::of(&v).ok_or_else(|| {
+        match v["error"].as_str() {
+            // Six months unused, or the access revoked: only a new sign-in helps.
+            Some("bad_refresh_token") | Some("unauthorized_client") => {
+                "GitHub ended the sign-in: sign in again in Settings › Account".into()
+            }
+            _ => v["error_description"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("GitHub: HTTP {status}")),
+        }
     })
 }
 
@@ -185,17 +286,33 @@ pub fn login(h: &Hosts, token: &str) -> Result<String, String> {
         .ok_or_else(|| "GitHub did not give the account".into())
 }
 
-/// The vault's repository `login/cleis-vault` and its branch; made private the first time when
-/// `create` (an existing vault is only looked for on a new computer).
-/// `vault_repo` found no repository to restore (the account has no vault yet).
-pub const NO_VAULT: &str = "No vault on this GitHub account yet";
+/// Whether the account installed Cleis (on any repository).
+fn installed(h: &Hosts, token: &str) -> Result<bool, String> {
+    let (status, v) = api_get(h, token, "/user/installations")?;
+    if status != 200 {
+        return Err(format!("GitHub: HTTP {status}"));
+    }
+    Ok(v["installations"]
+        .as_array()
+        .is_some_and(|a| a.iter().any(|i| i["app_slug"] == APP_SLUG)))
+}
 
-pub fn vault_repo(
-    h: &Hosts,
-    token: &str,
-    login: &str,
-    create: bool,
-) -> Result<(String, String), String> {
+/// Where the account's vault stands for Cleis.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Found {
+    /// `login/cleis-vault` and its branch: Cleis reaches it.
+    Repo(String, String),
+    /// Cleis does not see it: to make on GitHub (`made` false), then to install Cleis on
+    /// (mockups 41a, 41b). GitHub answers 404 alike for a repository missing and one Cleis is
+    /// not installed on.
+    Setup { made: bool },
+    /// Restoring, and Cleis was never installed on the account: no vault to look for (40b).
+    Missing,
+}
+
+/// The vault's repository `login/cleis-vault`. When `create`, Cleis tries to make it (private);
+/// GitHub refuses that to most GitHub App tokens, so the setup steps follow.
+pub fn vault_repo(h: &Hosts, token: &str, login: &str, create: bool) -> Result<Found, String> {
     let full = format!("{login}/{REPO_NAME}");
     let (status, v) = api_get(h, token, &format!("/repos/{full}"))?;
     match status {
@@ -204,9 +321,15 @@ pub fn vault_repo(
             if v["private"].as_bool() == Some(false) {
                 return Err(format!("{full} is public: make it private on GitHub first"));
             }
-            Ok((full, branch))
+            Ok(Found::Repo(full, branch))
         }
-        404 if !create => Err(NO_VAULT.into()),
+        // Restoring: installed somewhere, the vault may be there unreached; never installed,
+        // no vault made by Cleis.
+        404 if !create => Ok(if installed(h, token)? {
+            Found::Setup { made: true }
+        } else {
+            Found::Missing
+        }),
         404 => {
             let url = format!("{}/user/repos", h.api.trim_end_matches('/'));
             checked(&url)?;
@@ -226,15 +349,25 @@ pub fn vault_repo(
                 .map_err(|e| e.to_string())?;
             let status = r.status().as_u16();
             let v: serde_json::Value = r.body_mut().read_json().unwrap_or_default();
-            if status != 201 {
-                return Err(format!(
-                    "GitHub did not make {full} (HTTP {status} {})",
-                    v["message"].as_str().unwrap_or_default()
-                ));
+            match status {
+                // Made, and the token reaches it (the app installed on every repository).
+                201 => {
+                    let branch = v["default_branch"].as_str().unwrap_or("main").to_owned();
+                    let (s2, _) = api_get(h, token, &format!("/repos/{full}"))?;
+                    Ok(if s2 == 200 {
+                        Found::Repo(full, branch)
+                    } else {
+                        Found::Setup { made: true }
+                    })
+                }
+                // "name already exists": there, Cleis not installed on it.
+                422 => Ok(Found::Setup { made: true }),
+                // 403 "Resource not accessible by integration", 404: made on GitHub's page.
+                401 => Err(format!("GitHub refused the token (HTTP {status})")),
+                _ => Ok(Found::Setup { made: false }),
             }
-            let branch = v["default_branch"].as_str().unwrap_or("main").to_owned();
-            Ok((full, branch))
         }
+        401 => Err(format!("GitHub refused the token (HTTP {status})")),
         s => Err(format!("GitHub: HTTP {s}")),
     }
 }
@@ -301,7 +434,7 @@ mod tests {
             (200, r#"{"error":"slow_down","interval":10}"#),
             (
                 200,
-                r#"{"access_token":"gho_x","token_type":"bearer","scope":"repo"}"#,
+                r#"{"access_token":"ghu_x","expires_in":28800,"refresh_token":"ghr_y","refresh_token_expires_in":15897600,"token_type":"bearer","scope":""}"#,
             ),
             (200, r#"{"login":"lea-example"}"#),
             (404, r#"{"message":"Not Found"}"#),
@@ -309,31 +442,111 @@ mod tests {
                 201,
                 r#"{"full_name":"lea-example/cleis-vault","default_branch":"main","private":true}"#,
             ),
+            (200, r#"{"default_branch":"main","private":true}"#),
         ]);
         let c = start(&h).unwrap();
         assert_eq!(c.user_code, "WDJB-MJHT");
         assert_eq!(poll(&h, &c.device_code).unwrap(), Poll::Pending);
         assert_eq!(poll(&h, &c.device_code).unwrap(), Poll::SlowDown);
-        let Poll::Token(tok) = poll(&h, &c.device_code).unwrap() else {
+        let Poll::Token(g) = poll(&h, &c.device_code).unwrap() else {
             panic!()
         };
-        let who = login(&h, &tok).unwrap();
-        assert_eq!(who, "lea-example");
-        let (repo, branch) = vault_repo(&h, &tok, &who, true).unwrap();
         assert_eq!(
-            (repo.as_str(), branch.as_str()),
-            ("lea-example/cleis-vault", "main")
+            (g.token.as_str(), g.refresh.as_str(), g.expires_in),
+            ("ghu_x", "ghr_y", 28800)
+        );
+        assert!(g.expires_at() > cleis_core::now() + 28000);
+        let who = login(&h, &g.token).unwrap();
+        assert_eq!(who, "lea-example");
+        assert_eq!(
+            vault_repo(&h, &g.token, &who, true).unwrap(),
+            Found::Repo("lea-example/cleis-vault".into(), "main".into())
         );
         let seen = t.join().unwrap();
         assert!(seen[0].starts_with("POST /login/device/code"));
-        assert!(
-            seen[0].contains(&format!("client_id={CLIENT_ID}")) && seen[0].contains("scope=repo")
-        );
+        // A GitHub App asks no scope.
+        assert!(seen[0].contains(&format!("client_id={CLIENT_ID}")) && !seen[0].contains("scope"));
         assert!(
             seen[1].contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code")
         );
         // (The JSON body is sent chunked: only the request line is read here.)
         assert!(seen[6].starts_with("POST /user/repos"));
+    }
+
+    /// Mockups 41: GitHub refuses the app to make the repository (403), or it is there already
+    /// (422), or the token does not see it yet (restoring): the setup steps.
+    #[test]
+    fn repository_to_make_or_install() {
+        let (h, t) = stand_in(vec![
+            (404, r#"{"message":"Not Found"}"#),
+            (
+                403,
+                r#"{"message":"Resource not accessible by integration"}"#,
+            ),
+            (404, r#"{"message":"Not Found"}"#),
+            (422, r#"{"message":"Repository creation failed."}"#),
+            (404, r#"{"message":"Not Found"}"#),
+            (
+                200,
+                r#"{"total_count":1,"installations":[{"id":7,"app_slug":"cleis-sync"}]}"#,
+            ),
+            (404, r#"{"message":"Not Found"}"#),
+            (200, r#"{"total_count":0,"installations":[]}"#),
+        ]);
+        assert_eq!(
+            vault_repo(&h, "t", "lea", true).unwrap(),
+            Found::Setup { made: false }
+        );
+        assert_eq!(
+            vault_repo(&h, "t", "lea", true).unwrap(),
+            Found::Setup { made: true }
+        );
+        // Restoring: installed, the vault not reached; never installed, none.
+        assert_eq!(
+            vault_repo(&h, "t", "lea", false).unwrap(),
+            Found::Setup { made: true }
+        );
+        assert_eq!(vault_repo(&h, "t", "lea", false).unwrap(), Found::Missing);
+        t.join().unwrap();
+        assert_eq!(
+            h.create_page(),
+            format!(
+                "{}/new?owner=%40me&name=cleis-vault&visibility=private&description=Cleis+vault",
+                h.web
+            )
+        );
+        assert!(
+            h.install_page()
+                .ends_with("/apps/cleis-sync/installations/new")
+        );
+    }
+
+    #[test]
+    fn token_renewed_with_its_refresh_token() {
+        let (h, t) = stand_in(vec![
+            (
+                200,
+                r#"{"access_token":"ghu_2","expires_in":28800,"refresh_token":"ghr_2","token_type":"bearer"}"#,
+            ),
+            (200, r#"{"error":"bad_refresh_token"}"#),
+        ]);
+        let g = refresh(&h, "ghr_1").unwrap();
+        assert_eq!((g.token.as_str(), g.refresh.as_str()), ("ghu_2", "ghr_2"));
+        assert!(refresh(&h, "ghr_1").unwrap_err().contains("sign in again"));
+        let seen = t.join().unwrap();
+        assert!(
+            seen[0].contains("grant_type=refresh_token") && seen[0].contains("refresh_token=ghr_1")
+        );
+        // Device flow: no client secret sent.
+        assert!(!seen[0].contains("client_secret"));
+        assert_eq!(
+            Hosts::of_api("https://api.github.com").web,
+            "https://github.com"
+        );
+        assert_eq!(
+            Hosts::of_api("https://git.example-studio.com/api/v3").web,
+            "https://git.example-studio.com"
+        );
     }
 
     #[test]
@@ -342,7 +555,6 @@ mod tests {
             (200, r#"{"error":"access_denied"}"#),
             (200, r#"{"error":"expired_token"}"#),
             (200, r#"{"default_branch":"main","private":false}"#),
-            (404, r#"{"message":"Not Found"}"#),
         ]);
         assert!(matches!(poll(&h, "d").unwrap(), Poll::Failed(_)));
         assert!(matches!(poll(&h, "d").unwrap(), Poll::Failed(_)));
@@ -351,8 +563,6 @@ mod tests {
                 .unwrap_err()
                 .contains("public")
         );
-        // A new computer: nothing made, the absence said.
-        assert!(vault_repo(&h, "t", "lea", false).is_err());
         t.join().unwrap();
     }
 }

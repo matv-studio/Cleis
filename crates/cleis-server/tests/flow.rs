@@ -667,10 +667,54 @@ fn organization_flow() {
             &ProfileChange {
                 name: "Léa Martin".into(),
                 email: "lea@example-studio.com".into(),
+                photo: Some("data:image/jpeg;base64,/9j/AA==".into()),
             },
         )
         .unwrap();
     assert_eq!(me.name, "Léa Martin");
+    assert_eq!(me.photo.as_deref(), Some("data:image/jpeg;base64,/9j/AA=="));
+    // D-101: an older app sends no photo: kept; too large or not a picture: refused; "": gone.
+    let me: MemberView = lea
+        .client
+        .call(
+            "/v1/me",
+            &ProfileChange {
+                name: "Léa Martin".into(),
+                email: "lea@example-studio.com".into(),
+                photo: None,
+            },
+        )
+        .unwrap();
+    assert!(me.photo.is_some());
+    for bad in [
+        "https://example-studio.com/a.png".to_owned(),
+        format!("data:image/png;base64,{}", "A".repeat(PHOTO_MAX)),
+    ] {
+        assert!(
+            lea.client
+                .call::<_, MemberView>(
+                    "/v1/me",
+                    &ProfileChange {
+                        name: "Léa Martin".into(),
+                        email: "lea@example-studio.com".into(),
+                        photo: Some(bad),
+                    },
+                )
+                .is_err()
+        );
+    }
+    let me: MemberView = lea
+        .client
+        .call(
+            "/v1/me",
+            &ProfileChange {
+                name: "Léa Martin".into(),
+                email: "lea@example-studio.com".into(),
+                photo: Some(String::new()),
+            },
+        )
+        .unwrap();
+    assert!(me.photo.is_none());
     let devs: Vec<DeviceView> = hugo.client.call("/v1/me/devices", &()).unwrap();
     assert!(devs.iter().any(|d| d.current && d.device == "PC"));
     assert!(

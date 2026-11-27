@@ -51,7 +51,7 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .btn--sm { height: var(--control-sm); padding: 0 var(--s-2); font-size: var(--text-sm); }
 .icon-btn {
   display: inline-grid; place-items: center; width: var(--control-md); height: var(--control-md);
-  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-muted);
+  border: 0; padding: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-muted);
 }
 .icon-btn:hover, .icon-btn.is-hover { background: var(--surface-hover); color: var(--text); }
 .icon-btn--sm { width: var(--control-sm); height: var(--control-sm); }

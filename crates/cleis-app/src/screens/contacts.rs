@@ -640,7 +640,7 @@ fn contact_cell(
                 )
                 .when(!email.is_empty(), |d| {
                     d.child(
-                        icon_button(SharedString::from(format!("ce-{id}")), t, "copy", true)
+                        cell_button(format!("ce-{id}"), t, "copy")
                             .tooltip(|window, cx| {
                                 gpui_kit::component::tooltip::Tooltip::new(tr("Copy e-mail"))
                                     .build(window, cx)
@@ -654,6 +654,47 @@ fn contact_cell(
                             })),
                     )
                 })
+                .into_any_element()
+        }
+        // Mockup 46d: the site opened from the list, as in the vault.
+        "website" => {
+            let url = c
+                .cell(col)
+                .map(|v| v.display(&col.kind))
+                .unwrap_or_default();
+            if url.is_empty() {
+                return base.into_any_element();
+            }
+            let shown = url
+                .split_once("://")
+                .map_or(url.as_str(), |(_, rest)| rest)
+                .trim_end_matches('/')
+                .to_owned();
+            let tip_text: SharedString = crate::trf!("Open {}", shown).into();
+            base.text_color(t.text_muted)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(shown),
+                )
+                .child(
+                    cell_button(format!("cw-{id}"), t, "external")
+                        .tooltip(move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(tip_text.clone())
+                                .build(window, cx)
+                        })
+                        .when(!selected, |d| {
+                            d.invisible().group_hover("crow", |s| s.visible())
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.open_site(&url, cx);
+                        }))
+                        .test_support(),
+                )
                 .into_any_element()
         }
         "labels" => base.child(labels_row(t, c)).into_any_element(),
@@ -2595,6 +2636,11 @@ const PORTRAIT: u32 = 256;
 /// A picture (any format the `image` crate reads) as a contact photo: the centred square, scaled
 /// to [`PORTRAIT`] px, JPEG, as a `data:` URL.
 pub fn portrait(bytes: &[u8]) -> Result<String, String> {
+    portrait_of(bytes, PORTRAIT)
+}
+
+/// A picture as a centred square of `side` pixels (at most its own), JPEG, as a `data:` URL.
+pub fn portrait_of(bytes: &[u8], side_max: u32) -> Result<String, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
     let side = img.width().min(img.height());
     let sq = img.crop_imm(
@@ -2605,8 +2651,8 @@ pub fn portrait(bytes: &[u8]) -> Result<String, String> {
     );
     let small = sq
         .resize_exact(
-            PORTRAIT.min(side),
-            PORTRAIT.min(side),
+            side_max.min(side),
+            side_max.min(side),
             image::imageops::FilterType::Lanczos3,
         )
         .to_rgb8();

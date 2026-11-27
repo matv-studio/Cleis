@@ -115,6 +115,32 @@ pub fn icon_button(id: impl Into<ElementId>, t: &Tokens, name: &str, small: bool
         .child(icon(name, 16., t.text_muted))
 }
 
+/// A button inside a table cell (copy, open the site; mockup 46d): on a highlighted row its hover
+/// has to read, so a darker fill and the icon brightened; no outline, no colour.
+pub fn cell_button(id: impl Into<SharedString>, t: &Tokens, name: &str) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let (fill, bright) = (t.surface_active, t.text);
+    div()
+        .id(id.clone())
+        .group(id.clone())
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(CONTROL_SM)
+        .rounded(RADIUS_MD)
+        .cursor_pointer()
+        .hover(move |s| s.bg(fill))
+        .child(
+            svg()
+                .path(SharedString::from(format!("icons/{name}.svg")))
+                .size(px(16.))
+                .flex_none()
+                .text_color(t.text_muted)
+                .group_hover(id, move |s| s.text_color(bright)),
+        )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
     Neutral,

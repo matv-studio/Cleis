@@ -673,6 +673,9 @@ pub struct OrgSession {
     /// The organization's spaces are hidden: not reached for longer than the policy allows.
     pub offline_locked: bool,
     pub ui: crate::screens::org::OrgUi,
+    /// D-101: the profile set in Cleis sent this session (once, when the organization shows
+    /// another name, e-mail or photo).
+    pub profile_sent: bool,
 }
 
 impl OrgSession {
@@ -823,6 +826,7 @@ impl CleisApp {
                 names: BTreeMap::new(),
                 offline_locked,
                 ui: Default::default(),
+                profile_sent: false,
             };
             for (id, _) in s.vault.org_spaces(&key).unwrap_or_default() {
                 if let Some(sp) = s.spaces.iter().find(|x| x.id == id) {
@@ -1153,7 +1157,7 @@ impl CleisApp {
             user,
             secret: crate::remote::Secret {
                 token: password,
-                key: String::new(),
+                ..Default::default()
             },
         };
         let Some(s) = self.session() else { return };
@@ -1386,6 +1390,7 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         let Some(o) = s.org.as_mut() else { return };
         o.busy = false;
+        let mut profile = None;
         match out {
             Outcome::Done {
                 conn,
@@ -1475,6 +1480,19 @@ impl CleisApp {
                     );
                 }
                 apply_state(s, *state, &changes);
+                // D-101: the profile set in Cleis, sent once to an organization showing another.
+                let mine = s.prefs.profile.clone();
+                if let Some(o) = s.org.as_mut()
+                    && !o.profile_sent
+                    && !mine.name.is_empty()
+                    && mine.email.contains('@')
+                    && o.me().is_some_and(|m| {
+                        m.name != mine.name || m.email != mine.email || m.photo != mine.photo
+                    })
+                {
+                    o.profile_sent = true;
+                    profile = Some(mine);
+                }
                 if was_asked {
                     let _ = crate::sync::reload(s);
                 } else {
@@ -1596,6 +1614,14 @@ impl CleisApp {
                     c.busy = false;
                 }
             }
+        }
+        if let Some(p) = profile {
+            let req = ProfileChange {
+                name: p.name,
+                email: p.email,
+                photo: Some(p.photo.unwrap_or_default()),
+            };
+            self.org_request::<_, MemberView>("/v1/me", req, |_, _, _| {}, cx);
         }
         self.org_followups(cx);
         cx.notify();

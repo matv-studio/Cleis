@@ -330,7 +330,14 @@ impl CleisApp {
             }
             if remote {
                 match (&remote_place, &place) {
-                    (Some(r), _) => crate::remote::remove(r, &secret).map_err(|e| e.to_string())?,
+                    (Some(r), _) => {
+                        // D-101: an ended GitHub App token renewed for this last call.
+                        let secret = match crate::remote::renewed(r, &secret) {
+                            Some(next) => next?,
+                            None => secret,
+                        };
+                        crate::remote::remove(r, &secret).map_err(|e| e.to_string())?
+                    }
                     (None, Some(file)) if file != &path && file.exists() => {
                         std::fs::remove_file(file).map_err(|e| e.to_string())?;
                     }

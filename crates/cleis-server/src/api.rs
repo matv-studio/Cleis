@@ -175,6 +175,44 @@ fn spaces_of(conn: &Connection, member: MemberId) -> rusqlite::Result<Vec<SpaceI
         .collect()
 }
 
+/// The spaces where `member` may do less than the role allows (D-101).
+fn limits_of(
+    conn: &Connection,
+    member: MemberId,
+) -> rusqlite::Result<std::collections::BTreeMap<SpaceId, SpaceLimit>> {
+    let mut st = conn.prepare(
+        "SELECT space, no_edit, no_show FROM access WHERE member = ?1 AND (no_edit != 0 OR no_show != 0)",
+    )?;
+    st.query_map([member.to_string()], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)? != 0,
+            r.get::<_, i64>(2)? != 0,
+        ))
+    })?
+    .map(|x| {
+        x.map(|(s, no_edit, no_show)| {
+            (
+                SpaceId(s.parse().unwrap_or_default()),
+                SpaceLimit { no_edit, no_show },
+            )
+        })
+    })
+    .collect()
+}
+
+/// Whether `member` may not change items of `space` (D-101).
+fn no_edit(conn: &Connection, space: SpaceId, member: MemberId) -> rusqlite::Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT no_edit FROM access WHERE space = ?1 AND member = ?2",
+            [space.to_string(), member.to_string()],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some_and(|v| v != 0))
+}
+
 fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
     Ok(MemberView {
         id: m.id,
@@ -192,6 +230,13 @@ fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
         factor: m.factor,
         pin_locked: pin_locked(&db::policy(conn), m.pin_fails),
         pin_reset: db::meta_json(conn, &format!("pin_reset:{}", m.id)),
+        photo: db::meta_json(conn, &format!("photo:{}", m.id)),
+        // Administrators: everything, everywhere.
+        limits: if is_admin_role(&m.role) {
+            Default::default()
+        } else {
+            limits_of(conn, m.id)?
+        },
     })
 }
 
@@ -1811,10 +1856,14 @@ async fn push(
         };
         let allowed = caller.role.can(Perm::Edit)
             && caller.role.can(perm)
+            && (caller.role.is_admin() || !no_edit(&conn, row.space, caller.id)?)
             && match &ex {
                 Some(ex) => {
                     ex.changed < row.changed
                         && (ex.space == row.space || has_key(&conn, ex.space, caller.id)?)
+                        && (ex.space == row.space
+                            || caller.role.is_admin()
+                            || !no_edit(&conn, ex.space, caller.id)?)
                 }
                 None => !conn
                     .prepare("SELECT 1 FROM purged WHERE kind = ?1 AND id = ?2")?
@@ -1861,7 +1910,10 @@ async fn push(
         let Some(ex) = existing(&conn, &kind, &id)? else {
             continue;
         };
-        if !caller.role.can(Perm::Delete) || !has_key(&conn, ex.space, caller.id)? {
+        if !caller.role.can(Perm::Delete)
+            || !has_key(&conn, ex.space, caller.id)?
+            || (!caller.role.is_admin() && no_edit(&conn, ex.space, caller.id)?)
+        {
             refused.push((kind, id));
             continue;
         }
@@ -2247,6 +2299,29 @@ async fn update_member(
         }
         if now_in != want {
             notes.push("spaces".into());
+        }
+    }
+    // D-101 (mockup 46f): rights in a space, below the role; administrators have them all.
+    if let Some(limits) = &req.limits
+        && !is_admin_role(&m.role)
+    {
+        let mut changed = false;
+        for (space, l) in limits {
+            guard_reserved(&conn, &caller, *space)?;
+            let n = conn.execute(
+                "UPDATE access SET no_edit = ?3, no_show = ?4
+                 WHERE space = ?1 AND member = ?2 AND (no_edit != ?3 OR no_show != ?4)",
+                params![
+                    space.to_string(),
+                    m.id.to_string(),
+                    l.no_edit as i64,
+                    l.no_show as i64
+                ],
+            )?;
+            changed |= n > 0;
+        }
+        if changed {
+            notes.push("rights in spaces".into());
         }
     }
     if let Some(export) = req.export
@@ -2787,6 +2862,17 @@ async fn profile(
         .any(|m| m.id != caller.id && m.email.eq_ignore_ascii_case(email))
     {
         return Err(ApiErr::bad("Another member has this e-mail address."));
+    }
+    // D-101: the photo of the profile, kept beside the member.
+    if let Some(photo) = &req.photo {
+        let key = format!("photo:{}", caller.id);
+        if photo.is_empty() {
+            db::meta_del(&conn, &key)?;
+        } else if !photo.starts_with("data:image/") || photo.len() > PHOTO_MAX {
+            return Err(ApiErr::bad("The photo is too large."));
+        } else {
+            db::meta_set_json(&conn, &key, photo)?;
+        }
     }
     conn.execute(
         "UPDATE members SET name = ?2, email = ?3 WHERE id = ?1",

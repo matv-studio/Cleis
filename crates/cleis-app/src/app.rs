@@ -202,6 +202,8 @@ pub struct Session {
     pub sync_menu: bool,
     /// The account's menu, under its picture at the top right (mockup 40d).
     pub account_menu: bool,
+    /// Mockup 46c: the profile edited under its picture.
+    pub profile_edit: Option<crate::screens::profile::ProfileEdit>,
     /// Health tab: space shown and issue filter.
     pub health: crate::screens::health::HealthUi,
     /// Open select of Settings › Preferences.
@@ -377,9 +379,15 @@ impl Session {
         self.may(e.space, cleis_core::org::Perm::See)
     }
 
-    /// What the member's role allows in `space`; everything in a personal space (audit L-1, L-4).
+    /// What the member's role allows in `space`, narrowed there (D-101); everything in a
+    /// personal space (audit L-1, L-4).
     pub fn may(&self, space: cleis_core::SpaceId, p: cleis_core::org::Perm) -> bool {
-        self.org_of(space).is_none_or(|o| o.can(p))
+        self.org_of(space).is_none_or(|o| {
+            o.can(p)
+                && o.me()
+                    .and_then(|m| m.limits.get(&space))
+                    .is_none_or(|l| l.allows(p))
+        })
     }
 
     /// Whether `space` belongs to an organization.
@@ -521,6 +529,9 @@ pub struct CleisApp {
     pub main_hwnd: Option<u64>,
     /// Demo vault (`--demo`, `--try-autofill`): nothing is registered on the computer.
     pub demo: bool,
+    /// Pages opened from the vault (a site's address), kept instead of opened in screenshots
+    /// and tests (`no_shortcuts`).
+    pub opened: Vec<String>,
     /// Published versions (D-74).
     pub update: crate::screens::update::UpdateState,
     /// The message at the bottom whose removal is planned (see [`Self::watch_toast`]).
@@ -539,6 +550,21 @@ fn password_input(
 }
 
 impl CleisApp {
+    /// An item's website in the browser; `https://` added to a bare address. Screenshots and
+    /// tests keep it in `opened` instead.
+    pub fn open_site(&mut self, url: &str, cx: &mut Context<Self>) {
+        let url = if url.contains("://") {
+            url.to_owned()
+        } else {
+            format!("https://{url}")
+        };
+        if self.no_shortcuts || self.demo {
+            self.opened.push(url);
+        } else {
+            cx.open_url(&url);
+        }
+    }
+
     pub fn new(
         path: PathBuf,
         forced_mode: Option<Mode>,
@@ -589,6 +615,7 @@ impl CleisApp {
             main_window: Some(window.window_handle()),
             autofill: Default::default(),
             no_shortcuts: false,
+            opened: vec![],
             tray: None,
             main_hwnd: crate::tray::hwnd_of(window),
             demo: false,
@@ -1201,6 +1228,7 @@ impl CleisApp {
             sync: crate::sync::load_config(&self.path),
             sync_menu: false,
             account_menu: false,
+            profile_edit: None,
             health: Default::default(),
             pref_menu: None,
             vault_filter: Default::default(),

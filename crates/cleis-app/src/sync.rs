@@ -329,6 +329,37 @@ impl CleisApp {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let mut outcome: Result<cleis_store::SyncReport, String> = Err(String::new());
+            // D-101: a GitHub App token (8 hours) renewed first, kept for the next times.
+            let mut secret = secret;
+            let (r, sec) = (remote.clone(), secret.clone());
+            if let Some(renewed) = cx
+                .background_spawn(async move { crate::remote::renewed(&r, &sec) })
+                .await
+            {
+                match renewed {
+                    Ok(next) => {
+                        let kept = next.clone();
+                        this.update(cx, |app, _| {
+                            if let Some(s) = app.session() {
+                                let key = s.sync.secret_key();
+                                let _ = s.vault.set_org_setting(&key, &Some(kept));
+                            }
+                        })
+                        .ok();
+                        secret = next;
+                    }
+                    Err(e) => {
+                        this.update(cx, |app, cx| {
+                            if let Some(s) = app.session() {
+                                s.sync.busy = false;
+                            }
+                            app.sync_done(quiet, Err(e), cx);
+                        })
+                        .ok();
+                        return;
+                    }
+                }
+            }
             for _ in 0..3 {
                 let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
                 let version = match cx

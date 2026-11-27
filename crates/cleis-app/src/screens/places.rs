@@ -26,6 +26,8 @@ pub struct PlaceDialog {
     pub busy: bool,
     /// GitHub's API, when the sign-in (37n) gave it rather than the repository box.
     pub api: Option<String>,
+    /// GitHub App sign-in (D-101): the refresh token and when the token ends.
+    pub renew: Option<(String, i64)>,
 }
 
 fn tip(
@@ -81,6 +83,7 @@ impl CleisApp {
                 error: None,
                 busy: false,
                 api: None,
+                renew: None,
             });
         }
         cx.notify();
@@ -181,7 +184,9 @@ impl CleisApp {
                     },
                     Secret {
                         token: v[3].clone(),
-                        key: String::new(),
+                        refresh: d.renew.as_ref().map(|r| r.0.clone()).unwrap_or_default(),
+                        expires: d.renew.as_ref().map_or(0, |r| r.1),
+                        ..Default::default()
                     },
                 )
             }
@@ -200,6 +205,7 @@ impl CleisApp {
                     } else {
                         String::new()
                     },
+                    ..Default::default()
                 },
             ),
         })
@@ -268,6 +274,8 @@ impl CleisApp {
                         app.github_after = Some(crate::screens::github::Signed {
                             login,
                             token: zeroize::Zeroizing::new(secret.token.clone()),
+                            refresh: zeroize::Zeroizing::new(secret.refresh.clone()),
+                            expires: secret.expires,
                             hosts: crate::github_login::Hosts {
                                 web,
                                 api: api.clone(),

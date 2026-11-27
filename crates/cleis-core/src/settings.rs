@@ -247,6 +247,29 @@ impl Default for Autofill {
     }
 }
 
+/// The person's own profile (D-101).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Profile {
+    pub name: String,
+    pub email: String,
+    /// `data:image/jpeg;base64,…`, 96 px square.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
+}
+
+impl Profile {
+    /// Initials of the name: "Lea Martin" → "LM"; one word → its first letter.
+    pub fn initials(&self) -> String {
+        self.name
+            .split_whitespace()
+            .filter_map(|w| w.chars().next())
+            .take(2)
+            .flat_map(char::to_uppercase)
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
@@ -286,6 +309,9 @@ pub struct Preferences {
     pub shortcuts: SidebarShortcuts,
     /// Contacts' shortcuts (27/11/2026): All contacts, Favorites, Birthdays soon, Uncategorized.
     pub contact_shortcuts: [bool; 4],
+    /// Who you are in Cleis (D-101, mockup 46c): shown at the top right and sent to every
+    /// organization (its members list and activity log).
+    pub profile: Profile,
     /// Shortcuts inside Cleis changed from `APP_KEYS` (mockup 38); `""`: none.
     pub app_keys: std::collections::BTreeMap<String, String>,
     /// Order of the folders and spaces in the sidebar (dragged); the others follow by name.
@@ -318,6 +344,7 @@ impl Default for Preferences {
             dark_logo: false,
             shortcuts: SidebarShortcuts::default(),
             contact_shortcuts: [true; 4],
+            profile: Profile::default(),
             app_keys: Default::default(),
             space_order: Vec::new(),
             sort_by: SortBy::Name,

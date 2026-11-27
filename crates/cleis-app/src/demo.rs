@@ -498,6 +498,8 @@ pub fn org(s: &mut crate::app::Session) {
         factor: two_fa.then_some(Method::AuthenticatorApp),
         pin_locked: false,
         pin_reset: None,
+        photo: None,
+        limits: Default::default(),
     };
     let all: Vec<SpaceId> = spaces.iter().map(|x| x.0).collect();
     let today = now - now.rem_euclid(86_400);
@@ -548,6 +550,15 @@ pub fn org(s: &mut crate::app::Session) {
             today - 4 * 86_400 + 9 * 3600 + 3 * 60,
         ),
     ];
+    let mut members = members;
+    // Mockup 46f: Hugo copies the Design passwords without seeing them.
+    members[1].limits.insert(
+        sp("Design"),
+        cleis_core::org::SpaceLimit {
+            no_edit: false,
+            no_show: true,
+        },
+    );
     let lea = members[0].id;
     let space_views = spaces
         .iter()
@@ -846,6 +857,8 @@ pub fn org(s: &mut crate::app::Session) {
         pin: None,
         offline_locked: false,
         ui,
+        // Shown only: nothing sent from a screenshot.
+        profile_sent: true,
     });
 }
 
@@ -979,6 +992,7 @@ pub fn second_org(s: &mut crate::app::Session) {
         pin: None,
         offline_locked: false,
         ui: Default::default(),
+        profile_sent: true,
     });
     s.refilter();
 }

@@ -184,33 +184,7 @@ fn shortcut_row(s: &Session, r: Row, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                     .test_support(),
             )
         })
-        .child(if recording {
-            div()
-                .w(px(150.))
-                .h(CONTROL_SM)
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(RADIUS_MD)
-                .bg(t.bg)
-                .border_2()
-                .border_color(t.focus)
-                .text_size(TEXT_SM)
-                .text_color(t.text_muted)
-                .child(tr("Press the keys…"))
-                .into_any_element()
-        } else if keys_now.is_empty() {
-            div()
-                .text_size(TEXT_SM)
-                .text_color(t.text_faint)
-                .child(tr("None"))
-                .into_any_element()
-        } else {
-            let c = caps(&keys_now);
-            let r: Vec<&str> = c.iter().map(String::as_str).collect();
-            keys(t, &r).into_any_element()
-        })
-        // The reset, or its room: the buttons stay in one column.
+        // The reset, or its room: the boxes stay in one column.
         .child(
             div()
                 .w(CONTROL_SM)
@@ -232,39 +206,67 @@ fn shortcut_row(s: &Session, r: Row, t: &Tokens, cx: &mut Context<CleisApp>) -> 
                     )
                 }),
         )
-        .child(
-            button(
-                SharedString::from(format!("{id}-change")),
-                t,
-                BtnKind::Ghost,
-                true,
-            )
-            .w(px(72.))
-            .justify_center()
-            .child(if recording {
-                tr("Cancel")
-            } else {
-                tr("Change")
-            })
-            .when(recording, |b| {
-                b.tooltip(tip(tr("Esc: cancel · Backspace: none")))
-            })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                if let Some(s) = this.session() {
-                    s.recording = if s.recording == Some(id) {
-                        None
+        // Mockup 46e: the keys in a box that reads as a field; a click records the next ones.
+        .child({
+            let (hover_line, hover_fill) = (t.text_faint, t.surface_hover);
+            div()
+                .id(SharedString::from(format!("{id}-keys")))
+                .w(px(168.))
+                .h(px(28.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(RADIUS_MD)
+                .bg(t.bg)
+                .cursor_pointer()
+                .map(|d| {
+                    if recording {
+                        d.border_2().border_color(t.focus)
                     } else {
-                        Some(id)
-                    };
-                    if s.recording.is_some() {
-                        let f = s.keys_focus.clone();
-                        window.focus(&f, cx);
+                        d.border_1()
+                            .border_color(t.line_strong)
+                            .hover(move |s| s.border_color(hover_line).bg(hover_fill))
                     }
-                }
-                cx.notify();
-            }))
-            .test_support(),
-        )
+                })
+                .child(if recording {
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_muted)
+                        .child(tr("Press the keys…"))
+                        .into_any_element()
+                } else if keys_now.is_empty() {
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_faint)
+                        .child(tr("None"))
+                        .into_any_element()
+                } else {
+                    let c = caps(&keys_now);
+                    let r: Vec<&str> = c.iter().map(String::as_str).collect();
+                    keys(t, &r).into_any_element()
+                })
+                .tooltip(tip(if recording {
+                    tr("Esc: cancel · Backspace: none")
+                } else {
+                    tr("Click, then press the new keys")
+                }))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(s) = this.session() {
+                        s.recording = if s.recording == Some(id) {
+                            None
+                        } else {
+                            Some(id)
+                        };
+                        if s.recording.is_some() {
+                            let f = s.keys_focus.clone();
+                            window.focus(&f, cx);
+                        }
+                    }
+                    cx.notify();
+                }))
+                .test_support()
+        })
         .child(match r.switch {
             Some((on, flip)) => switch(if id == "qa" { "af-qa" } else { "af-best" }, t, on)
                 .on_click(cx.listener(move |this, _, _, cx| this.update_prefs(flip, cx)))

@@ -46,6 +46,12 @@
 - D-100 (maquettes 43a, 44, 45 validées) : cases enregistrées en les quittant, plus de perte du clavier
   au rechargement ; créations dans l'organisation affichée ; Contacts en sections avec Uncategorized ;
   Health › Change par une carte ; raccourcis en grille.
+- D-101 (maquettes 41, 46a à 46f validées) : GitHub App « cleis-sync » (création / installation du dépôt
+  guidées, jeton renouvelé), profil de Cleis depuis l'avatar (photo, nom, e-mail envoyés aux
+  organisations), droits par espace (Access, Edit, Show passwords), bouton d'ouverture de la colonne
+  Website, raccourcis en case éditable, table qui défile en largeur.
+- À essayer sur Windows : connexion GitHub réelle avec la GitHub App (création du dépôt sur la page
+  préremplie, installation sur `cleis-vault` seul, reprise automatique), renouvellement du jeton après 8 h.
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

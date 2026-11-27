@@ -151,6 +151,8 @@ pub struct OrgUi {
     /// Space to reserve once its re-encryption to end-to-end is done.
     pub reserve_after: Option<SpaceId>,
     pub delete_space: Option<SpaceId>,
+    /// Spaces: the space unfolded, its members' rights shown (mockup 46f).
+    pub space_open: Option<SpaceId>,
     /// Server hosted on this computer: running, and the addresses members can reach.
     pub host: Option<(bool, Vec<String>)>,
     pub host_busy: bool,
@@ -624,7 +626,7 @@ pub fn members(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap(px(10.))
-                        .child(avatar(t, &initials(&m.name), 28.))
+                        .child(super::profile::member(t, m, 28.))
                         .child(
                             div()
                                 .flex()
@@ -4234,7 +4236,19 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         let joining = s.org.is_none() || s.settings_page == "Add an organization";
         if joining && s.join.address.is_none() {
+            // D-101: you, as your profile says (name, e-mail), when joining or creating.
+            let me = super::profile::effective(s);
             let (mut join, subs) = join_form(window, cx);
+            for (field, v) in [
+                (join.name.clone(), me.name.clone()),
+                (join.email.clone(), me.email.clone()),
+                (join.creator.clone(), me.name.clone()),
+            ] {
+                if let Some(f) = field.filter(|_| !v.is_empty()) {
+                    f.update(cx, |i, cx| i.set_value(v, window, cx));
+                }
+            }
+            let Some(s) = self.session() else { return };
             join.elsewhere = s.join.elsewhere;
             join.place = s.join.place;
             join.folder = s.join.folder.clone();
@@ -4414,7 +4428,7 @@ impl CleisApp {
                 let secret = crate::org::SftpSecret {
                     secret: crate::remote::Secret {
                         token: password,
-                        key: String::new(),
+                        ..Default::default()
                     },
                     host_key: String::new(),
                 };
@@ -4577,7 +4591,7 @@ impl CleisApp {
             let secret = crate::org::SftpSecret {
                 secret: crate::remote::Secret {
                     token: password,
-                    key: String::new(),
+                    ..Default::default()
                 },
                 host_key: String::new(),
             };
@@ -4807,6 +4821,61 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 // Shown only: nothing is sent from a screenshot.
                 s.sync.auto = false;
             }
+        }
+        // Mockup 46f: Spaces, Design unfolded.
+        "space-members" => {
+            if let Some(o) = org_mut(app) {
+                o.ui.space_open = o.state.as_ref().and_then(|st| {
+                    st.spaces
+                        .iter()
+                        .map(|sv| sv.id)
+                        .find(|id| o.names.get(id).is_some_and(|n| n == "Design"))
+                });
+            }
+        }
+        // Mockup 46d: the Website column, its open button on the selected row.
+        "website" => {
+            if let Some(s) = app.session() {
+                for c in s.columns.iter_mut() {
+                    if c.id.0 == "website" {
+                        c.visible = true;
+                    }
+                }
+            }
+        }
+        // Mockup 46c: the profile edited under its picture.
+        "profile-edit" => app.open_profile_edit(window, cx),
+        // Mockup 46a: the profile's menu.
+        "profile-menu" => {
+            if let Some(s) = app.session() {
+                s.account_menu = true;
+            }
+        }
+        // Mockups 37n, 41a, 41b: the code to type, then the steps on GitHub (shown only).
+        "github" | "github-create" | "github-install" => {
+            let signed = super::github::Signed {
+                login: "lea-example".into(),
+                token: zeroize::Zeroizing::new(String::new()),
+                refresh: zeroize::Zeroizing::new(String::new()),
+                expires: 0,
+                hosts: app.github_hosts.clone(),
+            };
+            app.github = Some(super::github::GitHubSignIn {
+                code: Some(crate::github_login::DeviceCode {
+                    device_code: String::new(),
+                    user_code: "WDJB-MJHT".into(),
+                    verification_uri: "https://github.com/login/device".into(),
+                    expires_in: 900,
+                    interval: 5,
+                }),
+                setup: (m != "github").then(|| super::github::Setup {
+                    signed,
+                    made: m == "github-install",
+                    installing: m == "github-install",
+                    restoring: false,
+                }),
+                ..Default::default()
+            });
         }
         // Mockup 37q: Security policy › Organization PIN › Change.
         "org-pin-setup" => {
@@ -5192,7 +5261,7 @@ pub fn profile_sections(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> 
         ))
         .child(
             row(t, true)
-                .child(avatar(t, &initials(&me.name), 40.))
+                .child(super::profile::member(t, me, 40.))
                 .child(
                     div()
                         .flex_1()
@@ -5407,6 +5476,193 @@ impl IntoDiv for gpui_kit::AnyElement {
     }
 }
 
+/// What a box of the rights does when clicked.
+type RightAct = Box<dyn Fn(&mut CleisApp, &mut Context<CleisApp>)>;
+
+/// Mockup 46f: a space unfolded, each member and what each may do in it. The role set on the
+/// server is the ceiling: a space takes a right away, never gives one (a box the role does not
+/// allow is greyed, its tip says why). Administrators: everything, greyed.
+fn space_members(
+    o: &OrgSession,
+    st: &State,
+    sv: &SpaceView,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    let space = sv.id;
+    let manage = o.can(Perm::Manage);
+    let i_super = st.me.role == SUPER_ADMIN;
+    let locked = sv.reserved && !i_super;
+    let grid = |d: Div| d.flex().items_center().gap(px(12.)).pl(px(56.)).pr(px(16.));
+    let col = |w: f32| div().w(px(w)).flex().justify_center();
+    let mut panel = div()
+        .id(SharedString::from(format!("space-members-{space}")))
+        .flex()
+        .flex_col()
+        .pb(px(8.))
+        .border_b_1()
+        .border_color(t.line)
+        .child(
+            grid(div())
+                .h(px(28.))
+                .text_size(TEXT_XS)
+                .text_color(t.text_muted)
+                .font_weight(W_MEDIUM)
+                .child(div().w(px(28.)))
+                .child(div().flex_1().child(tr("Member")))
+                .child(col(96.).child(tr("Access")))
+                .child(
+                    col(96.)
+                        .id("h-edit")
+                        .child(tr("Edit"))
+                        .tooltip(tip(tr("Add, change, move to the trash"))),
+                )
+                .child(
+                    col(128.)
+                        .id("h-show")
+                        .child(tr("Show passwords"))
+                        .tooltip(tip(tr("Without: copy and fill only"))),
+                ),
+        );
+    for m in st.members.iter().filter(|m| !m.revoked) {
+        let mid = m.id;
+        let admin = is_admin_role(&m.role);
+        let role = st.roles.iter().find(|r| r.id == m.role);
+        let role_name = role.map(|r| r.name.clone()).unwrap_or_default();
+        let has = admin || m.spaces.contains(&space);
+        let limit = m.limits.get(&space).copied().unwrap_or_default();
+        let current = m.spaces.clone();
+        // One box: its state, whether it can be clicked, and why not.
+        let cell = |key: &str,
+                    w: f32,
+                    on: bool,
+                    why: Option<String>,
+                    act: Option<RightAct>,
+                    cx: &mut Context<CleisApp>| {
+            let off = act.is_none();
+            col(w).child(
+                div()
+                    .id(SharedString::from(format!("sm-{key}-{space}-{mid}")))
+                    .when(!off, |d| d.cursor_pointer())
+                    .child(check_box(t, on).when(off, |d| d.opacity(0.4)))
+                    .when_some(why, |d, w| d.tooltip(tip(w)))
+                    .when_some(act, |d, f| {
+                        d.on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            f(this, cx)
+                        }))
+                    })
+                    .test_support(),
+            )
+        };
+        let editable = manage && !admin && !locked;
+        let why_locked = || {
+            if admin {
+                Some(tr("Administrators see every space").to_owned())
+            } else if locked {
+                Some(tr("Reserved: a Super Admin changes its members").to_owned())
+            } else {
+                None
+            }
+        };
+        let access = cell(
+            "access",
+            96.,
+            has,
+            why_locked(),
+            editable.then(|| -> RightAct {
+                let current = current.clone();
+                Box::new(move |app, cx| {
+                    let mut next = current.clone();
+                    if has {
+                        next.retain(|x| *x != space);
+                    } else {
+                        next.push(space);
+                    }
+                    app.org_member(
+                        MemberChange {
+                            member: mid,
+                            spaces: Some(next),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                })
+            }),
+            cx,
+        );
+        // Edit and Show passwords: within the role, with access.
+        let right = |key: &str,
+                     w: f32,
+                     p: Perm,
+                     on_now: bool,
+                     flip: fn(&mut SpaceLimit),
+                     cx: &mut Context<CleisApp>| {
+            let allowed = role.is_some_and(|r| r.can(p));
+            let (on, why) = if admin {
+                (true, why_locked())
+            } else if !allowed {
+                (
+                    false,
+                    Some(crate::trf!("Not allowed by the role {}", role_name)),
+                )
+            } else if !has {
+                (false, Some(tr("No access").to_owned()))
+            } else {
+                (on_now, why_locked())
+            };
+            let act = (editable && allowed && has).then(|| -> RightAct {
+                Box::new(move |app, cx| {
+                    let mut l = limit;
+                    flip(&mut l);
+                    app.org_member(
+                        MemberChange {
+                            member: mid,
+                            limits: Some([(space, l)].into_iter().collect()),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                })
+            });
+            cell(key, w, on, why, act, cx)
+        };
+        let edit = right(
+            "edit",
+            96.,
+            Perm::Edit,
+            !limit.no_edit,
+            |l| l.no_edit = !l.no_edit,
+            cx,
+        );
+        let show = right(
+            "show",
+            128.,
+            Perm::See,
+            !limit.no_show,
+            |l| l.no_show = !l.no_show,
+            cx,
+        );
+        panel = panel.child(
+            grid(div())
+                .h(px(40.))
+                .child(super::profile::member(t, m, 28.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(m.name.clone()),
+                )
+                .child(access)
+                .child(edit)
+                .child(show),
+        );
+    }
+    panel.test_support()
+}
+
 pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let Some(o) = s.org.as_ref() else {
         return div();
@@ -5451,7 +5707,10 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .rounded_full()
                     .border_2()
                     .border_color(t.surface)
-                    .child(avatar(t, &initials(&o.member_name(*m)), 22.)),
+                    .child(match st.members.iter().find(|x| x.id == *m) {
+                        Some(x) => super::profile::member(t, x, 22.),
+                        None => avatar(t, &initials(&o.member_name(*m)), 22.),
+                    }),
             );
         }
         faces = faces.child(
@@ -5460,17 +5719,47 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .text_color(t.text_muted)
                 .child(sv.members.len().to_string()),
         );
+        let open = o.ui.space_open == Some(id);
+        let hover = t.surface_hover;
         table = table.child(
             cols(div())
+                .id(SharedString::from(format!("space-row-{id}")))
                 .h(px(44.))
                 .border_b_1()
                 .border_color(t.line)
+                .cursor_pointer()
+                .when(open, |d| d.bg(hover))
+                .hover(move |d| d.bg(hover))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(o) = org_mut(this) {
+                        o.ui.space_open = if o.ui.space_open == Some(id) {
+                            None
+                        } else {
+                            Some(id)
+                        };
+                    }
+                    cx.notify();
+                }))
                 .child(
                     div()
                         .flex_1()
                         .flex()
                         .items_center()
                         .gap(px(8.))
+                        .child(
+                            gpui_kit::svg()
+                                .path("icons/chevron.svg")
+                                .size(px(14.))
+                                .flex_none()
+                                .text_color(t.text_muted)
+                                .with_transformation(gpui_kit::Transformation::rotate(
+                                    gpui_kit::radians(if open {
+                                        0.
+                                    } else {
+                                        -std::f32::consts::FRAC_PI_2
+                                    }),
+                                )),
+                        )
                         .child(icon("folder", 16., t.text_muted))
                         .child(o.space_name(id)),
                 )
@@ -5492,9 +5781,10 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .id(SharedString::from(format!("reserve-{id}")))
                         .cursor_pointer()
                         .child(check_box(t, sv.reserved))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.org_reserve(id, !reserved, cx)),
-                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.org_reserve(id, !reserved, cx)
+                        }))
                         .test_support()
                         .into_any_element()
                 } else if sv.reserved {
@@ -5521,6 +5811,7 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 "Only a member of the space renames it"
                             }))
                             .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
                                 if holds {
                                     this.open_rename(id, window, cx);
                                 }
@@ -5536,6 +5827,7 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             )
                             .tooltip(tip(tr("Delete")))
                             .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
                                 if let Some(o) = org_mut(this) {
                                     o.ui.delete_space = Some(id);
                                 }
@@ -5543,8 +5835,12 @@ pub fn spaces(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             }))
                             .test_support(),
                         ),
-                ),
+                )
+                .test_support(),
         );
+        if open {
+            table = table.child(space_members(o, st, sv, t, cx));
+        }
     }
     div()
         .flex()
@@ -5646,12 +5942,27 @@ impl CleisApp {
         let req = ProfileChange {
             name: n.read(cx).value().trim().to_string(),
             email: e.read(cx).value().trim().to_string(),
+            photo: None,
         };
+        let (name, email) = (req.name.clone(), req.email.clone());
         self.org_request::<_, MemberView>(
             "/v1/me",
             req,
-            |app, r, cx| {
+            move |app, r, cx| {
                 if r.is_ok() {
+                    // D-101: one profile in Cleis; the other organizations get it too.
+                    app.update_prefs(
+                        |p| {
+                            p.profile.name = name;
+                            p.profile.email = email;
+                        },
+                        cx,
+                    );
+                    if let Some(s) = app.session() {
+                        for o in s.orgs_idle.iter_mut() {
+                            o.profile_sent = false;
+                        }
+                    }
                     app.toast(tr("Saved"), cx);
                 }
             },

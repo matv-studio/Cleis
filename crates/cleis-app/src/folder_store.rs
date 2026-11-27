@@ -467,6 +467,7 @@ mod tests {
         let secret = Secret {
             token: String::new(),
             key: std::fs::read_to_string(d.join("user")).unwrap(),
+            ..Default::default()
         };
         let mut st = SftpStore::new(place.clone(), secret.clone(), String::new()).unwrap();
         assert_eq!(st.read("ops/a/1.json").unwrap(), None);

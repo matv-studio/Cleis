@@ -2033,6 +2033,116 @@ function raccourciConflit() {
     .replace('>Cancel</button>', '>Change</button>');
 }
 
+// ---------- 46 (27/11/2026): profile from the avatar, website link, shortcut boxes, space members ----------
+// 46a. The avatar always opens its menu, signed in or not: the profile is Cleis's own (name, e-mail,
+// photo), the one every organization shows of you and writes in its activity log.
+const meAv = (size = 24, photo = true) => `<span class="avatar" style="width:${size}px;height:${size}px;${photo ? 'background:linear-gradient(135deg,#6b8f71,#3d5a80);color:#fff' : ''}">LM</span>`;
+function profilMenu({ github = false } = {}) {
+  const head = `<div class="member" style="padding:var(--s-2) var(--s-2) var(--s-3)">${meAv(32)}<div class="meta"><span style="font-weight:var(--weight-medium)">Lea Martin</span><span class="sub">${github ? '@lea-example · Synced 2 min ago' : 'Local account'}</span></div></div>`;
+  const menu = `<div class="menu" style="right:132px;top:44px;width:260px">${head}${sep}
+      ${mi('user', 'Edit profile', '', { hover: true })}${github ? mi('sync', 'Sync now') : mi('cloud', 'Sign in to sync…')}${mi('gear', 'Account')}${sep}${github ? mi('logout', 'Sign out') : mi('lock', 'Lock', 'Ctrl+L')}</div>`;
+  const html = shell('Vault', `<div class="work">${sidebar()}<section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div></section></div>${statusbar()}`, { overlay: menu });
+  return html.replace(/<span class="avatar" title="Lea Martin">LM<\/span>/, `<span style="border-radius:99px;outline:1px solid var(--focus);outline-offset:1px;display:inline-grid">${meAv()}</span>`);
+}
+function profilMenuGithub() { return profilMenu({ github: true }); }
+// 46b. Edit profile: a card under the avatar. The photo is the button (hover: upload sign). Saved
+// once for Cleis and sent to each organization; their logos show where it goes.
+function profilEditer() {
+  const orgs = `<span style="display:inline-flex;gap:4px" title="Example Studio, Atelier Nord">${orgLogo(20)}<span style="width:20px;height:20px;border-radius:var(--radius-md);display:inline-grid;place-items:center;background:#4a3f35;color:#f0d9b5;font-size:10px;font-weight:600">AN</span></span>`;
+  const card = `<div class="menu" style="right:132px;top:44px;width:320px;padding:var(--s-4);display:flex;flex-direction:column;gap:var(--s-3)">
+      <div style="display:flex;align-items:center;gap:var(--s-3)">
+        <span style="position:relative;display:inline-grid" title="Change the photo">${meAv(56)}<span style="position:absolute;inset:0;border-radius:99px;background:rgba(0,0,0,.45);display:grid;place-items:center;color:#fff">${i('upload')}</span></span>
+        <div style="display:flex;flex-direction:column;gap:2px;flex:1"><span style="font-weight:var(--weight-medium)">Profile</span><span style="display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:var(--text-sm)">Shown to ${orgs}</span></div>
+      </div>
+      ${fld('Name', 'Lea Martin', true)}${fld('E-mail', 'lea@example-studio.com')}
+      <div style="display:flex;justify-content:flex-end;gap:var(--s-2)"><button class="btn btn--sm">Cancel</button><button class="btn btn--primary btn--sm">Save</button></div></div>`;
+  const html = shell('Vault', `<div class="work">${sidebar()}<section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div></section></div>${statusbar()}`, { overlay: card });
+  return html.replace(/<span class="avatar" title="Lea Martin">LM<\/span>/, `<span style="border-radius:99px;outline:1px solid var(--focus);outline-offset:1px;display:inline-grid">${meAv()}</span>`);
+}
+// 46c. Website column: the open-link button next to the address, like copy next to the password.
+// Both cell buttons get a stronger hover (a darker-than-the-row fill, the icon brightened; no
+// outline, no colour) to read as buttons on a highlighted row; the icon stays centred.
+const strong = 'background:var(--surface-active);color:var(--text)';
+function siteColonne() {
+  const sites = { OVHcloud: 'example-ovh.com', Cloudflare: 'example-cloudflare.com', Figma: 'example-figma.com', 'Adobe Creative Cloud': 'example-adobe.com', Notion: 'example-notion.com', 'Google Workspace': 'example-google.com', 'Microsoft 365': 'example-office.com', 'Bank — business portal': 'example-bank.com', GitHub: 'example-github.com', Webflow: 'example-webflow.com' };
+  const rows = ROWS.filter((r) => sites[r.n]).map((r) => {
+    const hov = r.n === 'Figma', sel = r.n === 'Notion';
+    const b = (ico, tip, on = false) => `<button class="icon-btn icon-btn--sm" style="${on ? strong : ''};${hov || sel ? '' : 'visibility:hidden'}" title="${tip}">${i(ico)}</button>`;
+    const totp = r.totp ? `<span class="totp"><span class="ring ${r.p < 25 ? 'low' : ''}" style="--p:${r.p}%"></span>${r.totp}</span>` : '<span style="color:var(--text-faint)">—</span>';
+    return `<tr class="${hov ? 'is-hover' : ''} ${sel ? 'is-selected' : ''}"><td><span class="site"><span class="site-ico">${r.c}</span><span class="site-name">${r.n}</span></span></td>
+      <td class="muted"><span class="cellflex"><span class="ell">${r.u}</span>${b('copy', 'Copy username')}</span></td>
+      <td><span class="cellflex"><span class="dots ell">••••••</span>${b('copy', 'Copy password', hov)}</span></td>
+      <td class="muted"><span class="cellflex"><span class="ell">${sites[r.n]}</span>${b('external', `Open ${sites[r.n]}`)}</span></td>
+      <td>${totp}</td></tr>`;
+  }).join('');
+  const table = `<table class="table table--fixed"><thead><tr><th style="width:200px" class="sorted">Name <span class="sort">↑</span></th><th>Username</th><th style="width:116px">Password</th><th style="width:200px">Website</th><th style="width:100px">2FA code</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const zoom = `<div style="position:absolute;right:24px;bottom:56px;display:flex;gap:var(--s-4);align-items:center;padding:var(--s-3) var(--s-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);font-size:var(--text-sm);color:var(--text-muted)">
+      <span>Rest</span><button class="icon-btn icon-btn--sm">${i('external')}</button>
+      <span>Hover</span><button class="icon-btn icon-btn--sm" style="${strong}">${i('external')}</button></div>`;
+  return shell('Vault', `<div class="work">${sidebar()}<section class="center">${vaultToolbar()}<div class="table-wrap">${table}</div></section></div>${statusbar()}`, { overlay: zoom });
+}
+// 46d. Shortcuts: the keys sit in a box that reads as a field; a click on it records, Esc cancels,
+// Backspace clears. No "Change" button.
+function raccourcisCases() {
+  const box = (k, { hover = false, rec = false, none = false } = {}) => `<span class="input input--sm ${rec ? 'is-focus' : ''}" style="width:168px;height:28px;justify-content:center;cursor:pointer;${hover ? 'border-color:var(--text-faint);background:var(--surface-hover)' : ''}" title="${rec ? 'Esc: cancel · Backspace: none' : 'Click, then press the new keys'}">${rec ? '<span style="color:var(--text-muted);font-size:var(--text-sm)">Press the keys…</span>' : none ? '<span class="ph" style="font-size:var(--text-sm)">None</span>' : keys(...k)}</span>`;
+  const row = (label, k, { tip = '', changed = '', sw = null, ...o } = {}) => `<div class="row"><span class="row-label" ${tip ? `title="${tip}"` : ''}>${label}</span>
+    ${changed ? `<button class="icon-btn icon-btn--sm" title="Back to ${changed}">${i('refresh')}</button>` : '<span style="width:24px"></span>'}
+    ${box(k, o)}${sw === null ? '<span style="width:26px;flex:none"></span>' : `<span class="switch ${sw ? 'on' : ''}"></span>`}</div>`;
+  const nav = settingsNav('Shortcuts').replace(`<span>Sync & backups</span></div>`, `<span>Sync & backups</span></div><div class="side-item is-active">${i('keyboard')}<span>Shortcuts</span></div>`);
+  const body = `
+    <div class="page-head"><h1>Shortcuts</h1><span style="flex:1"></span><button class="btn btn--ghost btn--sm" title="Every shortcut back to Cleis's">Reset all</button></div>
+    <div class="section">${sectionTitle('Everywhere', 'Work in any app, even when Cleis is in the background')}
+      ${row('Quick Access', ['Ctrl', 'Shift', 'Space'], { sw: true })}
+      ${row('Fill best match', ['Ctrl', 'Alt', 'A'], { tip: 'Fills the item linked to the window in front', sw: true })}
+    </div>
+    <div class="section">${sectionTitle('In Cleis')}
+      ${row('Lock', ['Ctrl', 'L'])}
+      ${row('New password', ['Ctrl', 'N'], { tip: 'New contact in Contacts', hover: true })}
+      ${row('Search', ['Ctrl', 'K'], { changed: 'Ctrl+F' })}
+    </div>
+    <div class="section">${sectionTitle('Selected item')}
+      ${row('Copy username', ['Ctrl', 'C'])}
+      ${row('Copy password', [], { rec: true })}
+      ${row('Copy 2FA code', [], { none: true, changed: 'Ctrl+Alt+C' })}
+      ${row('Duplicate', ['Ctrl', 'D'])}
+      ${row('Move to trash', ['Del'])}
+    </div>`;
+  return shell('Settings', `<div class="settings">${nav}<div class="settings-body"><div class="page">${body}</div></div></div>`, { primary: null });
+}
+// 46f. Spaces: a click on a space unfolds its members and what each may do in it: Access, Edit
+// (add, change, trash), Show passwords (without: copy and fill only). The role set on the server
+// is the ceiling: a space narrows it, never widens it (a box the role does not allow is greyed,
+// its tip says why). Administrators: everything, greyed. Reserved space: Super Admin only.
+function espacesMembres() {
+  const av = (xs) => `<span style="display:inline-flex">${xs.map((x, k) => `<span class="avatar avatar--sm" style="margin-left:${k ? -6 : 0}px">${x}</span>`).join('')}</span>`;
+  const r = (n, items, ms, mode, open = false) => `<tr ${open ? 'style="background:var(--surface-hover)"' : ''}><td><span class="site"><span style="display:inline-grid;transform:rotate(${open ? 0 : -90}deg);color:var(--text-muted)">${i('chevron')}</span>${i('folder')}<span>${n}</span></span></td><td class="num muted">${items}</td><td>${av(ms)} <span class="muted" style="margin-left:6px">${ms.length}</span></td><td>${mode === 'e' ? '<span class="chip chip--ok">End-to-end</span>' : '<span class="chip">Standard</span>'}</td>
+    <td style="text-align:right"><button class="icon-btn icon-btn--sm" title="Rename">${i('text')}</button><button class="icon-btn icon-btn--sm" title="Delete">${i('trash')}</button></td></tr>`;
+  const grid = 'display:grid;grid-template-columns:28px 1fr 96px 96px 128px;align-items:center;gap:var(--s-3);padding:0 var(--s-4) 0 56px';
+  // v: [access, edit, show]; each true / false / 'x' (not allowed by the role: greyed, empty).
+  const ck = (v, tip = '', fixed = false) => `<span style="display:flex;justify-content:center" ${tip ? `title="${tip}"` : ''}><span class="check ${v === true ? 'on' : ''}" style="${fixed || v === 'x' ? 'opacity:.4' : 'cursor:pointer'}">${v === true ? i('check') : ''}</span></span>`;
+  const m = (ini, name, v, { admin = false, role = '', hover = false } = {}) => `<div style="${grid};height:40px;${hover ? 'background:var(--surface-hover)' : ''}">
+      <span class="avatar">${ini}</span><span>${name}</span>
+      ${ck(v[0], admin ? 'Administrators see every space' : '', admin)}
+      ${ck(v[0] === false ? 'x' : v[1], admin ? '' : v[1] === 'x' ? `Not allowed by the role ${role}` : v[0] === false ? 'No access' : '', admin)}
+      ${ck(v[0] === false ? 'x' : v[2], admin ? '' : v[2] === 'x' ? `Not allowed by the role ${role}` : v[0] === false ? 'No access' : 'Without: copy and fill only', admin)}</div>`;
+  const open = `<tr><td colspan="5" style="padding:0;border-bottom:1px solid var(--line)">
+      <div style="${grid};height:28px;color:var(--text-muted);font-size:var(--text-xs);font-weight:var(--weight-medium)"><span></span><span>Member</span><span style="text-align:center">Access</span><span style="text-align:center" title="Add, change, move to the trash">Edit</span><span style="text-align:center" title="Without: copy and fill only">Show passwords</span></div>
+      ${m('LM', 'Lea Martin', [true, true, true], { admin: true })}
+      ${m('IP', 'Ines Petit', [true, true, true], { admin: true })}
+      ${m('HB', 'Hugo Bernard', [true, true, false])}
+      ${m('SR', 'Sam Roux', [true, false, true], { hover: true })}
+      ${m('TD', 'Tom Dubois', [true, 'x', 'x'], { role: 'Intern' })}
+      ${m('ZM', 'Zoe Moreau', [false, false, false])}
+      <div style="height:var(--s-2)"></div></td></tr>`;
+  return settings('Spaces', `
+    <div class="page-head"><h1>Spaces</h1><button class="btn btn--primary">${i('plus')}New space</button></div>
+    <div class="section" style="padding:0;overflow:hidden">
+      <table class="table table--roomy"><thead><tr><th>Space</th><th class="num" style="width:80px">Items</th><th>Members</th><th style="width:140px">Encryption</th><th style="width:90px"></th></tr></thead><tbody>
+        ${r('General', 41, ['LM', 'HB', 'IP', 'SR'], 's')}${r('Design', 18, ['LM', 'IP', 'HB', 'SR', 'TD'], 's', true)}${open}${r('Accounting', 12, ['LM', 'IP'], 'e')}${r('Dev', 9, ['LM', 'HB'], 's')}${r('Interns', 6, ['LM', 'TD'], 's')}
+      </tbody></table>
+    </div>`);
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -2154,6 +2264,12 @@ export const SCREENS = {
   '44b-contacts-sans-dossier': ['Contacts — organization, uncategorized', contactsUncategorized],
   '45a-raccourcis-grille': ['Preferences — shortcuts as a grid, per vault', raccourcisGrille],
   '45b-raccourcis-grille-meme': ['Preferences — shortcuts as a grid, same for every vault', raccourcisGrilleMeme],
+  '46a-profil-menu': ['Profile menu — not signed in', profilMenu],
+  '46b-profil-menu-github': ['Profile menu — signed in to GitHub', profilMenuGithub],
+  '46c-profil-editer': ['Profile — edit from the avatar', profilEditer],
+  '46d-colonne-site': ['Website column — open link, stronger cell buttons', siteColonne],
+  '46e-raccourcis-cases': ['Shortcuts — keys in an editable box', raccourcisCases],
+  '46f-espaces-membres': ['Spaces — members of a space', espacesMembres],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],

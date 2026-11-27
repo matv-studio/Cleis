@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-100,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-101,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -16,7 +16,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
    [--quick-access] [--restore] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
@@ -85,7 +85,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   partagé : opérations signées, copie locale rejouée par `cleis_server::local`, D-78),
   `screens/wheel.rs` (roue chromatique), `opening.rs` (ouverture par
   Windows Hello, PIN ou sans rien, fichier `<coffre>.unlock`, D-76, D-83), `screens/pin.rs` (cases du
-  PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84), `screens/keys.rs`
+  PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84 ; GitHub App, D-101), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
   (Paramètres › Shortcuts, D-85), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
@@ -172,5 +172,10 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   attendent une empreinte Argon2id (64 Mio) bouclent sur `run_until_parked` + court sommeil.
 - Essais e2e : une boîte ne reçoit `Blur` / `Focus` que dans une fenêtre active :
   `w.activate_window()` avant de cliquer ailleurs (enregistrement en quittant une case, D-100).
+- GitHub App (D-101) : un jeton ne voit que les dépôts où l'application est installée (404 sinon, comme
+  un dépôt absent) ; `GET /user/installations` distingue « jamais installée ». Essais : `fake_github_app`
+  (`GhApp` : création refusée, installation, jetons qui expirent) ; jamais github.com.
+- Un `div` porteur d'un `group` / d'un `id` change de type avec `.test_support()` : rendre
+  `impl IntoElement` plutôt que `Stateful<Div>`.
 - Dossier partagé supprimé (D-98) : seule `deleted.json` reste ; le registre `folder_org` a pour clé le
   chemin de la copie (`replica_dir(...).display()`), pas la clé de l'organisation.

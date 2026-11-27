@@ -216,7 +216,7 @@ fn autofill_settings_and_quick_access(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("speed-Slow", cx));
     // Mockup 38: the system-wide shortcuts are in Settings › Shortcuts.
     act(cx, h, |w, cx| w.click("set-Shortcuts", cx));
-    act(cx, h, |w, cx| w.click("qa-change", cx));
+    act(cx, h, |w, cx| w.click("qa-keys", cx));
     act(cx, h, |w, cx| w.press("ctrl-shift-k", cx));
     app.read_with(cx, |a, _| match &a.phase {
         Phase::Main(s) => {
@@ -1262,6 +1262,19 @@ fn fake_github() -> (String, RepoFile) {
     (addr, file)
 }
 
+/// How the stand-in GitHub behaves as a GitHub App (D-101).
+#[derive(Default)]
+struct GhApp {
+    /// `POST /user/repos` refused (403), as GitHub does to most app tokens.
+    refuse_create: std::sync::atomic::AtomicBool,
+    /// Cleis installed on `cleis-vault`: the token sees the repository only then.
+    installed: std::sync::atomic::AtomicBool,
+    /// Tokens that end at once (`expires_in: 1`) with a refresh token.
+    expiring: std::sync::atomic::AtomicBool,
+    /// Tokens renewed with `grant_type=refresh_token`.
+    refreshes: std::sync::atomic::AtomicU32,
+}
+
 /// [`fake_github`] whose account has the repository `cleis-vault` or not: made by
 /// `POST /user/repos` (the flag says whether it exists).
 fn fake_github_account(
@@ -1272,8 +1285,27 @@ fn fake_github_account(
     std::sync::Arc<std::sync::atomic::AtomicBool>,
     RepoFile,
 ) {
+    let app = GhApp::default();
+    app.installed
+        .store(repo, std::sync::atomic::Ordering::SeqCst);
+    let (addr, file, has_repo, key, _) = fake_github_app(repo, app);
+    (addr, file, has_repo, key)
+}
+
+fn fake_github_app(
+    repo: bool,
+    app: GhApp,
+) -> (
+    String,
+    RepoFile,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    RepoFile,
+    std::sync::Arc<GhApp>,
+) {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::sync::atomic::Ordering;
+    let app = std::sync::Arc::new(app);
+    let gh = app.clone();
     let file: RepoFile = Default::default();
     let has_repo = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(repo));
     let made = has_repo.clone();
@@ -1339,11 +1371,30 @@ fn fake_github_account(
                         r#"{"device_code":"dc","user_code":"WDJB-MJHT","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"#,
                     )
                 } else if line.contains("/login/oauth/access_token") {
-                    Some(r#"{"access_token":"github_pat_example","token_type":"bearer"}"#)
+                    let renew = String::from_utf8_lossy(&body).contains("grant_type=refresh_token");
+                    if renew {
+                        gh.refreshes.fetch_add(1, Ordering::SeqCst);
+                        Some(
+                            r#"{"access_token":"github_pat_example","expires_in":28800,"refresh_token":"ghr_next","token_type":"bearer"}"#,
+                        )
+                    } else if gh.expiring.load(Ordering::SeqCst) {
+                        Some(
+                            r#"{"access_token":"github_pat_example","expires_in":1,"refresh_token":"ghr_first","token_type":"bearer"}"#,
+                        )
+                    } else {
+                        Some(r#"{"access_token":"github_pat_example","token_type":"bearer"}"#)
+                    }
                 } else if line.contains("/api/v3/user ") {
                     Some(r#"{"login":"lea-example"}"#)
+                } else if line.contains("/api/v3/user/installations ") {
+                    Some(if gh.installed.load(Ordering::SeqCst) {
+                        r#"{"total_count":1,"installations":[{"id":7,"app_slug":"cleis-sync"}]}"#
+                    } else {
+                        r#"{"total_count":0,"installations":[]}"#
+                    })
                 } else if line.contains("/api/v3/repos/lea-example/cleis-vault ")
                     && made.load(Ordering::SeqCst)
+                    && gh.installed.load(Ordering::SeqCst)
                 {
                     Some(r#"{"default_branch":"main","private":true}"#)
                 } else {
@@ -1351,6 +1402,13 @@ fn fake_github_account(
                 };
                 let (status, out): (u16, Vec<u8>) = if let Some(d) = device {
                     (200, d.as_bytes().to_vec())
+                } else if line.starts_with("POST /api/v3/user/repos ")
+                    && gh.refuse_create.load(Ordering::SeqCst)
+                {
+                    (
+                        403,
+                        br#"{"message":"Resource not accessible by integration"}"#.to_vec(),
+                    )
                 } else if line.starts_with("POST /api/v3/user/repos ")
                     && auth == "Bearer github_pat_example"
                 {
@@ -1360,13 +1418,17 @@ fn fake_github_account(
                         (Some("cleis-vault"), Some(true))
                     );
                     made.store(true, Ordering::SeqCst);
+                    gh.installed.store(true, Ordering::SeqCst);
                     (
                         201,
                         br#"{"full_name":"lea-example/cleis-vault","default_branch":"main","private":true}"#.to_vec(),
                     )
                 } else if auth != "Bearer github_pat_example" {
                     (401, br#"{"message":"Bad credentials"}"#.to_vec())
-                } else if !path_ok || !made.load(Ordering::SeqCst) {
+                } else if !path_ok
+                    || !made.load(Ordering::SeqCst)
+                    || !gh.installed.load(Ordering::SeqCst)
+                {
                     (404, br#"{"message":"Not Found"}"#.to_vec())
                 } else if line.starts_with("DELETE") {
                     *f.lock().unwrap() = None;
@@ -1410,7 +1472,7 @@ fn fake_github_account(
             }
         }
     });
-    (addr, file, has_repo, keyfile)
+    (addr, file, has_repo, keyfile, app)
 }
 
 /// Scenario (mockup 23b, D-65): sync with a file in a GitHub repository; another device's copy
@@ -2966,7 +3028,7 @@ fn keyboard_shortcuts(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Shortcuts", cx));
     // Duplicate on Ctrl+Shift+D.
-    act(cx, h, |w, cx| w.click("duplicate-change", cx));
+    act(cx, h, |w, cx| w.click("duplicate-keys", cx));
     act(cx, h, |w, cx| w.press("ctrl-shift-d", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
@@ -2975,13 +3037,13 @@ fn keyboard_shortcuts(cx: &mut TestAppContext) {
     });
     assert!(window_has(cx, h, "duplicate-reset"));
     // Lock on Ctrl+D... taken by nothing now: no clash. Then Copy password on Ctrl+L: clash.
-    act(cx, h, |w, cx| w.click("copy_pass-change", cx));
+    act(cx, h, |w, cx| w.click("copy_pass-keys", cx));
     act(cx, h, |w, cx| w.press("ctrl-l", cx));
     assert!(window_has(cx, h, "lock-clash") && window_has(cx, h, "copy_pass-clash"));
     act(cx, h, |w, cx| w.click("copy_pass-reset", cx));
     assert!(!window_has(cx, h, "lock-clash"));
     // Backspace: no keys.
-    act(cx, h, |w, cx| w.click("copy_totp-change", cx));
+    act(cx, h, |w, cx| w.click("copy_totp-keys", cx));
     act(cx, h, |w, cx| w.press("backspace", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
@@ -3077,6 +3139,185 @@ fn github_without_vault_creates_one(cx: &mut TestAppContext) {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert_eq!(s.sync.provider, cleis_app::sync::Provider::GitHub);
         assert!(s.sync.remote.is_some());
+    });
+}
+
+/// Scenario (mockups 41a, 41b, D-101): signed in with the GitHub App, Cleis may not make the
+/// repository: "Create on GitHub", then "Install on GitHub"; once the person did both on GitHub,
+/// Cleis sees the repository by itself and syncs. Its token ends after hours: renewed with the
+/// refresh token, no client secret, and kept for the next times.
+#[gpui_kit::test]
+fn github_app_setup_then_token_renewed(cx: &mut TestAppContext) {
+    use std::sync::atomic::Ordering;
+    let gh = GhApp::default();
+    gh.refuse_create.store(true, Ordering::SeqCst);
+    gh.expiring.store(true, Ordering::SeqCst);
+    let (addr, file, has_repo, _, gh) = fake_github_app(false, gh);
+    let hosts = cleis_app::github_login::Hosts {
+        web: addr.clone(),
+        api: format!("{addr}/api/v3"),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    app.update(cx, |a, _| a.github_hosts = hosts.clone());
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-signin", cx));
+    let setup = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            a.github.as_ref().and_then(|g| g.setup.as_ref()).is_some()
+        })
+    };
+    for _ in 0..30 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        if setup(cx) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        setup(cx),
+        "GitHub refused to make the repository: the steps show"
+    );
+    // 41a: to make on GitHub first; the install step waits for it.
+    assert!(window_has(cx, h, "gh-create") && !window_has(cx, h, "gh-install"));
+    act(cx, h, |w, cx| w.click("gh-create", cx));
+    assert!(window_has(cx, h, "gh-step-install") && !window_has(cx, h, "gh-create"));
+    assert!(!window_has(cx, h, "gh-waiting"));
+    act(cx, h, |w, cx| w.click("gh-install", cx));
+    assert!(window_has(cx, h, "gh-waiting"));
+    // Nothing yet on GitHub: still waiting.
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(6));
+    cx.run_until_parked();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    assert!(setup(cx));
+    // The person makes the repository and installs Cleis on it: Cleis goes on by itself.
+    has_repo.store(true, Ordering::SeqCst);
+    gh.installed.store(true, Ordering::SeqCst);
+    for _ in 0..60 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        if file.lock().unwrap().is_some() && gh.refreshes.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    assert!(file.lock().unwrap().is_some(), "the vault was sent");
+    assert!(
+        gh.refreshes.load(Ordering::SeqCst) >= 1,
+        "the token ending, it was renewed"
+    );
+    app.read_with(cx, |a, _| {
+        assert!(a.github.is_none());
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.sync.remote.is_some());
+        let sec = s.sync.secret(&s.vault);
+        assert_eq!(sec.refresh, "ghr_next", "the next refresh token kept");
+        assert!(sec.expires > cleis_core::now() + 3600);
+    });
+}
+
+/// Scenario (mockups 46a–46d, D-101): no account signed in, the picture at the top right still
+/// opens its menu: "Edit profile" sets the name and e-mail kept in Cleis, "Sign in to sync…"
+/// leads to Account. With the Website column shown, the selected row opens its site.
+#[gpui_kit::test]
+fn profile_menu_and_site_link(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    // 46a: the menu, signed in to nothing.
+    act(cx, h, |w, cx| w.click("acc-avatar", cx));
+    assert!(window_has(cx, h, "account-menu"));
+    assert!(window_has(cx, h, "acc-menu-signin") && !window_has(cx, h, "acc-menu-signout"));
+    act(cx, h, |w, cx| w.click("acc-menu-signin", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.settings_page, "Account");
+        assert!(!s.account_menu);
+    });
+    // 46c: the profile edited from the picture; Cancel keeps nothing.
+    act(cx, h, |w, cx| w.click("acc-avatar", cx));
+    act(cx, h, |w, cx| w.click("acc-menu-profile", cx));
+    assert!(window_has(cx, h, "profile-card"));
+    act(cx, h, |w, cx| w.click("profile-me-cancel", cx));
+    assert!(!window_has(cx, h, "profile-card"));
+    act(cx, h, |w, cx| w.click("acc-avatar", cx));
+    act(cx, h, |w, cx| w.click("acc-menu-profile", cx));
+    act(cx, h, |w, cx| {
+        w.click("profile-me-name", cx);
+        w.press("ctrl-a", cx);
+        w.input("Camille Example", cx);
+        w.click("profile-me-email", cx);
+        w.press("ctrl-a", cx);
+        w.input("not-an-address", cx);
+        w.click("profile-me-save", cx);
+    });
+    // A wrong address is said, the card stays.
+    assert!(window_has(cx, h, "profile-card"));
+    act(cx, h, |w, cx| {
+        w.click("profile-me-email", cx);
+        w.press("ctrl-a", cx);
+        w.input("camille@example-studio.com", cx);
+        w.click("profile-me-save", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.profile_edit.is_none());
+        assert_eq!(s.prefs.profile.name, "Camille Example");
+        assert_eq!(s.prefs.profile.email, "camille@example-studio.com");
+        assert_eq!(cleis_app::screens::profile::effective(s).initials(), "CE");
+    });
+
+    // 46d: the Website column; the selected row's button opens its address.
+    act(cx, h, |w, cx| w.click("tab-Vault", cx));
+    let (id, url) = app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        for c in s.columns.iter_mut() {
+            // Few columns: the button within the window.
+            c.visible = matches!(c.id.0.as_str(), "name" | "website");
+        }
+        let e = s
+            .visible
+            .iter()
+            .map(|i| &s.entries[*i])
+            .find(|e| !e.urls.is_empty())
+            .unwrap();
+        (e.id, e.urls[0].clone())
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click(format!("row-{id}"), cx));
+    act(cx, h, |w, cx| w.click(format!("ow-{id}"), cx));
+    app.read_with(cx, |a, _| {
+        let want = if url.contains("://") {
+            url.clone()
+        } else {
+            format!("https://{url}")
+        };
+        assert_eq!(a.opened, vec![want]);
+        // The click opened the site, not the row's panel again.
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.selected, Some(id));
     });
 }
 

@@ -281,6 +281,7 @@ mod tests {
         let secret = Secret {
             token: String::new(),
             key: std::fs::read_to_string(d.join("user")).unwrap(),
+            ..Default::default()
         };
         let key = server_key(&place, &secret).unwrap();
         assert!(key.starts_with("SHA256:"), "{key}");

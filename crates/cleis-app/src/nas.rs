@@ -473,6 +473,7 @@ mod tests {
             secret: Secret {
                 token: String::new(),
                 key: std::fs::read_to_string(d.join("user")).unwrap(),
+                ..Default::default()
             },
         };
         let mut found = probe(&nas).unwrap();

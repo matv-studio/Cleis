@@ -824,6 +824,46 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - Préférences : les raccourcis de la barre latérale en grille (une ligne par raccourci, une colonne
     par coffre ou « Every vault », Contacts dessous), plus de gélules.
 
+- **D-101 GitHub App, profil de Cleis, droits par espace, colonne Website** (27/11/2026, maquettes 41,
+  46a à 46f validées ; GitHub App « cleis-sync » créée par l'utilisateur : Client ID
+  `Iv23liCw3sj1xvHc6oUh`, App ID 5954662).
+  - Connexion GitHub par la GitHub App (flux par code, sans portée ni secret). Le jeton ne voit que les
+    dépôts où l'application est installée : si `cleis-vault` n'est pas atteint, le dialogue montre les
+    deux étapes (41a « Create on GitHub » : page `github.com/new` préremplie, privé ; 41b « Install on
+    GitHub » : `apps/cleis-sync/installations/new`), puis Cleis regarde toutes les 5 s et se connecte seul.
+    Création par l'API tentée d'abord (`POST /user/repos`, refusée aux jetons d'application en général :
+    403 → étape 1, 422 → dépôt déjà là → étape 2). Premier lancement : jamais installée sur le compte
+    (`GET /user/installations`) → création d'un coffre (40b) ; installée mais dépôt non atteint →
+    étape 2, avec « Make a new vault ».
+  - Jetons de 8 h renouvelés par le jeton de rafraîchissement (6 mois) : la doc GitHub dispense du
+    `client_secret` les jetons du flux par code. Gardés scellés avec le secret de la place
+    (`Secret.refresh`, `Secret.expires`) ; renouvelés avant chaque synchronisation et avant
+    l'effacement ; refus (6 mois sans usage, accès retiré) → « reconnectez-vous ». Revoke : page
+    `settings/apps/authorizations`.
+  - Profil de Cleis (`Preferences.profile` : nom, e-mail, photo 96 px JPEG) : l'avatar en haut à droite
+    ouvre toujours son menu (Edit profile, Sync now ou « Sign in to sync… », Account, Sign out ou Lock) ;
+    « Edit profile » ouvre une carte sous l'avatar. Enregistré une fois pour Cleis et envoyé à chaque
+    organisation (`/v1/me`, `ProfileChange.photo`, photo ≤ 24 Kio gardée par le serveur dans `meta`,
+    `MemberView.photo` montrée dans Members, Spaces, Profile). Envoyé aussi une fois par session à une
+    organisation qui montre autre chose ; le profil d'une organisation modifié dans Account devient
+    celui de Cleis. Un seul profil : pas de nom ni d'e-mail différents par organisation (contrepartie
+    acceptée). Le formulaire d'adhésion se préremplit avec.
+  - Droits par espace (46f) : un clic sur un espace (Settings › Spaces) déroule ses membres, trois cases :
+    Access, Edit (ajouter, modifier, corbeille ; vérifié par le serveur), Show passwords (sans : copier et
+    remplir ; vérifié par l'appli comme `Perm::See`). Le rôle reste le plafond, l'espace ne fait que
+    retirer (`SpaceLimit`, colonnes `access.no_edit` / `no_show`, `MemberChange.limits`,
+    `MemberView.limits`, `Session::may`). Administrateurs : tout, cases grisées ; espace réservé : Super
+    Admin seulement. Le rôle ne s'édite jamais par dossier (demande de l'utilisateur).
+  - Colonne Website (coffre et contacts) : bouton d'ouverture du site comme celui de copie ; boutons de
+    cellule au survol plus marqué (fond plus foncé que la ligne, icône éclaircie, sans contour ni
+    couleur), icône de copie recentrée. Colonnes libres larges de 150 px au moins ; table plus large
+    que le volet : défilement horizontal, en-tête compris.
+  - Raccourcis (46e) : les touches dans une case qui se lit comme un champ ; clic = enregistrement,
+    Échap annule, Retour arrière = aucun ; plus de bouton « Change ».
+  - En suspens : barre de défilement horizontale visible (GPUI n'en dessine pas pour un `div`) ;
+    Microsoft / Google : voir la réponse du 27/11 (annuaire personnel Azure gratuit, projet Google Cloud
+    sur un compte Gmail personnel, ou dossiers synchronisés OneDrive / Google Drive sans OAuth).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

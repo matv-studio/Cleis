@@ -381,7 +381,7 @@ fn topbar(
                 .gap(px(8.))
                 .children(update)
                 .child(sync_status(s, t, cx))
-                .children(account_button(s, t, cx))
+                .child(super::profile::top_right(s, t, cx))
                 .child(
                     // Opening with nothing (D-76): the padlock is drawn open (27/11/2026).
                     icon_button(
@@ -495,139 +495,6 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
         .when(s.org.is_some(), |d| {
             d.on_click(cx.listener(|this, _, _, cx| this.org_sync(None, cx)))
         })
-        // Signed in to an account, its picture takes this place (mockup 40d).
-        .when_some(
-            s.org
-                .as_ref()
-                .and_then(|o| o.me())
-                .filter(|_| super::account::github_login(s).is_none()),
-            |d, m| {
-                d.child(div().ml(px(4.)).child(match super::org::org_in_view(s) {
-                    // D-98: in the organization's vault, its logo.
-                    Some(o) => {
-                        org_logo(t, o.local.logo.as_deref(), &o.m.name, 24.).into_any_element()
-                    }
-                    None => avatar(t, &crate::org::initials(&m.name), 24.).into_any_element(),
-                }))
-            },
-        )
-}
-
-/// Signed in to an account (mockup 40d): its picture at the top right, its menu under it.
-fn account_button(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
-    let login = super::account::github_login(s)?;
-    let initial = login
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_default();
-    let status: SharedString = match (&s.sync.last_error, s.sync.last_sync) {
-        _ if s.sync.busy => tr("Syncing…").into(),
-        (Some(_), _) => tr("Not synced").into(),
-        (None, Some(ts)) => crate::trf!("Synced {}", super::sync::ago(ts)).into(),
-        (None, None) => tr("Never synced").into(),
-    };
-    let tip_text: SharedString = format!("@{login} · GitHub").into();
-    let open = s.account_menu;
-    let menu = open.then(|| {
-        let head = div()
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .px(px(8.))
-            .pt(px(6.))
-            .pb(px(10.))
-            .child(avatar(t, &initial, 32.))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(div().font_weight(W_MEDIUM).child(format!("@{login}")))
-                    .child(
-                        div()
-                            .text_size(TEXT_SM)
-                            .text_color(t.text_muted)
-                            .child(format!("GitHub · {status}")),
-                    ),
-            );
-        let sep = || div().my(px(4.)).h(px(1.)).bg(t.line);
-        gpui_kit::deferred(
-            menu_box(t)
-                .id("account-menu")
-                .top(px(32.))
-                .right_0()
-                .w(px(260.))
-                .child(head)
-                .child(sep())
-                .child(
-                    menu_item("acc-menu-sync", t, Some("sync"), tr("Sync now"), false)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(s) = this.session() {
-                                s.account_menu = false;
-                            }
-                            this.sync_now(cx);
-                        }))
-                        .test_support(),
-                )
-                .child(
-                    menu_item("acc-menu-account", t, Some("gear"), tr("Account"), false)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(s) = this.session() {
-                                s.account_menu = false;
-                                s.tab = Tab::Settings;
-                                s.settings_page = "Account";
-                            }
-                            cx.notify();
-                        }))
-                        .test_support(),
-                )
-                .child(sep())
-                .child(
-                    menu_item("acc-menu-signout", t, Some("logout"), tr("Sign out"), false)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(s) = this.session() {
-                                s.account_menu = false;
-                            }
-                            this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
-                        }))
-                        .test_support(),
-                )
-                .test_support(),
-        )
-        .with_priority(2)
-    });
-    Some(
-        div()
-            .relative()
-            .child(
-                div()
-                    .id("acc-avatar")
-                    .occlude()
-                    .cursor_pointer()
-                    .rounded_full()
-                    .when(open, |d| d.border_1().border_color(t.focus))
-                    // D-98: in an organization's vault, its logo; the profile again elsewhere.
-                    .child(match super::org::org_in_view(s) {
-                        Some(o) => {
-                            org_logo(t, o.local.logo.as_deref(), &o.m.name, 24.).into_any_element()
-                        }
-                        None => avatar(t, &initial, 24.).into_any_element(),
-                    })
-                    .tooltip(move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(tip_text.clone())
-                            .build(window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(s) = this.session() {
-                            s.account_menu = !s.account_menu;
-                        }
-                        cx.notify();
-                    }))
-                    .test_support(),
-            )
-            .when_some(menu, |d, m| d.child(m))
-            .into_any_element(),
-    )
 }
 
 /// Width of each built-in column, as in mockup 01.
@@ -666,6 +533,9 @@ fn vault_width(s: &Session, c: &ColumnDef) -> Option<f32> {
 }
 
 /// A cell of column `c`, `w` wide (or sharing the rest of the row when `None`).
+/// Narrowest a free column gets.
+const FREE_MIN: f32 = 150.;
+
 fn cell_box(c: &ColumnDef, w: Option<f32>) -> Div {
     let d = div()
         .h_full()
@@ -677,7 +547,9 @@ fn cell_box(c: &ColumnDef, w: Option<f32>) -> Div {
         .min_w_0();
     let d = match w {
         Some(w) => d.w(px(w)).flex_none(),
-        None => d.flex_1(),
+        // A free column (Username, Notes) keeps room for its text and its button when many
+        // columns are shown (27/11/2026: Username was crushed by Website).
+        None => d.flex_1().min_w(px(FREE_MIN)),
     };
     if is_num(c) { d.justify_end() } else { d }
 }
@@ -757,7 +629,7 @@ fn row_cell(
                         .child(e.username.clone()),
                 )
                 .child(
-                    icon_button(SharedString::from(format!("cu-{id}")), t, "copy", true)
+                    cell_button(format!("cu-{id}"), t, "copy")
                         .tooltip(|window, cx| {
                             gpui_kit::component::tooltip::Tooltip::new(tr("Copy username"))
                                 .build(window, cx)
@@ -786,7 +658,7 @@ fn row_cell(
                     }),
             )
             .child(
-                icon_button(SharedString::from(format!("cp-{id}")), t, "copy", true)
+                cell_button(format!("cp-{id}"), t, "copy")
                     .tooltip(|window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(tr("Copy password"))
                             .build(window, cx)
@@ -801,6 +673,44 @@ fn row_cell(
             )
             .into_any_element()
         }
+        // Mockup 46d: the site's address, and the button opening it.
+        "website" => match e.urls.first() {
+            Some(u) => {
+                let url = u.clone();
+                let shown = u
+                    .split_once("://")
+                    .map_or(u.as_str(), |(_, rest)| rest)
+                    .trim_end_matches('/')
+                    .to_owned();
+                let tip_text: SharedString = crate::trf!("Open {}", shown).into();
+                base.text_color(t.text_muted)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(shown),
+                    )
+                    .child(
+                        cell_button(format!("ow-{id}"), t, "external")
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(tip_text.clone())
+                                    .build(window, cx)
+                            })
+                            .when(!selected, |d| {
+                                d.invisible().group_hover("row", |s| s.visible())
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.open_site(&url, cx);
+                            }))
+                            .test_support(),
+                    )
+                    .into_any_element()
+            }
+            None => base.child(faint_dash(t)).into_any_element(),
+        },
         "totp" => match &e.totp {
             Some(totp) => base
                 .child(totp_view(t, totp, now, false))
@@ -1191,6 +1101,11 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
         _ => None,
     };
     let ncols = cols.len();
+    // Wider than the pane (many columns): the table scrolls sideways, header with it.
+    let table_min: f32 = cols
+        .iter()
+        .map(|c| vault_width(s, c).unwrap_or(FREE_MIN))
+        .sum();
     for (ci, c) in cols.iter().enumerate() {
         let arrow = sorted.filter(|(id, _)| c.id.0 == *id).map(|(_, a)| a);
         head = head.child(
@@ -1395,25 +1310,44 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
             )
         })
         .when(!s.vault_cards, |d| {
-            d.child(head).child(
-                // A click below the rows lets go of the item and closes the panel on the right.
+            d.child(
                 div()
-                    .id("entries-void")
+                    .id("table-x")
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
-                    .on_mouse_down(
-                        gpui_kit::MouseButton::Right,
-                        super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
-                    )
-                    // Another folder or section: its items come in (26/11/2026).
-                    .child(crate::ui::page_in(
-                        format!("rows-{:?}-{:?}", s.filter, s.scope),
-                        div().flex_1().min_h_0().flex().flex_col().child(list),
-                    ))
-                    .test_support(),
+                    .overflow_x_scroll()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .w_full()
+                            .min_w(px(table_min))
+                            .flex()
+                            .flex_col()
+                            .child(head)
+                            .child(
+                                // A click below the rows lets go of the item and closes the panel on the right.
+                                div()
+                                    .id("entries-void")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .flex()
+                                    .flex_col()
+                                    .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+                                    .on_mouse_down(
+                                        gpui_kit::MouseButton::Right,
+                                        super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
+                                    )
+                                    // Another folder or section: its items come in (26/11/2026).
+                                    .child(crate::ui::page_in(
+                                        format!("rows-{:?}-{:?}", s.filter, s.scope),
+                                        div().flex_1().min_h_0().flex().flex_col().child(list),
+                                    ))
+                                    .test_support(),
+                            ),
+                    ),
             )
         })
         .when(s.vault_cards, |d| {
