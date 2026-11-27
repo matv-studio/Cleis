@@ -162,10 +162,7 @@ pub fn col_grip(
         .bottom_0()
         .right_0()
         .w(px(8.))
-        .flex()
-        .justify_center()
         .cursor_col_resize()
-        .items_center()
         .group("colgrip")
         .when(bar, |d| {
             d.child(
@@ -179,10 +176,15 @@ pub fn col_grip(
                     .group_hover("colgrip", |d| d.invisible()),
             )
         })
+        // On the grey bar's own place, at the heading's right edge (not in the middle of the
+        // grip, a few pixels to its left).
         .child(
             div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right_0()
                 .w(px(2.))
-                .h_full()
                 .invisible()
                 .group_hover("colgrip", |d| d.visible())
                 .bg(line),

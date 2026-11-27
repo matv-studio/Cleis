@@ -121,6 +121,15 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
     assert!(window_has(cx, h, "new-password"));
     act(cx, h, |w, cx| w.click("org-server", cx));
     assert!(!window_has(cx, h, "new-password"));
+    // Up, "Sign in" takes the click on its whole card (beside its providers too); a provider's
+    // button keeps its own click, even greyed.
+    act(cx, h, |w, cx| w.click("local-only", cx));
+    act(cx, h, |w, cx| w.click("signin-microsoft", cx));
+    assert!(window_has(cx, h, "new-password"));
+    act(cx, h, |w, cx| {
+        w.click_at("sign-in-card", gpui_kit::point(px(400.), px(66.)), cx)
+    });
+    assert!(!window_has(cx, h, "new-password"));
 
     act(cx, h, |w, cx| {
         w.click("local-only", cx);

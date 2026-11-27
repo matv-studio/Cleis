@@ -374,7 +374,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(
             row(t, true)
-                .child(div().flex_1().child(tr("Unlock with")))
+                .child(div().flex_1().child(tr("Unlock Cleis with")))
                 .child(seg),
         )
         // Mockup 37e: the PIN's length, the tries allowed, a new PIN.

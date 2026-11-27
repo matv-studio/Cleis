@@ -366,16 +366,20 @@ fn opening_choice(
                 .test_support(),
         );
     }
+    // The choices go under the label when both do not fit on one line (longer labels in French).
     div()
         .flex()
+        .flex_wrap()
         .items_center()
-        .gap(px(12.))
-        .child(div().flex_1().child(tr("Unlock with")))
+        .gap_x(px(12.))
+        .gap_y(px(10.))
+        .child(div().flex_1().child(tr("Unlock Cleis with")))
         .child(seg)
 }
 
-/// One option of the first screen (mockups 40): radio, name, icon, and what it holds. Only its
-/// head takes the click, so its boxes and buttons work as such.
+/// One option of the first screen (mockups 40): radio, name, icon, and what it holds. A card
+/// that can be chosen takes the click and the hover on its whole surface; once chosen, only its
+/// head does, so the boxes and buttons it holds work as such.
 fn option(
     id: &'static str,
     t: &Tokens,
@@ -384,15 +388,25 @@ fn option(
     extra: Option<AnyElement>,
     on_head: impl Fn(&mut CleisApp, &mut Window, &mut Context<CleisApp>) + 'static,
     cx: &mut Context<CleisApp>,
-) -> Div {
+) -> impl IntoElement {
     let line = if active { t.accent_text } else { t.line_strong };
+    let whole = clickable && !active;
+    let on_head = std::rc::Rc::new(on_head);
+    let on_card = on_head.clone();
     div()
+        .id(SharedString::from(format!("{id}-card")))
         .flex()
         .flex_col()
         .rounded(RADIUS_LG)
         .border_1()
         .border_color(line)
         .bg(t.surface_raised)
+        // "Sign in" in the middle does nothing by itself (its providers do): no hover there.
+        .when(whole, |d| {
+            d.cursor_pointer()
+                .hover(|d| d.bg(t.surface_hover))
+                .on_click(cx.listener(move |this, _, window, cx| on_card(this, window, cx)))
+        })
         .child(
             div()
                 .id(id)
@@ -402,10 +416,7 @@ fn option(
                 .px(px(16.))
                 .py(px(12.))
                 .rounded(RADIUS_LG)
-                // Only a head that does something looks clickable ("Sign in" in the middle does
-                // nothing: its providers do).
                 .when(clickable, |d| d.cursor_pointer())
-                .when(clickable && !active, |d| d.hover(|d| d.bg(t.surface_hover)))
                 .tooltip(tip(tr(tip_text)))
                 .child(
                     div()
@@ -430,12 +441,15 @@ fn option(
                         .justify_center()
                         .child(icon(ico, 16., t.text)),
                 )
-                .on_click(cx.listener(move |this, _, window, cx| on_head(this, window, cx)))
+                .when(clickable && active, |d| {
+                    d.on_click(cx.listener(move |this, _, window, cx| on_head(this, window, cx)))
+                })
                 .test_support(),
         )
         .when_some(extra, |d, e| {
             d.child(div().px(px(16.)).pb(px(16.)).pl(px(44.)).child(e))
         })
+        .test_support()
 }
 
 pub fn render(
@@ -499,11 +513,13 @@ pub fn render(
                     b.border_color(t.focus)
                 })
                 .when_some(planned, |b, why| b.opacity(0.45).tooltip(tip(tr(why))))
-                .when(planned.is_none(), |b| {
-                    b.on_click(cx.listener(|this, _, window, cx| {
+                // The card under it also takes clicks once it is up: the button keeps its own.
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    if planned.is_none() {
                         this.sign_in_elsewhere(Provider::GitHub, window, cx)
-                    }))
-                })
+                    }
+                }))
                 .test_support()
         };
         div()

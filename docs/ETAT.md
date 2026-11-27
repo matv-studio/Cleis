@@ -30,6 +30,16 @@
   GitHub App à créer (Client ID + nom court) ; applications Microsoft (Entra) et Google (Cloud) à enregistrer, Client
   IDs à fournir ; la connexion Microsoft / Google (coffre dans le dossier d'appli OneDrive, dossier
   caché appDataFolder de Google Drive) se code ensuite sur le même parcours.
+- Retours du 27/11 après la 911cfc3 : « Unlock Cleis with » (D-98), choix de l'ouverture passant sous
+  le libellé quand la ligne est trop courte (débordait en français), carte « Sign in » cliquable et
+  survolée en entier quand elle peut l'être (boutons des fournisseurs gardant leur clic), trait d'accent
+  de la poignée de colonne posé sur le trait gris. Maquettes 41 validées (code en attente de la GitHub
+  App). Dépôt `cleis-vault` supprimé par l'utilisateur.
+- Maquettes 42a à 42j envoyées, à valider avant le code : l'organisation ne règle plus l'ouverture de
+  Cleis, seulement son propre accès (« Accessing <org> » : accès hors ligne, « Ask for password »,
+  mot de passe / PIN fixé par l'admin ou Windows Hello · Touch ID du membre, redemandé après un délai ou
+  l'inactivité, essais faux) ; PIN grisé pour une organisation en dossier partagé ; suppression du
+  serveur par le Super Admin (nom à retaper, export d'abord).
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

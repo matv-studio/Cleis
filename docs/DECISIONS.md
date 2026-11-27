@@ -756,6 +756,18 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     supprimer un dépôt) ; enregistrement Microsoft : un compte personnel n'a pas d'annuaire Entra
     (AADSTS50020), il faut un annuaire (essai gratuit Azure) ou le Microsoft 365 de l'entreprise.
 
+- **D-98 L'organisation ne règle que son propre accès** (27/11/2026, demande de l'utilisateur : « un admin
+  d'org ne peut pas forcer l'app Cleis à se verrouiller avec son mdp, surtout quand on a des vaults
+  personnels »). Le libellé personnel devient « Unlock Cleis with ». À coder après validation des
+  maquettes 42 : la règle « Opening Cleis » (D-76 : façons d'ouvrir permises, longueur du mot de passe
+  maître) et le verrouillage après inactivité imposé à l'appli disparaissent ; « Accessing <org> »
+  regroupe l'accès hors ligne et le PIN de D-79 étendu (mot de passe ou PIN fixé par l'admin, ou
+  Windows Hello · Touch ID de l'ordinateur du membre), redemandé après un délai ou une inactivité, qui ne
+  masque que les espaces de l'organisation. Suppression du serveur par le Super Admin (42i, 42j).
+  - En suspens : PIN d'une organisation en dossier partagé (sans serveur, personne ne compte les essais
+    faux et l'empreinte d'un PIN de 4 à 8 chiffres se retrouve par essais) : grisé dans 42c, choix à
+    confirmer par l'utilisateur.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

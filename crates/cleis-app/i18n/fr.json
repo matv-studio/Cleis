@@ -1041,6 +1041,7 @@
   "This vault has no recovery key": "Ce coffre n'a pas de clé de récupération",
   "Unlock with Windows Hello": "Déverrouiller avec Windows Hello",
   "Unlock with": "Déverrouiller avec",
+  "Unlock Cleis with": "Déverrouiller Cleis avec",
   "Use the recovery key": "Utiliser la clé de récupération",
   "Windows Hello is not set up on this computer": "Windows Hello n'est pas configuré sur cet ordinateur",
   "Windows Hello opens Cleis on this computer": "Windows Hello ouvre Cleis sur cet ordinateur",

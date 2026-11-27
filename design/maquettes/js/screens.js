@@ -1268,7 +1268,7 @@ function premierLancementProtection() {
       <div class="choice is-active"><span class="radio on"></span><div class="txt"><b style="font-weight:var(--weight-medium)">This computer only</b><span>Personal vault</span></div><span class="ico">${i('laptop')}</span></div>
       <div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Join an organization</b><span>Shared spaces, on top of your personal vault</span></div><span class="ico">${i('server')}</span></div>
       <div class="section" style="gap:var(--s-3)">
-        <div class="row" style="padding:0"><span class="row-label">Unlock with</span>
+        <div class="row" style="padding:0"><span class="row-label">Unlock Cleis with</span>
           <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">Password</button><button role="radio" aria-checked="true">Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">Nothing</button></div></div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1467,7 +1467,7 @@ function ouverturePin() {
   return settings('Security', `
     <div class="page-head"><h1>Security</h1></div>
     <div class="section">${sectionTitle('Opening Cleis', 'How this computer opens your vault. On another computer: the master password or the recovery key.')}
-      <div class="row"><span class="row-label">Unlock with</span>
+      <div class="row"><span class="row-label">Unlock Cleis with</span>
         <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">${i('key')}Master password</button><button role="radio" aria-checked="true" title="Digits only, on this computer; the master password after too many wrong tries">${i('hash')}PIN</button><button role="radio" aria-checked="false" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">${i('laptop')}Nothing</button></div></div>
       <div class="row"><span class="row-label">Length</span><div class="segmented"><button role="radio" aria-checked="false">4</button><button role="radio" aria-checked="true">6</button><button role="radio" aria-checked="false">8</button></div></div>
       <div class="row"><span class="row-label" title="Then the master password or the recovery key">Wrong tries before locking</span><div class="input select" style="width:160px"><span class="grow">5</span></div></div>
@@ -1631,7 +1631,7 @@ function compteFusion() {
       <div class="row"><span class="site-ico">${i('repo')}</span><span class="row-label" style="flex:1"><span>@lea-example</span><span class="code" style="color:var(--text-muted);font-size:var(--text-sm);margin-left:var(--s-2)">cleis-vault</span></span><span class="chip chip--ok" title="Last sync today at 10:42"><span class="dot"></span>Synced 2 min ago</span><button class="btn btn--ghost btn--sm" title="This computer stops following; the copy there stays sealed">Sign out</button><button class="btn btn--danger-ghost btn--sm" title="Removes Cleis' access to your GitHub repositories, on every computer">Revoke access</button></div>
     </div>
     <div class="section">${sectionTitle('Opening Cleis', 'How this computer opens your vault. On another computer: the password or the recovery key.')}
-      <div class="row"><span class="row-label">Unlock with</span>
+      <div class="row"><span class="row-label">Unlock Cleis with</span>
         <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">${i('key')}Password</button><button role="radio" aria-checked="true" title="Digits only, on this computer; the password after too many wrong tries">${i('hash')}PIN</button><button role="radio" aria-checked="false" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">${i('laptop')}Nothing</button></div></div>
       <div class="row"><span class="row-label">Length</span><div class="segmented"><button role="radio" aria-checked="false">4</button><button role="radio" aria-checked="true">6</button><button role="radio" aria-checked="false">8</button></div></div>
       <div class="row"><span class="row-label" title="Then the password or the recovery key">Wrong tries before locking</span><div class="input select" style="width:160px"><span class="grow">5</span></div></div>
@@ -1679,7 +1679,7 @@ function compteLocalRevoquer() {
       <div style="display:flex;justify-content:space-between;align-items:center"><button class="btn btn--ghost btn--sm" title="Opens Cleis' page on github.com, to remove its access to your repositories">${i('external')}Revoke GitHub access</button><button class="btn btn--primary">Sign in</button></div>
     </div>
     <div class="section">${sectionTitle('Opening Cleis')}
-      <div class="row"><span class="row-label">Unlock with</span>
+      <div class="row"><span class="row-label">Unlock Cleis with</span>
         <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('key')}Master password</button><button role="radio" aria-checked="false">${i('hash')}PIN</button><button role="radio" aria-checked="false">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false">${i('laptop')}Nothing</button></div></div>
     </div>`);
 }
@@ -1702,7 +1702,7 @@ const chSignIn = (state) => {
   const on = state !== 'none' || state === 'pick';
   return `<div class="choice ${on ? 'is-active' : ''}" ${state === 'none' ? 'title="Your vault follows you to your other computers"' : ''}><span class="radio ${on ? 'on' : ''}"></span><div class="txt" style="flex:1"><b style="font-weight:var(--weight-medium)">Sign in</b>${body}</div><span class="ico">${i('user')}</span></div>`;
 };
-const unlockWith = `<div class="row" style="padding:0"><span class="row-label">Unlock with</span>
+const unlockWith = `<div class="row" style="padding:0;flex-wrap:wrap;row-gap:10px"><span class="row-label">Unlock Cleis with</span>
           <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">Password</button><button role="radio" aria-checked="false">PIN</button><button role="radio" aria-checked="false">Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">Nothing</button></div></div>`;
 const pwFields = `<div class="field"><span class="label">Password</span><div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act">${i('eye')}</span></div></div>
         <div class="field"><span class="label">Confirm</span><div class="input"><span class="grow"></span><span class="act">${i('eye')}</span></div></div>`;
@@ -1753,7 +1753,7 @@ function compteLocal40() {
       <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Sign in</button></div>
     </div>
     <div class="section">${sectionTitle('Opening Cleis')}
-      <div class="row"><span class="row-label">Unlock with</span>
+      <div class="row"><span class="row-label">Unlock Cleis with</span>
         <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('key')}Password</button><button role="radio" aria-checked="false">${i('hash')}PIN</button><button role="radio" aria-checked="false">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false">${i('laptop')}Nothing</button></div></div>
     </div>`);
 }
@@ -1773,6 +1773,102 @@ function ghAppInstaller() {
       ${ghStep(2, 'Install Cleis', 'next', 'Install on GitHub', 'Only select repositories › cleis-vault › Install')}
       <div style="display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:var(--text-sm)"><span class="spinner"></span>Waiting for GitHub…</div>
       <div class="dialog-actions"><button class="btn">Cancel</button></div>`)}</main>`);
+}
+
+// ---------- 42 (27/11/2026): an organization rules access to itself, never how Cleis opens ----------
+// Security policy: "Opening Cleis" and "Organization PIN" become one section, "Accessing <org>".
+// The admin decides whether the organization's spaces ask for something before they show, and
+// what: a password or a PIN set by the admin, or Windows Hello (Touch ID on a Mac) of each member's
+// own computer. How a member opens Cleis itself (and the personal vault) stays theirs alone.
+// "Locking" goes into it: the inactivity delay and the offline access concern the organization only.
+const navPol = (active) => settingsNav(active).replace(/<div class="side-item[^"]*">(<svg(?:(?!<\/svg>)[\s\S])*<\/svg>)<span>(Security|Profile)<\/span><\/div>/g, '');
+const settingsPol = (active, body, overlay = '') => shell('Settings', `<div class="settings">${navPol(active)}<div class="settings-body"><div class="page">${body}</div></div></div>`, { primary: null, overlay });
+const sel160 = (v, w = 160) => `<div class="input select" style="width:${w}px"><span class="grow">${v}</span></div>`;
+function accesOrg({ on = true, how = 'Password', set = true } = {}) {
+  const secret = how === 'Windows Hello' ? '' : how === 'PIN'
+    ? `<div class="row"><span class="row-label" title="Another length asks for a new PIN">Length</span><div class="segmented"><button role="radio" aria-checked="false">4</button><button role="radio" aria-checked="true">6</button><button role="radio" aria-checked="false">8</button></div></div>
+      <div class="row"><span class="row-label" title="Give it to the members; every device is asked the new one">PIN</span>${set ? '' : '<span class="chip chip--warn"><span class="dot"></span>Not set yet</span>'}<button class="btn">${set ? 'Change' : 'Set'}</button></div>`
+    : `<div class="row"><span class="row-label" title="Give it to the members; every device is asked the new one">Password</span>${set ? '' : '<span class="chip chip--warn"><span class="dot"></span>Not set yet</span>'}<button class="btn">${set ? 'Change' : 'Set'}</button></div>`;
+  const tries = how === 'Windows Hello' ? '' : `<div class="row"><span class="row-label" title="The member's access is suspended until an admin resets it">Wrong tries before locking</span>${sel160('5')}</div>`;
+  const more = on ? `
+      <div class="row"><span class="row-label">With</span>${sel160(how === 'Windows Hello' ? 'Windows Hello · Touch ID' : how, 220)}</div>
+      ${secret}
+      <div class="row"><span class="row-label" title="Since it was last given on the device">Ask again after</span>${sel160('8 hours')}</div>
+      <div class="row"><span class="row-label" title="Without using Cleis">After inactivity</span>${sel160('15 minutes')}</div>
+      ${tries}` : '';
+  return `<div class="section">${sectionTitle('Accessing Example Studio', 'Asked before the organization’s spaces show. How each member opens Cleis and their own vault stays their choice.')}
+      <div class="row"><span class="row-label" title="How long the organization's spaces stay readable without reaching the server">Offline access</span>${sel160('14 days')}</div>
+      <div class="row"><span class="row-label">Ask for password</span><span class="switch ${on ? 'on' : ''}"></span></div>${more}
+    </div>`;
+}
+const politique42 = (acc) => `
+    <div class="page-head"><h1>Security policy</h1></div>
+    ${acc}
+    <div class="section">${sectionTitle('Signing in to the server', 'Applies to every Example Studio member.')}
+      <div class="row"><span class="row-label">Two-step verification</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">Optional</button><button role="radio" aria-checked="true">Required</button></div></div>
+      <div class="row"><span class="row-label">Remember device</span>${sel160('30 days')}</div>
+    </div>`;
+// 42a. Asking nothing: one switch (and the offline access, always there).
+function accesOrgOff() { return settingsPol('Security policy', politique42(accesOrg({ on: false }))); }
+// 42b. A password set by the admin: asked again after 8 hours, or 15 minutes without use.
+function accesOrgMotDePasse() { return settingsPol('Security policy', politique42(accesOrg())); }
+// 42c. "With": password, PIN, or the member's Windows Hello / Touch ID. In an organization kept in a
+// shared folder, the PIN is greyed: without a server, nobody counts the wrong tries.
+function accesOrgMenu() {
+  const m = `<div class="menu" style="left:1069px;top:296px;width:220px">${mi('check', 'Password')}<div class="menu-item" style="color:var(--text-faint)" title="Needs a server: it counts the wrong tries. In a shared folder, a PIN of a few digits would be found by trying them all."><span style="width:16px"></span><span>PIN</span></div>${mi('', 'Windows Hello · Touch ID')}</div>`;
+  return settingsPol('Security policy', politique42(accesOrg()), m);
+}
+// 42d. PIN: its length, then the PIN typed twice (37q's dialog).
+function accesOrgPin() { return settingsPol('Security policy', politique42(accesOrg({ how: 'PIN', set: false }))); }
+// 42e. Windows Hello / Touch ID: nothing to set or give; each member's own computer checks them.
+function accesOrgHello() { return settingsPol('Security policy', politique42(accesOrg({ how: 'Windows Hello' }))); }
+// 42f. Password › Set: typed twice; at least 10 characters.
+function accesOrgDefinir() {
+  return settingsPol('Security policy', politique42(accesOrg({ set: false })), dlg('Example Studio password', `<div class="field"><span class="label" title="At least 10 characters">Password</span><div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act">${i('eye')}</span></div></div>
+      <div class="field"><span class="label">Confirm</span><div class="input"><span class="grow"></span><span class="act">${i('eye')}</span></div></div>
+      <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Save</button></div>`));
+}
+// 42g. A member: the organization's section shows its lock and asks its password; the personal
+// vault and everything else stay open.
+function accesOrgMembre() {
+  const center = `<div class="center-stage" style="height:100%"><div class="card" style="width:340px">
+      <div class="card-head"><span class="logo logo--lg">${i('lock')}</span><h1>Example Studio</h1><span style="color:var(--text-muted)" title="Set by Example Studio's admins">Organization password</span></div>
+      <div class="input is-focus"><span class="grow dots">•••••</span><span class="act">${i('eye')}</span></div>
+      <button class="btn btn--primary" style="justify-content:center;height:32px">Open</button>
+    </div></div>`;
+  return frameB(center, { side: sidebarB({ active: 'Example Studio' }) });
+}
+// 42h. A member, Windows Hello: one button (Touch ID on a Mac). Not set up on the computer: the
+// button opens Windows' settings, its tooltip says so.
+function accesOrgMembreHello() {
+  const center = `<div class="center-stage" style="height:100%"><div class="card" style="width:340px">
+      <div class="card-head"><span class="logo logo--lg">${i('lock')}</span><h1>Example Studio</h1></div>
+      <button class="btn btn--primary" style="justify-content:center;height:32px" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Open with Windows Hello</button>
+    </div></div>`;
+  return frameB(center, { side: sidebarB({ active: 'Example Studio' }) });
+}
+
+// Server: the Super Admin deletes it. Shown to the Super Admin only, at the bottom.
+const serveur42 = `
+    <div class="page-head"><h1>Server</h1></div>
+    <div class="section">${sectionTitle('Example Studio')}
+      <div class="row"><span class="row-label">Hosted</span><span>This computer</span><span class="chip chip--ok"><span class="dot"></span>Running</span></div>
+      <div class="row"><span class="row-label" title="Give one of these with each invitation code">Addresses for members</span><span class="code" style="color:var(--text-muted)">192.168.1.24:8443 · 10.8.0.3:8443</span><button class="icon-btn" title="Copy">${i('copy')}</button></div>
+      <div class="row"><span class="row-label" title="Otherwise it runs while Cleis runs">Start with the system</span><button class="btn">Install</button></div>
+      <div class="row"><span class="row-label">Certificate</span><span class="code" style="color:var(--text-muted)">SHA256:4f1c·9a2e·77b0·d31f</span></div>
+      <div class="row"><span class="row-label"></span><button class="btn">${i('sync')}Sync now</button><button class="btn btn--danger-ghost">Leave</button></div>
+    </div>
+    <div class="section">${sectionTitle('Delete')}
+      <div class="row"><span class="row-label" title="Its spaces, members, log and backups. Members' copies go at their next sync.">Server and its data</span><button class="btn btn--danger btn--sm">${i('trash')}Delete server</button></div>
+    </div>`;
+// 42i. Server › Delete (Super Admin only).
+function serveurSupprimer() { return settingsPol('Server', serveur42); }
+// 42j. Confirmed by typing the organization's name; an encrypted export first, ticked.
+function serveurSupprimerConfirmer() {
+  return settingsPol('Server', serveur42, dlg('Delete the server?', `<span style="color:var(--text-muted)" title="Server on another machine: its data is erased, the program stays installed there">Example Studio, 14 members, 6 spaces. It cannot be undone.</span>
+      <label class="row" style="padding:0"><span class="check on">${i('check')}</span><span class="row-label" title="Encrypted, opened by the recovery key of the organization">Export the spaces first</span></label>
+      <div class="field"><span class="label">Type Example Studio to confirm</span><div class="input is-focus"><span class="grow">Example Stu</span></div></div>
+      <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger" disabled>Delete server</button></div>`));
 }
 
 // 38. Settings › Shortcuts (27/11/2026): every keyboard shortcut in one place, each one changed by
@@ -1917,6 +2013,16 @@ export const SCREENS = {
   '40f-parcours-debut': ['First launch — the three options alone', parcoursDebut],
   '41a-github-app-depot': ['GitHub App — create the repository', ghAppCreer],
   '41b-github-app-installer': ['GitHub App — let Cleis use only it', ghAppInstaller],
+  '42a-acces-org-rien': ['Security policy — accessing the organization, nothing asked', accesOrgOff],
+  '42b-acces-org-mot-de-passe': ['Security policy — accessing the organization, a password', accesOrgMotDePasse],
+  '42c-acces-org-menu': ['Security policy — accessing the organization, with what', accesOrgMenu],
+  '42d-acces-org-pin': ['Security policy — accessing the organization, a PIN', accesOrgPin],
+  '42e-acces-org-hello': ['Security policy — accessing the organization, Windows Hello', accesOrgHello],
+  '42f-acces-org-definir': ['Security policy — the organization password typed twice', accesOrgDefinir],
+  '42g-acces-org-membre': ['A member — the organization asks its password', accesOrgMembre],
+  '42h-acces-org-membre-hello': ['A member — the organization asks Windows Hello', accesOrgMembreHello],
+  '42i-serveur-supprimer': ['Server — delete (Super Admin)', serveurSupprimer],
+  '42j-serveur-supprimer-confirmer': ['Server — delete, confirmed', serveurSupprimerConfirmer],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],
