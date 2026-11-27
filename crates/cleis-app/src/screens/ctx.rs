@@ -374,7 +374,7 @@ fn list_void_menu(s: &Session, sub: Option<Sub>, t: &Tokens, cx: &mut Context<Cl
             "cx-new-item",
             t,
             "plus",
-            tr("New item"),
+            tr("New password"),
             Some(tr("Ctrl+N")),
             false,
         ),

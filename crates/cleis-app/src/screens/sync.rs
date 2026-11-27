@@ -38,6 +38,7 @@ fn place_row(
     action: impl IntoElement,
     first: bool,
 ) -> Div {
+    // What the place is goes in a tooltip: no sentence under the name (27/11/2026, charter §1.5).
     row(t, first)
         .child(
             div()
@@ -55,18 +56,8 @@ fn place_row(
                 .id(id)
                 .flex_1()
                 .min_w_0()
-                .flex()
-                .flex_col()
                 .child(crate::i18n::tr_owned(name))
-                .child(
-                    div()
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .child(crate::i18n::tr_owned(sub)),
-                ),
+                .tooltip(crate::ui::tip(crate::i18n::tr_owned(sub))),
         )
         .child(action)
 }
@@ -174,11 +165,12 @@ pub fn page_with(
         }
         None => {
             sync = sync.child(
-                row(t, true).child(
+                row(t, true).child(icon("laptop", 16., t.text_muted)).child(
                     div()
+                        .id("sync-local")
                         .flex_1()
-                        .text_color(t.text_muted)
-                        .child(tr("This vault stays on this computer")),
+                        .child(tr("Local"))
+                        .tooltip(tip(tr("This vault stays on this computer"))),
                 ),
             );
         }

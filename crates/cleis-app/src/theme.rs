@@ -351,8 +351,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ochre_deepens_on_light_only() {
+    fn default_accent_kept_in_both_themes() {
+        // D-81: the bronze default already passes 3.6:1 on both pages, so neither theme moves it.
         let a = parse_hex(cleis_core::settings::DEFAULT_ACCENT).unwrap();
+        let dark: Rgba = Tokens::for_mode(Mode::Dark).bg.into();
+        let light: Rgba = Tokens::for_mode(Mode::Light).bg.into();
+        assert_eq!(fit_contrast(a, dark, MIN_ACCENT_CONTRAST), a);
+        assert_eq!(fit_contrast(a, light, MIN_ACCENT_CONTRAST), a);
+        assert!(contrast(a, dark) >= 4.0 && contrast(a, light) >= 3.8);
+        assert_eq!(ink_for(a), gpui_kit::black());
+    }
+
+    #[test]
+    fn ochre_deepens_on_light_only() {
+        // The former default (D-51) still behaves as before when chosen by hand.
+        let a = parse_hex(cleis_core::settings::OLD_DEFAULT_ACCENT).unwrap();
         let dark: Rgba = Tokens::for_mode(Mode::Dark).bg.into();
         let light: Rgba = Tokens::for_mode(Mode::Light).bg.into();
         assert_eq!(fit_contrast(a, dark, MIN_ACCENT_CONTRAST), a);

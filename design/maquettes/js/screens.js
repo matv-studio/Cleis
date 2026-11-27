@@ -25,7 +25,7 @@ const statusChip = (s) => {
 
 // ---------- App frame ----------
 const TABS = ['Vault', 'Contacts', 'Health', 'Activity', 'Settings'];
-function shell(active, inner, { primary = `${i('plus')}New item`, overlay = '', tabs = TABS, doc = 'Example Studio' } = {}) {
+function shell(active, inner, { primary = `${i('plus')}New password`, overlay = '', tabs = TABS, doc = 'Example Studio' } = {}) {
   return `<div class="app">
     <header class="topbar">
       <div class="topbar-start">
@@ -1433,6 +1433,200 @@ function saisiePin() {
   return frameB(center, { side });
 }
 
+// ---------- 37 (27/11/2026): user's notes after trying 0.2.2 ----------
+// 37a. "+" next to My vault: a folder without a name appears in place, its field has the keyboard.
+// Esc cancels; leaving the field empty cancels; leaving it with a name keeps the folder.
+function dossierEnLigne() {
+  const side = sidebarB({ active: 'My vault' }).replace('<span>Shopping</span><span class="count">1</span></div>',
+    `<span>Shopping</span><span class="count">1</span></div><div class="side-item sub is-editing" title="Enter or click elsewhere: keep · Esc: cancel">${i('folder')}<span class="caret"></span></div>`);
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div>`, { side });
+}
+// 37b. Double-click a folder's name: renamed in place, the name selected.
+function dossierRenomme() {
+  const side = sidebarB({ active: 'My vault' }).replace(/<div class="side-item[^"]*sub">(<svg(?:(?!<\/svg>)[\s\S])*<\/svg>)<span>Banking<\/span><span class="count">1<\/span><\/div>/,
+    '<div class="side-item sub is-editing" title="Enter or click elsewhere: keep · Esc: cancel">$1<span class="sel">Banking</span></div>');
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div>`, { side });
+}
+// 37c. A 1 px grey bar between headings: where the width handle is.
+function separateursColonnes() {
+  // Every heading but the last gets the bar on its right edge.
+  const t = vaultTable({ selected: null }).replace(/<th([^>]*)>/g, (m, attrs) => /class="/.test(attrs) ? `<th${attrs.replace('class="', 'class="sep ')}>` : `<th${attrs} class="sep">`)
+    .replace(/<th([^>]*)class="sep ([^"]*)"([^>]*)>Yearly cost/, '<th$1class="$2"$3>Yearly cost').replace(/<th([^>]*) class="sep">Yearly cost/, '<th$1>Yearly cost');
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${t}</div>`);
+}
+// 37d. Top bar: the green dot alone; its tooltip names the connection.
+function pastilleConnexion() {
+  const html = frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div>`,
+    { overlay: '<div class="tooltip" style="right:236px;top:40px">Local</div>' });
+  return html.replace(/<span class="sync" title="[^"]*"><span class="dot"><\/span>Synced<\/span>/, '<span class="sync" title="Local"><span class="dot"></span></span>')
+    .replace(/<span class="avatar" title="Lea Martin">LM<\/span>/, '');
+}
+// 37e. Security › Opening Cleis: a PIN for the personal vault, as for the organization (36g).
+function ouverturePin() {
+  return settings('Security', `
+    <div class="page-head"><h1>Security</h1></div>
+    <div class="section">${sectionTitle('Opening Cleis', 'How this computer opens your vault. On another computer: the master password or the recovery key.')}
+      <div class="row"><span class="row-label">Unlock with</span>
+        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">${i('key')}Master password</button><button role="radio" aria-checked="true" title="Digits only, on this computer; the master password after too many wrong tries">${i('hash')}PIN</button><button role="radio" aria-checked="false" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">${i('laptop')}Nothing</button></div></div>
+      <div class="row"><span class="row-label">Length</span><div class="segmented"><button role="radio" aria-checked="false">4</button><button role="radio" aria-checked="true">6</button><button role="radio" aria-checked="false">8</button></div></div>
+      <div class="row"><span class="row-label" title="Then the master password or the recovery key">Wrong tries before locking</span><div class="input select" style="width:160px"><span class="grow">5</span></div></div>
+      <div class="row"><span class="row-label">PIN</span><button class="btn">Change</button></div>
+      <div class="row"><span class="row-label" title="Opens your vault anywhere; keep it outside Cleis">Recovery key</span><button class="btn">Show</button></div>
+      <div class="row"><span class="row-label">Master password</span><button class="btn">Change</button><button class="btn btn--ghost" title="The recovery key then opens your vault on another computer">Remove</button></div>
+    </div>`);
+}
+// 37f. Choosing PIN: typed twice in the same boxes as the organization PIN (36h).
+function choisirPin() {
+  return settings('Security', ouverturePin().match(/<div class="page"[^>]*>([\s\S]*)<\/div><\/div><\/div>/)[1],
+    dlg('New PIN', `<div class="otp"><span>•</span><span>•</span><span>•</span><span>•</span><span class="is-focus"></span><span></span></div>
+      <span style="color:var(--text-muted);text-align:center" title="Typed a second time to confirm">Confirm</span>
+      <div class="otp"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Save</button></div>`));
+}
+// 37g. Opening Cleis with the PIN: the unlock screen takes the boxes of 36h.
+function deverrouillerPin() {
+  return `<div class="app"><main class="main" style="margin:6px"><div class="center-stage">
+    <div class="card" style="width:340px">
+      <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>My vault</h1><span style="color:var(--text-muted)">PIN</span></div>
+      <div class="otp"><span>•</span><span>•</span><span class="is-focus"></span><span></span><span></span><span></span></div>
+      <button class="btn btn--primary" style="justify-content:center;height:32px">Open</button>
+      <button class="btn btn--ghost" style="justify-content:center" title="Also after too many wrong tries">Use the master password</button>
+    </div></div></main></div>`;
+}
+// 37h. First launch: PIN among the ways to open Cleis.
+function premierLancementPin() {
+  return premierLancementProtection()
+    .replace('<button role="radio" aria-checked="false">Password</button><button role="radio" aria-checked="true">Windows Hello</button>',
+      '<button role="radio" aria-checked="false">Password</button><button role="radio" aria-checked="true">PIN</button><button role="radio" aria-checked="false">Windows Hello</button>')
+    .replace('</div>\n      </div>\n      <div style="display:flex;justify-content:space-between',
+      `</div>
+        <div class="otp"><span>•</span><span>•</span><span>•</span><span>•</span><span class="is-focus"></span><span></span></div>
+      </div>
+      <div style="display:flex;justify-content:space-between`);
+}
+// 37i. Preferences › Vaults: one Vault tab, shortcuts still per vault.
+function raccourcisUnOnglet() {
+  const tg = (label, on) => `<button class="tag-toggle ${on ? 'on' : ''}">${on ? i('check') : ''}${label}</button>`;
+  return settings('Preferences', `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Vaults')}
+      <div class="row"><span class="row-label" title="Off: one Vault tab, every vault in its sidebar">Personal vault in its own tab</span><span class="switch"></span></div>
+      <div class="row"><span class="row-label" title="All items, Favorites, Renew soon, at the top of each vault">Shortcuts</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Same for every vault</span><span class="switch"></span></div>
+      <div class="row"><span class="row-label" style="padding-left:var(--s-4)">${i('user')}My vault</span>${tg('All items', true)}${tg('Favorites', true)}${tg('Renew soon', false)}</div>
+      <div class="row"><span class="row-label" style="padding-left:var(--s-4)">${i('users')}Example Studio</span>${tg('All items', true)}${tg('Favorites', false)}${tg('Renew soon', true)}</div>
+    </div>`);
+}
+// 37j. The single Vault tab with shortcuts per vault: each section carries its own, under its name.
+function laterale37() {
+  const sc = (ico, label, n) => `<div class="side-item side-shortcut">${i(ico)}<span>${label}</span><span class="count">${n}</span></div>`;
+  const sec = (ico, label, count, add, act = false) => `<div class="side-item side-section ${act ? 'is-active' : ''}">${i(ico)}<span>${label}</span><span class="count">${count}</span><button class="icon-btn icon-btn--sm" aria-label="${add}" title="${add}">${i('plus')}</button></div>`;
+  const f = (ico, label, n) => `<div class="side-item sub">${i(ico)}<span>${label}</span><span class="count">${n}</span></div>`;
+  const side = `<aside class="sidebar pane">
+    ${sec('user', 'My vault', 3, 'New folder', true)}${sc('star', 'Favorites', 1)}
+    ${f('folder', 'Banking', 1)}${f('folder', 'Shopping', 1)}
+    <div style="height:var(--s-2)"></div>
+    ${sec('users', 'Example Studio', 12, 'New space')}${sc('star', 'Favorites', 2)}${sc('clock', 'Renew soon', 1)}
+    ${f('folder', 'General', 4)}${f('folder', 'Design', 3)}${f('lock', 'Accounting', 2)}${f('folder', 'Dev', 3)}
+    <div style="flex:1"></div>
+    <div class="side-item">${i('upload')}<span>Import</span></div>
+    <div class="side-row"><div class="side-item" style="flex:1">${i('trash')}<span>Trash</span></div><button class="icon-btn icon-btn--sm" aria-label="Customize" title="Customize: reorder and delete">${i('grip')}</button></div>
+  </aside>`;
+  return frameB(`${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div>`, { side });
+}
+// 37k. Preferences › Start in: each vault tab when vaults have their own tabs.
+function demarrerDans() {
+  return settings('Preferences', `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Vaults')}
+      <div class="row"><span class="row-label">Personal vault in its own tab</span><span class="switch on"></span></div>
+    </div>
+    <div class="section">${sectionTitle('Start')}
+      <div class="row"><span class="row-label">Start in</span><div class="input select" style="width:200px"><span class="grow">My vault</span></div></div>
+    </div>`, `<div class="menu" style="left:1089px;top:312px;width:200px">${mi('check', 'My vault')}${mi('', 'Example Studio')}${mi('', 'Acme Partners')}${sep}${mi('', 'All items')}${mi('', 'Favorites')}${mi('', 'Contacts')}</div>`);
+}
+// 37l. Sync & backups: no sentence under the titles (tooltips); at the very bottom, the deletions.
+function synchro37() {
+  return settings('Sync & backups', `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1><span style="flex:1"></span><button class="btn btn--primary">${i('sync')}Sync now</button></div>
+    <div class="section">${sectionTitle('Sync', 'Your encrypted vault, kept the same on every computer that uses this place')}
+      <div class="row"><span class="site-ico">${i('laptop')}</span><div class="member row-label"><div class="meta"><span>Local</span></div></div><button class="btn btn--sm">Choose folder</button></div>
+    </div>
+    <div class="section">${sectionTitle('New device', 'What a new computer needs besides your master password')}
+      <div class="row"><span class="row-label" title="Where your vault is, a space to write your master password">${i('file')}Emergency kit</span><button class="btn btn--sm">${i('download')}Download</button></div>
+    </div>
+    <div class="section">${sectionTitle('Backups', 'Dated copies on this computer you can go back to')}
+      <div class="row"><span class="row-label">Keep</span><div class="input select" style="width:160px"><span class="grow">30 versions</span></div><button class="btn btn--sm">${i('upload')}Back up now</button></div>
+      <div class="row"><span class="row-label">Encrypted export</span><button class="btn btn--sm">${i('download')}Export</button></div>
+    </div>
+    <div class="section">${sectionTitle('Delete')}
+      <div class="row"><span class="row-label" title="The 12 dated copies on this computer; the vault stays">All backups</span><button class="btn btn--danger-ghost btn--sm">${i('trash')}Delete all backups</button></div>
+      <div class="row"><span class="row-label" title="Vault, backups, settings and this computer's unlock; Cleis starts again from the first launch">Account and its data</span><button class="btn btn--danger btn--sm">${i('trash')}Delete account</button></div>
+    </div>`, '', 120);
+}
+// 37m. Deleting the account: the master password confirms; the copy at the sync place can go too.
+function supprimerCompte() {
+  return settings('Sync & backups', synchro37().match(/<div class="page"[^>]*>([\s\S]*)<\/div><\/div><\/div>/)[1],
+    dlg('Delete your account?', `<span style="color:var(--text-muted)" title="Organizations keep their own spaces">Vault, 12 backups, settings. It cannot be undone.</span>
+      <label class="row" style="padding:0"><span class="check on">${i('check')}</span><span class="row-label">Also the copy on GitHub</span></label>
+      <div class="field"><span class="label">Master password</span><div class="input is-focus"><span class="grow dots">••••••</span></div></div>
+      <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger">Delete account</button></div>`), 120);
+}
+// 37n. Account › GitHub, like Revel: a code to type on github.com, no token to make.
+function connexionGithub() {
+  return settings('Account', compte().match(/<div class="page"[^>]*>([\s\S]*)<\/div><\/div><\/div>/)[1],
+    dlg('Sign in with GitHub', `<div class="code-box"><span class="code code--lg">WDJB-MJHT</span><button class="icon-btn icon-btn--sm" aria-label="Copy" title="Copy">${i('copy')}</button></div>
+      <div style="display:flex;align-items:center;gap:var(--s-2);color:var(--text-muted)" title="A private repository cleis-vault is made in your account"><span class="spinner"></span>Waiting for GitHub…</div>
+      <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary" title="github.com/login/device, the code copied">${i('external')}Open GitHub</button></div>`));
+}
+
+// 37o. Right-click on the password field of the panel: its own menu (the row's menu is 33).
+function menuChampMotDePasse() {
+  const m = ctx(1186, 300, `${mi('copy', 'Copy', 'Ctrl+Shift+C')}${mi('', 'Paste', 'Ctrl+V')}${mi('eye', 'Show')}${sep}${mi('refresh', 'Generate a password')}${mi('clock', 'Previous passwords')}`, 220);
+  return shell('Vault', `
+    <div class="work">${sidebarB({ active: 'Design' })}
+      <section class="center" style="position:relative">${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: 'Figma' })}</div></section>
+      ${inspector().replace('<div class="input"><span class="grow dots">', '<div class="input is-focus"><span class="grow dots">')}
+    </div>${statusbar()}`, { overlay: m });
+}
+
+// 38. Settings › Shortcuts (27/11/2026): every keyboard shortcut in one place, each one changed by
+// pressing the new keys. The global ones move here from Autofill (one place, not two).
+function raccourcisClavier() {
+  const row = (label, k, { tip = '', changed = false, rec = false, clash = '', sw = false } = {}) => `<div class="row"><span class="row-label" ${tip ? `title="${tip}"` : ''}>${label}</span>
+    ${clash ? `<span class="chip chip--warn" title="${clash}"><span class="dot"></span>In use</span>` : ''}
+    ${rec ? `<span class="input input--sm is-focus" style="width:150px;justify-content:center;color:var(--text-muted)" title="Esc: cancel · Backspace: none">Press the keys…</span>` : keys(...k)}
+    ${changed ? `<button class="icon-btn icon-btn--sm" aria-label="Reset" title="Back to ${changed}">${i('refresh')}</button>` : '<span style="width:24px"></span>'}
+    <button class="btn btn--ghost btn--sm" style="width:64px;justify-content:center">${rec ? 'Cancel' : 'Change'}</button>${sw ? '<span class="switch on"></span>' : '<span style="width:26px;flex:none"></span>'}</div>`;
+  const nav = settingsNav('Shortcuts').replace(`<span>Sync & backups</span></div>`, `<span>Sync & backups</span></div><div class="side-item is-active">${i('keyboard')}<span>Shortcuts</span></div>`);
+  const body = `
+    <div class="page-head"><h1>Shortcuts</h1><span style="flex:1"></span><button class="btn btn--ghost btn--sm" title="Every shortcut back to Cleis's">Reset all</button></div>
+    <div class="section">${sectionTitle('Everywhere', 'Work in any app, even when Cleis is in the background')}
+      ${row('Quick Access', ['Ctrl', 'Shift', 'Space'], { sw: true })}
+      ${row('Fill best match', ['Ctrl', 'Alt', 'A'], { tip: 'Fills the item linked to the window in front', sw: true })}
+    </div>
+    <div class="section">${sectionTitle('In Cleis')}
+      ${row('Lock', ['Ctrl', 'L'])}
+      ${row('New password', ['Ctrl', 'N'], { tip: 'New contact in Contacts' })}
+      ${row('Search', ['Ctrl', 'K'], { changed: 'Ctrl+F' })}
+    </div>
+    <div class="section">${sectionTitle('Selected item')}
+      ${row('Copy username', ['Ctrl', 'C'])}
+      ${row('Copy password', [], { rec: true })}
+      ${row('Copy 2FA code', ['Ctrl', 'Alt', 'C'])}
+      ${row('Duplicate', ['Ctrl', 'D'])}
+      ${row('Move to trash', ['Del'])}
+    </div>`;
+  return shell('Settings', `<div class="settings">${nav}<div class="settings-body"><div class="page">${body}</div></div></div>`, { primary: null });
+}
+// 38b. A shortcut already taken: both rows say so, and the one just set waits until the other changes.
+function raccourciConflit() {
+  return raccourcisClavier()
+    .replace(/(<span class="row-label" >Lock<\/span>\s*)/, '$1<span class="chip chip--warn" title="Also Copy password"><span class="dot"></span>In use</span>')
+    .replace(/(<span class="row-label" >Copy password<\/span>\s*)/, '$1<span class="chip chip--warn" title="Also Lock: change one of them"><span class="dot"></span>In use</span>')
+    .replace(/<span class="input input--sm is-focus"[^>]*>Press the keys…<\/span>/, keys('Ctrl', 'L'))
+    .replace('>Cancel</button>', '>Change</button>');
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -1512,4 +1706,21 @@ export const SCREENS = {
   '36i-dossier-organisation': ['Create an organization — shared folder', dossierOrganisation],
   '36g-politique-pin': ['Security policy — organization PIN', politiquePin],
   '36h-saisie-pin': ['Organization PIN asked', saisiePin],
+  '37a-dossier-en-ligne': ['New folder — named in place', dossierEnLigne],
+  '37b-dossier-renomme': ['Folder — renamed by double-click', dossierRenomme],
+  '37c-separateurs-colonnes': ['Columns — edge bars', separateursColonnes],
+  '37d-pastille-connexion': ['Top bar — connection dot', pastilleConnexion],
+  '37e-ouverture-pin': ['Security — PIN for my vault', ouverturePin],
+  '37f-choisir-pin': ['Security — new PIN', choisirPin],
+  '37g-deverrouiller-pin': ['Unlock — PIN', deverrouillerPin],
+  '37h-premier-lancement-pin': ['First launch — PIN', premierLancementPin],
+  '37i-raccourcis-un-onglet': ['Preferences — shortcuts per vault, one Vault tab', raccourcisUnOnglet],
+  '37j-laterale-raccourcis': ['Sidebar — shortcuts under each vault', laterale37],
+  '37k-demarrer-dans': ['Preferences — start in a vault tab', demarrerDans],
+  '37l-synchro-suppressions': ['Sync & backups — deletions', synchro37],
+  '37m-supprimer-compte': ['Delete the account', supprimerCompte],
+  '37n-connexion-github': ['Account — sign in with GitHub', connexionGithub],
+  '37o-menu-mot-de-passe': ['Right-click — password field', menuChampMotDePasse],
+  '38-raccourcis-clavier': ['Settings — keyboard shortcuts', raccourcisClavier],
+  '38b-raccourci-conflit': ['Settings — shortcut already in use', raccourciConflit],
 };

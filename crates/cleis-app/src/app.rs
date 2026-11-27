@@ -1414,6 +1414,7 @@ pub fn load_appearance() -> Appearance {
     let p = appearance_path()
         .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice::<Preferences>(&b).ok())
+        .map(Preferences::upgraded)
         .unwrap_or_else(|| Preferences {
             // First launch: the system's language (U-9).
             language: sys_locale::get_locale().unwrap_or_default(),

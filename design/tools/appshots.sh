@@ -35,6 +35,7 @@ shot() { # name, args...
 for theme in ${THEMES:-dark}; do
   shot "unlock-$theme" --demo --theme $theme
   shot "unlock-hello-$theme" --demo --unlock-with hello --theme $theme
+  shot "vault-open-padlock-$theme" --demo --unlocked --unlock-with nothing --theme $theme
   shot "vault-$theme" --demo --unlocked --theme $theme
   shot "update-$theme" --demo --unlocked --update 0.2.1 --theme $theme
   shot "update-confirm-$theme" --demo --unlocked --update 0.2.1 --menu update --theme $theme

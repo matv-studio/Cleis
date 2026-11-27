@@ -1806,7 +1806,7 @@ fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
         assert_eq!(names, ["Acme portal", "Jira", "Shared drive"]);
     });
 
-    // Vault tabs on: Renew soon hidden in the personal vault only.
+    // Vault tabs on: Renew soon (off by default since 27/11/2026) shown in the personal vault only.
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
     act(cx, h, |w, cx| w.click("vault-tabs", cx));
@@ -1818,12 +1818,12 @@ fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
             .unwrap()
     };
     assert!(has(cx, "f-all"));
-    assert!(!has(cx, "f-renew"));
-    act(cx, h, |w, cx| w.click(format!("tab-vault-{studio}"), cx));
     assert!(has(cx, "f-renew"));
+    act(cx, h, |w, cx| w.click(format!("tab-vault-{studio}"), cx));
+    assert!(!has(cx, "f-renew"));
 
     // Customize: the hidden shortcut comes back with its eye; shown again from there.
-    act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
+    act(cx, h, |w, cx| w.click(format!("tab-vault-{studio}"), cx));
     act(cx, h, |w, cx| w.click("customize", cx));
     assert!(has(cx, "f-renew"));
     act(cx, h, |w, cx| w.click("f-renew-eye", cx));
@@ -1907,7 +1907,7 @@ fn void_menus_and_sort(cx: &mut TestAppContext) {
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert!(s.ctx.is_some());
-        assert_eq!(s.prefs.shortcuts.of("all"), [true, false, true]);
+        assert_eq!(s.prefs.shortcuts.of("all"), [true, false, false]);
     });
     act(cx, h, |w, cx| w.click("cx-customize", cx));
     app.read_with(cx, |a, _| {
@@ -2255,10 +2255,9 @@ fn own_accent_colour(cx: &mut TestAppContext) {
     let (saved, shown) = accent(cx);
     assert_eq!(saved, before);
     let shown = shown.unwrap();
-    assert!(
-        shown.starts_with("#e") || shown.starts_with("#f"),
-        "{shown}"
-    );
+    // Red: the strongest channel is red (the brightness kept from the bronze default, D-81).
+    let ch = |i: usize| u8::from_str_radix(&shown[i..i + 2], 16).unwrap();
+    assert!(ch(1) > ch(3) && ch(1) > ch(5), "{shown}");
     act(cx, h, |w, cx| w.press("escape", cx));
     assert_eq!(accent(cx), (before.clone(), None));
 

@@ -252,12 +252,16 @@ pub(crate) fn choice_with(
                         .font_weight(W_MEDIUM)
                         .child(crate::i18n::tr_owned(title)),
                 )
-                .child(
-                    div()
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .child(crate::i18n::tr_owned(sub)),
-                )
+                // Settings show no sentence under a choice (charter §1.5): an empty `sub` is left
+                // out, the caller puts it in a tooltip (27/11/2026).
+                .when(!sub.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .text_size(TEXT_SM)
+                            .text_color(t.text_muted)
+                            .child(crate::i18n::tr_owned(sub)),
+                    )
+                })
                 .when_some(extra, |d, e| d.child(div().pt(px(12.)).child(e))),
         )
         .child(

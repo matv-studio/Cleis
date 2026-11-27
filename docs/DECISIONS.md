@@ -627,6 +627,22 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     (tout voyage dans le même fichier scellé) ; la liste des ordinateurs viendra avec un registre
     des appareils dans le coffre.
 
+- **D-81 Retours sur la 0.2.2** (27/11/2026, demandes de l'utilisateur). Accent par défaut bronze
+  `#977327` (« moins agressif ») : 4:1 sur la page sombre, 3,8:1 sur la claire, donc le même dans les
+  deux thèmes ; un coffre qui garde l'ancien ocre par défaut `#e0a93b` passe au bronze
+  (`Preferences::upgraded`), une couleur choisie reste. « Renew soon » masqué par défaut dans la barre
+  latérale (`DEFAULT_SHORTCUTS`). « New item » devient « New password » (bouton, menu, nom du nouvel
+  élément). Ouverture sans rien (D-76) : cadenas ouvert en haut. Survol d'un onglet : la lumière
+  s'arrête à 8 px de l'onglet actif, dont le contour déborde chez ses voisins (vérifié à 100, 125 et
+  150 %). Réglages : plus de phrase sous un choix (Account, Sync & backups), tout en info-bulle
+  (charte §1.5, rappel de l'utilisateur).
+  - Constat : le mot de passe maître, l'élément « New Item » vide et les sauvegardes vus après
+    l'installation de la 0.2.2 étaient le coffre des essais déjà présent sur le PC
+    (`%APPDATA%\matv-studio\Cleis\data`) ; l'installateur ne porte que les programmes. D'où l'absence
+    du premier lancement (36d), qui ne paraît que sans coffre.
+  - Clic droit sur un élément : fonctionne dans la liste (vérifié par de vrais clics sous X11) ; le
+    champ mot de passe du panneau de droite n'avait pas de menu : maquette 37o validée.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

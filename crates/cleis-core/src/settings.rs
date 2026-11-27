@@ -11,13 +11,18 @@ pub enum Theme {
     System,
 }
 
-/// Default accent colour (D-51): ochre of the classic folder. The light theme uses a deeper
-/// shade of it, derived so every accent keeps 3.6:1 against the page (WCAG 1.4.11 ≥ 3:1).
-pub const DEFAULT_ACCENT: &str = "#e0a93b";
+/// Default accent colour (D-81, 27/11/2026): bronze, calmer than the ochre of D-51. It keeps
+/// 4:1 on the dark page and 3.8:1 on the light one, above the 3.6:1 every accent is held to
+/// (WCAG 1.4.11 ≥ 3:1), so both themes show it as is.
+pub const DEFAULT_ACCENT: &str = "#977327";
+
+/// The default before D-81: a vault that still has it (never chosen, only defaulted) moves to the
+/// new one.
+pub const OLD_DEFAULT_ACCENT: &str = "#e0a93b";
 
 /// Accent colours offered in Preferences, after "None".
 pub const ACCENTS: [(&str, &str); 6] = [
-    ("#e0a93b", "Ochre"),
+    ("#977327", "Bronze"),
     ("#3b82f6", "Blue"),
     ("#8b5cf6", "Violet"),
     ("#10b981", "Green"),
@@ -53,6 +58,9 @@ impl Default for Tabs {
     }
 }
 
+/// Shortcuts shown until changed: All items and Favorites; Renew soon is off (27/11/2026).
+pub const DEFAULT_SHORTCUTS: [bool; 3] = [true, true, false];
+
 /// The sidebar's shortcuts (All items, Favorites, Renew soon) of each vault: `"personal"`, an
 /// organization's key, or `"all"` (the single Vault tab, or every vault when `same`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,10 +71,10 @@ pub struct SidebarShortcuts {
 }
 
 impl SidebarShortcuts {
-    /// The shortcuts shown for `vault` (all three until changed).
+    /// The shortcuts shown for `vault` (`DEFAULT_SHORTCUTS` until changed).
     pub fn of(&self, vault: &str) -> [bool; 3] {
         let key = if self.same { "all" } else { vault };
-        self.sets.get(key).copied().unwrap_or([true; 3])
+        self.sets.get(key).copied().unwrap_or(DEFAULT_SHORTCUTS)
     }
 
     pub fn toggle(&mut self, vault: &str, which: usize) {
@@ -155,7 +163,7 @@ impl Default for Autofill {
 #[serde(default)]
 pub struct Preferences {
     pub theme: Theme,
-    /// `None` = no accent, or a `#rrggbb` colour. Cleis default: ochre `#e0a93b` (D-51).
+    /// `None` = no accent, or a `#rrggbb` colour. Cleis default: bronze `#977327` (D-81).
     pub accent: Option<String>,
     pub accent_scope: AccentScope,
     /// BCP 47 tag: `en`, `fr`.
@@ -275,6 +283,14 @@ impl Default for Policy {
 }
 
 impl Preferences {
+    /// Brings preferences saved by an older Cleis up to date (D-81: the old default accent).
+    pub fn upgraded(mut self) -> Self {
+        if self.accent.as_deref() == Some(OLD_DEFAULT_ACCENT) {
+            self.accent = Some(DEFAULT_ACCENT.into());
+        }
+        self
+    }
+
     /// What the user actually gets once the organisation policy is applied.
     pub fn effective_autofill(&self, policy: Option<&Policy>) -> Autofill {
         let mut a = self.autofill.clone();
@@ -316,6 +332,16 @@ mod tests {
         let old: Preferences = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
         assert_eq!(old.theme, Theme::Light);
         assert_eq!(old.accent.as_deref(), Some(DEFAULT_ACCENT));
+        // D-81: the ochre that was the default becomes the new default; another colour stays.
+        let ochre: Preferences = serde_json::from_str(r##"{"accent":"#e0a93b"}"##).unwrap();
+        assert_eq!(ochre.upgraded().accent.as_deref(), Some(DEFAULT_ACCENT));
+        let blue: Preferences = serde_json::from_str(r##"{"accent":"#3b82f6"}"##).unwrap();
+        assert_eq!(blue.upgraded().accent.as_deref(), Some("#3b82f6"));
+        assert_eq!(DEFAULT_SHORTCUTS, [true, true, false]);
+        assert_eq!(
+            SidebarShortcuts::default().of("personal"),
+            [true, true, false]
+        );
         assert_eq!(Preferences::default().accent_scope, AccentScope::Extended);
         assert_eq!(Preferences::default().theme, Theme::Dark);
         assert!(old.tabs.activity);

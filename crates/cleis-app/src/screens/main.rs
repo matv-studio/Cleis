@@ -243,10 +243,10 @@ fn topbar(
     let is_active = |tab: Tab, scope: &Option<crate::app::Scope>| {
         s.tab == tab && scope.as_ref().is_none_or(|sc| *sc == s.scope)
     };
-    let shown_ix = tabs
+    let active_ix = tabs
         .iter()
-        .position(|(tab, scope, _, _)| is_active(*tab, scope))
-        .unwrap_or(0);
+        .position(|(tab, scope, _, _)| is_active(*tab, scope));
+    let shown_ix = active_ix.unwrap_or(0);
     for (ix, (tab, scope, id, label)) in tabs.into_iter().enumerate() {
         let active = is_active(tab, &scope);
         // The page comes from the side of the tab clicked (26/11/2026).
@@ -276,15 +276,35 @@ fn topbar(
                 .text_color(t.accent_text)
                 .child(tab_shape(t))
         } else {
-            // Hover (26/11/2026): the tab lights up under the pointer.
-            el.text_color(t.text_muted)
-                .rounded_t(px(8.))
-                .hover(|d| d.bg(t.surface_hover).text_color(t.text))
+            // Hover (26/11/2026): the tab lights up under the pointer. The active tab's outline
+            // curves 8 px into its neighbours (`tab_shape`): their light stops short of it, so it
+            // never covers that line (27/11/2026).
+            let left = if ix > 0 && active_ix == Some(ix - 1) {
+                8.
+            } else {
+                0.
+            };
+            let right = if active_ix == Some(ix + 1) { 8. } else { 0. };
+            let group = SharedString::from(format!("tabhover-{ix}"));
+            el.relative()
+                .group(group.clone())
+                .text_color(t.text_muted)
+                .hover(|d| d.text_color(t.text))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(px(left))
+                        .right(px(right))
+                        .rounded_t(px(8.))
+                        .group_hover(group, |d| d.bg(t.surface_hover)),
+                )
         };
         nav = nav.child(el.child(crate::i18n::tr_owned(&label)).test_support());
     }
     let primary = match s.tab {
-        Tab::Vault => Some(("new-item", "New item")),
+        Tab::Vault => Some(("new-item", "New password")),
         Tab::Contacts => Some(("new-contact", "New contact")),
         _ => None,
     };
@@ -336,14 +356,24 @@ fn topbar(
                 .children(update)
                 .child(sync_status(s, t, cx))
                 .child(
-                    icon_button("lock", t, "lock", false)
-                        .no_drag()
-                        .tooltip(|window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(tr("Lock (Ctrl+L)"))
-                                .build(window, cx)
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx)))
-                        .test_support(),
+                    // Opening with nothing (D-76): the padlock is drawn open (27/11/2026).
+                    icon_button(
+                        "lock",
+                        t,
+                        if s.opening == crate::opening::Mode::Nothing {
+                            "unlock"
+                        } else {
+                            "lock"
+                        },
+                        false,
+                    )
+                    .no_drag()
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(tr("Lock (Ctrl+L)"))
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx)))
+                    .test_support(),
                 )
                 .when_some(primary, |d, (id, label)| {
                     d.child(
@@ -1416,7 +1446,7 @@ impl CleisApp {
             Filter::Space(sp) => sp,
             _ => s.vault.home_space(),
         };
-        let e = Entry::new(space, "New item");
+        let e = Entry::new(space, "New password");
         if s.vault.put_entry(&e).is_err() {
             return;
         }

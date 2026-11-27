@@ -642,11 +642,15 @@ impl Vault {
         self.set_setting("contact_columns", &c)
     }
     pub fn preferences(&self) -> Result<Preferences> {
-        Ok(self.setting("preferences")?.unwrap_or_default())
+        Ok(self
+            .setting::<Preferences>("preferences")?
+            .unwrap_or_default()
+            .upgraded())
     }
     /// The preferences if they were ever saved (a new vault has none).
     pub fn saved_preferences(&self) -> Result<Option<Preferences>> {
-        self.setting("preferences")
+        self.setting::<Preferences>("preferences")
+            .map(|p| p.map(Preferences::upgraded))
     }
     pub fn set_preferences(&self, p: &Preferences) -> Result<()> {
         self.set_setting("preferences", p)

@@ -66,7 +66,7 @@ fn main() {
     let quick_access = flag("--quick-access") && unlocked;
     let menu = value("--menu").filter(|_| unlocked);
     // Screenshots of the unlock screen as Windows Hello or "nothing" shows it (D-76).
-    let unlock_with = value("--unlock-with").filter(|_| demo && !unlocked);
+    let unlock_with = value("--unlock-with").filter(|_| demo);
     // Screenshots: a newer version shown as published (`--update 0.2.1`).
     let fake_update = value("--update");
     let import = value("--import").filter(|_| unlocked);
@@ -178,6 +178,10 @@ fn main() {
                         if let Some(s) = app.session() {
                             if !no_org {
                                 cleis_app::demo::org(s);
+                            }
+                            // Screenshots of a vault opened with nothing: the open padlock (27/11/2026).
+                            if unlock_with.as_deref() == Some("nothing") {
+                                s.opening = cleis_app::opening::Mode::Nothing;
                             }
                             // Screenshots: the first item open in the panel on the right.
                             if s.selected.is_none() {

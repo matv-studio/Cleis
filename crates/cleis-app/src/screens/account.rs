@@ -36,12 +36,13 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
          on: bool,
          planned: Option<&'static str>,
          cx: &mut Context<CleisApp>| {
+            // What each one is goes in its tooltip, no line under the name (27/11/2026).
             div()
                 .id(id)
                 .when(planned.is_some(), |d| d.opacity(0.45))
-                .when_some(planned, |d, why| d.tooltip(tip(tr(why))))
+                .tooltip(tip(crate::i18n::tr_owned(planned.unwrap_or(sub))))
                 .when(planned.is_none(), |d| d.cursor_pointer())
-                .child(super::welcome::choice(t, on, name, sub, ico))
+                .child(super::welcome::choice(t, on, name, "", ico))
                 .when(planned.is_none() && id == "acc-github", |d| {
                     d.on_click(cx.listener(|this, _, window, cx| {
                         this.open_place(Provider::GitHub, window, cx)

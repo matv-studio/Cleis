@@ -407,3 +407,14 @@ textarea.input { height: auto; padding: 6px var(--s-2); resize: none; }
 .side-section { font-weight: var(--weight-medium); color: var(--text); }
 .side-section .icon-btn { margin-right: -4px; }
 .side-section .count { margin-left: auto; }
+
+/* 37 (27/11/2026) */
+/* Column edges: a 1 px grey bar between two headings shows where the width handle is. */
+.table th.sep::after { content: ''; position: absolute; right: 0; top: 8px; bottom: 8px; width: 1px; background: var(--line-strong); }
+/* A folder named in place: the row itself becomes the field. */
+.side-item.is-editing { background: var(--bg); outline: 2px solid var(--focus); outline-offset: -1px; color: var(--text); }
+.side-item.is-editing .caret { width: 1px; height: 14px; background: var(--text); }
+.side-item.is-editing .sel { background: var(--selection); color: var(--text); border-radius: 2px; padding: 0 1px; }
+.side-shortcut { padding-left: 28px; }
+.spinner { width: 14px; height: 14px; border-radius: 99px; border: 2px solid var(--line-strong); border-top-color: var(--accent-text); }
+.code-box { display: flex; align-items: center; justify-content: center; gap: var(--s-3); padding: var(--s-4); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: var(--bg); }
