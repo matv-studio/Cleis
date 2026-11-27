@@ -62,7 +62,7 @@ pub fn emergency_kit(vault: &Path, place: Option<&str>, now: i64) -> Vec<u8> {
         text(&mut c, 10., false, &l, &mut y);
     }
     y -= 8.;
-    text(&mut c, 12., true, "Master password", &mut y);
+    text(&mut c, 12., true, "Password", &mut y);
     text(
         &mut c,
         10.,
@@ -77,7 +77,7 @@ pub fn emergency_kit(vault: &Path, place: Option<&str>, now: i64) -> Vec<u8> {
     for l in [
         "1. Install Cleis.",
         "2. Choose Restore my vault, then the sync place above.",
-        "3. Type the master password.",
+        "3. Type the password.",
     ] {
         text(&mut c, 10., false, l, &mut y);
     }

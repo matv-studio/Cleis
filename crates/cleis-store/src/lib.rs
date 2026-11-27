@@ -32,9 +32,9 @@ const FORMAT: i64 = 1;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
-    #[error("wrong master password")]
+    #[error("wrong password")]
     WrongPassword,
-    #[error("this vault has no master password")]
+    #[error("this vault has no password")]
     NoPassword,
     #[error("this vault has no recovery key")]
     NoRecoveryKey,

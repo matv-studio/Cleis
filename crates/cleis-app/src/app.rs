@@ -79,6 +79,9 @@ pub enum ConfirmAction {
     LeaveOrg,
     RotateKey,
     DisconnectPlace,
+    /// Settings › Account › Revoke access (mockup 39c): Cleis forgets GitHub, then GitHub's page
+    /// for Cleis opens to remove the authorization everywhere.
+    RevokeGitHub,
     /// D-76: no more master password.
     RemovePassword,
     /// Mockup 37l: every dated copy on this computer.
@@ -116,7 +119,7 @@ pub struct Unlock {
     pub recovery_key: Entity<InputState>,
     /// The PIN's boxes (mockup 37g), when this computer opens with a PIN.
     pub pin: Option<crate::screens::pin::PinBoxes>,
-    /// "Use the master password" chosen over the PIN.
+    /// "Use the password" chosen over the PIN.
     pub pin_off: bool,
 }
 
@@ -457,7 +460,7 @@ impl Session {
         if forbidden {
             crate::opening::forget(path);
             self.opening = Mode::Password;
-            self.toast = Some(tr("Your organization asks for the master password").into());
+            self.toast = Some(tr("Your organization asks for the password").into());
         }
         let has = self.vault.has_password().unwrap_or(true);
         if !has && !rule.allows_no_password() {
@@ -466,7 +469,7 @@ impl Session {
         if has && self.typed_len.is_some_and(|n| n < self.master_min()) {
             self.typed_len = None;
             self.password_due = true;
-            self.toast = Some(tr("Your organization asks for a longer master password").into());
+            self.toast = Some(tr("Your organization asks for a longer password").into());
         }
     }
 
@@ -499,6 +502,12 @@ impl Session {
     /// Whether a right-click menu is open on this row (outlined, not selected).
     pub fn aimed(&self, target: crate::screens::ctx::CtxTarget) -> bool {
         self.ctx.as_ref().is_some_and(|m| m.target == target)
+    }
+
+    /// Vaults in their own tabs: only with an organization, the personal vault alone needs no
+    /// tab of its own (27/11/2026).
+    pub fn vault_tabs(&self) -> bool {
+        self.prefs.vault_tabs && self.all_orgs().next().is_some()
     }
 
     pub fn selected_entry(&self) -> Option<&Entry> {
@@ -984,11 +993,9 @@ impl CleisApp {
                     if let Phase::Unlock(u) = &mut this.phase {
                         u.busy = false;
                         u.error = Some(match e {
-                            cleis_store::StoreError::WrongPassword => {
-                                tr("Wrong master password").into()
-                            }
+                            cleis_store::StoreError::WrongPassword => tr("Wrong password").into(),
                             cleis_store::StoreError::NoPassword => {
-                                tr("This vault has no master password: use the recovery key").into()
+                                tr("This vault has no password: use the recovery key").into()
                             }
                             other => other.to_string().into(),
                         });
@@ -1088,7 +1095,7 @@ impl CleisApp {
                                 u.password.update(cx, |s, cx| s.focus(window, cx));
                             }
                         }
-                        tr("Too many wrong PINs: use the master password").into()
+                        tr("Too many wrong PINs: use the password").into()
                     }
                     Err(PinError::Other(e)) => crate::i18n::tr_dynamic(&e).into(),
                 };
@@ -1262,7 +1269,7 @@ impl CleisApp {
         // Start in a vault tab (mockup 37k): known once the organizations are loaded.
         let start = self.session().and_then(|s| {
             let key = s.prefs.start_in.strip_prefix("vault:")?;
-            if !s.prefs.vault_tabs {
+            if !s.vault_tabs() {
                 return None;
             }
             if key == "personal" {

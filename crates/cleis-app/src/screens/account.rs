@@ -18,16 +18,43 @@ pub fn signed_in(s: &Session) -> bool {
     s.sync.place.is_some() && s.sync.provider == Provider::GitHub
 }
 
+/// The GitHub account of the sync place (`owner` of `owner/cleis-vault`).
+pub fn github_login(s: &Session) -> Option<String> {
+    match s.sync.remote.as_ref()? {
+        crate::remote::RemotePlace::GitHub { repo, .. } => {
+            repo.split('/').next().map(str::to_owned)
+        }
+        _ => None,
+    }
+}
+
+/// Settings › Account (mockups 39a, 39b, 27/11/2026): the account, then what was Security
+/// (opening, two-factor authentication, locking, clipboard), what an organization knows of you
+/// (was Profile), and deleting the account at the bottom. One page, one menu entry.
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let head = div()
         .text_size(TEXT_XL)
         .line_height(px(26.))
         .font_weight(W_STRONG)
         .child(tr("Account"));
-    let page = div().flex().flex_col().gap(px(16.)).child(head);
-    if signed_in(s) {
-        return page.children(signed(s, t, cx));
-    }
+    let account = if signed_in(s) {
+        signed(s, t, cx)
+    } else {
+        sign_in(t, cx)
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head)
+        .child(account)
+        .children(super::security::sections(s, t, cx))
+        .children(super::org::profile_sections(s, t, cx))
+        .child(super::erase::account_section(t, cx))
+}
+
+/// Not signed in (36b): the providers, Sign in.
+fn sign_in(t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let prov = |id: &'static str,
                 ico: &str,
                 name: &str,
@@ -47,8 +74,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             })
             .test_support()
     };
-    page.child(
-        section(t)
+    section(t)
             .child(
                 div()
                     .id("acc-title")
@@ -85,12 +111,11 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .on_click(cx.listener(|this, _, window, cx| this.start_github(window, cx)))
                         .test_support(),
                 ),
-            ),
-    )
+            )
 }
 
-/// Signed in (36c): the account, its last sync, and what follows.
-fn signed(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Vec<Div> {
+/// Signed in (39a): the account, its last sync, Sign out and Revoke access.
+fn signed(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let c = &s.sync;
     let status = match (&c.last_error, c.last_sync) {
         _ if c.busy => chip(t, Tone::Neutral, tr("Syncing…"), false),
@@ -103,23 +128,37 @@ fn signed(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Vec<Div> {
         ),
         (None, None) => chip(t, Tone::Neutral, tr("Never synced"), false),
     };
-    let label = c.remote.as_ref().map(|r| r.label()).unwrap_or_default();
-    let who = section(t).child(section_title(t, c.provider.name())).child(
+    let repo = match c.remote.as_ref() {
+        Some(crate::remote::RemotePlace::GitHub { repo, .. }) => repo
+            .split_once('/')
+            .map_or(repo.clone(), |(_, name)| name.to_owned()),
+        Some(r) => r.label(),
+        None => String::new(),
+    };
+    let who = github_login(s).map_or_else(|| c.provider.name().to_owned(), |l| format!("@{l}"));
+    let is_github = github_login(s).is_some();
+    section(t).child(section_title(t, c.provider.name())).child(
         div()
+            .id("acc-who")
             .flex()
             .items_center()
             .gap(px(10.))
             .child(icon("repo", 18., t.text_muted))
+            .child(div().child(who))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .font_family(FONT_MONO)
                     .text_size(TEXT_SM)
+                    .text_color(t.text_muted)
                     .overflow_hidden()
                     .text_ellipsis()
-                    .child(label),
+                    .child(repo),
             )
+            .tooltip(tip(tr(
+                "Your vault, settings, backups and organizations follow you to your other computers",
+            )))
             .child(status)
             .child(
                 button("acc-signout", t, BtnKind::Ghost, true)
@@ -131,33 +170,21 @@ fn signed(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Vec<Div> {
                         this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
                     }))
                     .test_support(),
-            ),
-    );
-    // All of it travels in the sealed vault file: shown, not switched off one by one.
-    let follows = [
-        ("Vault", "Items, folders, contacts"),
-        ("Settings", "Preferences, columns, shortcuts"),
-        ("Backups", "Each sync is a version in the repository"),
-        (
-            "Organizations",
-            "Your memberships; each server still asks for your PIN",
-        ),
-    ];
-    let mut what = section(t).child(section_title(t, tr("What follows you")));
-    for (i, (name, why)) in follows.into_iter().enumerate() {
-        what = what.child(
-            row(t, i > 0)
-                .child(
-                    div()
-                        .id(gpui_kit::SharedString::from(format!("acc-follow-{i}")))
-                        .flex_1()
-                        .child(crate::i18n::tr_owned(name))
-                        .tooltip(tip(tr(why))),
+            )
+            .when(is_github, |d| {
+                d.child(
+                    button("acc-revoke", t, BtnKind::DangerGhost, true)
+                        .child(tr("Revoke access"))
+                        .tooltip(tip(tr(
+                            "Removes Cleis' access to your GitHub repositories, on every computer",
+                        )))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.ask_action(crate::app::ConfirmAction::RevokeGitHub, cx)
+                        }))
+                        .test_support(),
                 )
-                .child(icon("check", 16., t.success_text)),
-        );
-    }
-    vec![who, what]
+            }),
+    )
 }
 
 impl CleisApp {

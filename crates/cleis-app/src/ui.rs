@@ -31,9 +31,12 @@ pub enum BtnKind {
 
 /// `.btn`: 28 px, radius 6, medium weight; `small` = 24 px.
 pub fn button(id: impl Into<ElementId>, t: &Tokens, kind: BtnKind, small: bool) -> Stateful<Div> {
+    // Hover lightens towards the text colour (darkens in the light theme), pressing goes towards
+    // the page: seen on any accent (27/11/2026: 92 % opacity only darkened the bronze slightly).
+    let lift = |c: Hsla, p: f32| -> Hsla { crate::theme::mix(c.into(), t.text.into(), p).into() };
     let (bg, border, fg, hover) = match kind {
         BtnKind::Default => (t.surface_raised, t.line_strong, t.text, t.surface_hover),
-        BtnKind::Primary => (t.primary, t.primary, t.primary_ink, t.primary.opacity(0.92)),
+        BtnKind::Primary => (t.primary, t.primary, t.primary_ink, lift(t.primary, 0.82)),
         BtnKind::Ghost => (
             Hsla::transparent_black(),
             Hsla::transparent_black(),
@@ -50,8 +53,19 @@ pub fn button(id: impl Into<ElementId>, t: &Tokens, kind: BtnKind, small: bool) 
             t.danger_solid,
             t.danger_solid,
             gpui_kit::white(),
-            t.danger_solid.opacity(0.9),
+            lift(t.danger_solid, 0.86),
         ),
+    };
+    let press: Hsla = match kind {
+        BtnKind::Primary | BtnKind::Danger => {
+            crate::theme::mix(bg.into(), t.bg.into(), 0.78).into()
+        }
+        _ => t.surface_active,
+    };
+    let hover_border = match kind {
+        BtnKind::Default => t.text_faint,
+        BtnKind::Primary | BtnKind::Danger => hover,
+        _ => border,
     };
     div()
         .id(id)
@@ -71,7 +85,15 @@ pub fn button(id: impl Into<ElementId>, t: &Tokens, kind: BtnKind, small: bool) 
         .font_weight(W_MEDIUM)
         .whitespace_nowrap()
         .cursor_pointer()
-        .hover(move |s| s.bg(hover))
+        .hover(move |s| s.bg(hover).border_color(hover_border))
+        .active(move |s| {
+            let s = s.bg(press);
+            if matches!(kind, BtnKind::Primary | BtnKind::Danger) {
+                s.border_color(press)
+            } else {
+                s
+            }
+        })
 }
 
 /// `.icon-btn`: square, transparent, muted icon.

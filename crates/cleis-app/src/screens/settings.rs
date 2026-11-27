@@ -12,9 +12,9 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Div, SharedString, div, px};
 
-const ACCOUNT: [(&str, &str); 6] = [
+// Account holds what Security and Profile were (27/11/2026, mockups 39a, 39b).
+const ACCOUNT: [(&str, &str); 5] = [
     ("cloud", "Account"),
-    ("lock", "Security"),
     ("gear", "Preferences"),
     ("fill", "Autofill"),
     ("sync", "Sync & backups"),
@@ -34,8 +34,7 @@ fn groups(s: &Session) -> Vec<Group> {
         account.push(("server", "Organization"));
         return vec![(tr("My account").into(), None, account)];
     }
-    account.insert(0, ("user", "Profile"));
-    account.insert(2, ("laptop", "Devices"));
+    account.insert(1, ("laptop", "Devices"));
     let mut out = vec![(tr("My account").into(), None, account)];
     for o in s.all_orgs() {
         let mut org = vec![];
@@ -167,7 +166,7 @@ pub fn page(
         "Autofill" => autofill(s, t, cx),
         "Shortcuts" => super::keys::page(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
-        "Security" => super::security::page(s, t, cx),
+        "Security" | "Profile" => super::account::page(s, t, cx),
         "Sync & backups" if manage => {
             let org_view = s.org.as_ref().is_some_and(|o| o.ui.org_backups);
             let name = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
@@ -233,7 +232,6 @@ pub fn page(
         "Account" => super::account::page(s, t, cx),
         "Members" => super::org::members(s, t, cx),
         "Spaces" => super::org::spaces(s, t, cx),
-        "Profile" => super::org::profile(s, t, cx),
         "Devices" => super::org::devices(s, t, cx),
         "Security policy" => super::org::policy(s, t, cx),
         "Encryption" => super::org::encryption(s, t, cx),
@@ -282,25 +280,29 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
                 .build(window, cx)
         }
     };
+    let has_org = s.all_orgs().next().is_some();
     section(t)
         .child(section_title(t, tr("Vaults")))
-        .child(
-            row(t, true)
-                .child(
-                    div()
-                        .id("vault-tabs-label")
-                        .flex_1()
-                        .tooltip(tip(tr("Off: one Vault tab, every vault in its sidebar")))
-                        .child(tr("Personal vault in its own tab")),
-                )
-                .child(toggle(
-                    "vault-tabs",
-                    t,
-                    p.vault_tabs,
-                    |p| p.vault_tabs = !p.vault_tabs,
-                    cx,
-                )),
-        )
+        // Without an organization there is one vault: no tab of its own to offer.
+        .when(has_org, |d| {
+            d.child(
+                row(t, true)
+                    .child(
+                        div()
+                            .id("vault-tabs-label")
+                            .flex_1()
+                            .tooltip(tip(tr("Off: one Vault tab, every vault in its sidebar")))
+                            .child(tr("Personal vault in its own tab")),
+                    )
+                    .child(toggle(
+                        "vault-tabs",
+                        t,
+                        p.vault_tabs,
+                        |p| p.vault_tabs = !p.vault_tabs,
+                        cx,
+                    )),
+            )
+        })
         .child(shortcut_rows(s, p, t, cx))
         .child(
             row(t, false)
@@ -317,7 +319,8 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
 
 /// Mockup 35j: All items, Favorites and Renew soon shown or hidden, per vault or everywhere.
 fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
-    let per_vault = p.shortcuts.per_vault(p.vault_tabs);
+    let tabs = s.vault_tabs();
+    let per_vault = p.shortcuts.per_vault(tabs);
     let orgs = s.org_tabs();
     let mut vaults: Vec<(String, &'static str, String)> = Vec::new();
     if per_vault {
@@ -329,7 +332,7 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
         vaults.push(("all".into(), "list", tr("Every vault").to_owned()));
     }
     // One Vault tab, a set per vault (37i): All items is the vault's own name there.
-    let first = usize::from(per_vault && !p.vault_tabs);
+    let first = usize::from(per_vault && !tabs);
     let mut d = div().flex().flex_col().child(
         row(t, true)
             .child(
@@ -668,7 +671,7 @@ const CURRENCIES: [(&str, &str); 5] = [
 /// Start in (mockup 37k): with vaults in their own tabs, each vault tab first, then the views.
 fn start_options(s: &Session, p: &Preferences) -> Vec<(String, String, bool)> {
     let mut v = vec![];
-    if p.vault_tabs {
+    if s.vault_tabs() {
         v.push(("vault:personal".to_owned(), s.personal_name()));
         for (k, name) in s.org_tabs() {
             v.push((format!("vault:{k}"), name));
@@ -1264,7 +1267,7 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         f(&mut s.prefs);
         // D-69: the vault tabs come and go with their setting.
-        let scope = match (s.prefs.vault_tabs, &s.scope) {
+        let scope = match (s.vault_tabs(), &s.scope) {
             (false, _) => crate::app::Scope::All,
             (true, crate::app::Scope::All) => crate::app::Scope::Personal,
             (true, sc) => sc.clone(),

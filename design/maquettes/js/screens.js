@@ -1621,7 +1621,7 @@ function githubSansCoffre() {
 // what was Security: opening Cleis, two-factor authentication (was "Verification code"), locking,
 // clipboard; Delete account at the bottom, as in Sync & backups. No "Security" page any more.
 function navCompte(active) {
-  return settingsNav(active).replace(/<div class="side-item[^"]*">(<svg(?:(?!<\/svg>)[\s\S])*<\/svg>)<span>Security<\/span><\/div>/, '');
+  return settingsNav(active).replace(/<div class="side-item[^"]*">(<svg(?:(?!<\/svg>)[\s\S])*<\/svg>)<span>(Security|Profile)<\/span><\/div>/g, '');
 }
 const settingsCompte = (body, overlay = '', scroll = 0) => shell('Settings', `<div class="settings">${navCompte('Account')}<div class="settings-body"><div class="page" ${scroll ? `style="margin-top:-${scroll}px"` : ''}>${body}</div></div></div>`, { primary: null, overlay });
 function compteFusion() {
@@ -1630,16 +1630,16 @@ function compteFusion() {
     <div class="section">${sectionTitle('GitHub')}
       <div class="row"><span class="site-ico">${i('repo')}</span><span class="row-label" style="flex:1"><span>@lea-example</span><span class="code" style="color:var(--text-muted);font-size:var(--text-sm);margin-left:var(--s-2)">cleis-vault</span></span><span class="chip chip--ok" title="Last sync today at 10:42"><span class="dot"></span>Synced 2 min ago</span><button class="btn btn--ghost btn--sm" title="This computer stops following; the copy there stays sealed">Sign out</button><button class="btn btn--danger-ghost btn--sm" title="Removes Cleis' access to your GitHub repositories, on every computer">Revoke access</button></div>
     </div>
-    <div class="section">${sectionTitle('Opening Cleis', 'How this computer opens your vault. On another computer: the master password or the recovery key.')}
+    <div class="section">${sectionTitle('Opening Cleis', 'How this computer opens your vault. On another computer: the password or the recovery key.')}
       <div class="row"><span class="row-label">Unlock with</span>
-        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">${i('key')}Master password</button><button role="radio" aria-checked="true" title="Digits only, on this computer; the master password after too many wrong tries">${i('hash')}PIN</button><button role="radio" aria-checked="false" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">${i('laptop')}Nothing</button></div></div>
+        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">${i('key')}Password</button><button role="radio" aria-checked="true" title="Digits only, on this computer; the password after too many wrong tries">${i('hash')}PIN</button><button role="radio" aria-checked="false" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">${i('laptop')}Nothing</button></div></div>
       <div class="row"><span class="row-label">Length</span><div class="segmented"><button role="radio" aria-checked="false">4</button><button role="radio" aria-checked="true">6</button><button role="radio" aria-checked="false">8</button></div></div>
-      <div class="row"><span class="row-label" title="Then the master password or the recovery key">Wrong tries before locking</span><div class="input select" style="width:160px"><span class="grow">5</span></div></div>
+      <div class="row"><span class="row-label" title="Then the password or the recovery key">Wrong tries before locking</span><div class="input select" style="width:160px"><span class="grow">5</span></div></div>
       <div class="row"><span class="row-label">PIN</span><button class="btn">Change</button></div>
       <div class="row"><span class="row-label" title="Opens your vault anywhere; keep it outside Cleis">Recovery key</span><button class="btn">Show</button></div>
-      <div class="row"><span class="row-label">Master password</span><button class="btn">Change</button></div>
+      <div class="row"><span class="row-label">Password</span><button class="btn">Change</button></div>
     </div>
-    <div class="section">${sectionTitle('Two-factor authentication', 'A code from your authenticator app, asked each time Cleis opens, on top of the master password or PIN. This computer only: an organization’s two-step verification is in Profile.')}
+    <div class="section">${sectionTitle('Two-factor authentication', 'A code from your authenticator app, asked each time Cleis opens, on top of the password or PIN. This computer only: an organization’s two-step verification is in Profile.')}
       <div class="row"><span class="row-label">2FA when Cleis opens</span><span class="switch on"></span></div>
       <div class="row"><span class="row-label">Method</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('phone')}App</button><button role="radio" aria-checked="false">${i('mail')}Email</button><button role="radio" aria-checked="false">SMS</button></div></div>
       <div class="row"><span class="row-label" title="Each one opens Cleis once without the app">Recovery codes</span><span style="color:var(--text-muted);font-size:var(--text-sm)">8 left</span><button class="btn">Show</button></div>
@@ -1650,13 +1650,18 @@ function compteFusion() {
     <div class="section">${sectionTitle('Clipboard')}
       <div class="row"><span class="row-label">Clear after copying</span><div class="input select" style="width:140px"><span class="grow">30 s</span></div></div>
     </div>
+    <div class="section">${sectionTitle('Example Studio', 'What the organization knows of you; was Profile')}
+      <div class="row"><span class="row-label" title="Shown to the other members">Name</span><div class="input" style="width:220px"><span class="grow">Lea Martin</span></div></div>
+      <div class="row"><span class="row-label" title="Signs you in to the server; never leaves your vault">Account key</span><span class="code" style="color:var(--text-muted);font-size:var(--text-sm)">7F3A · 91C2 · 0B6E · D44F</span></div>
+      <div class="row"><span class="row-label" title="Asked by the server at sign-in">Two-step verification</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Authenticator app</span></div>
+    </div>
     <div class="section">${sectionTitle('Delete')}
       <div class="row"><span class="row-label" title="Vault, backups, settings and this computer's unlock; Cleis starts again from the first launch">Account and its data</span><button class="btn btn--danger btn--sm">${i('trash')}Delete account</button></div>
     </div>`;
 }
 function compteFusionHaut() { return settingsCompte(compteFusion()); }
 // 39b. The bottom of the same page.
-function compteFusionBas() { return settingsCompte(compteFusion(), '', 560); }
+function compteFusionBas() { return settingsCompte(compteFusion(), '', 720); }
 // 39c. Revoke access: Cleis forgets its GitHub access here, then github.com opens on Cleis' page
 // (Settings › Applications › Cleis) where "Revoke access" removes it everywhere (GitHub lets only
 // the account holder do it from the app's side without a secret).
@@ -1676,6 +1681,76 @@ function compteLocalRevoquer() {
     <div class="section">${sectionTitle('Opening Cleis')}
       <div class="row"><span class="row-label">Unlock with</span>
         <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('key')}Master password</button><button role="radio" aria-checked="false">${i('hash')}PIN</button><button role="radio" aria-checked="false">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false">${i('laptop')}Nothing</button></div></div>
+    </div>`);
+}
+
+// ---------- 40 (27/11/2026): one journey from the first screen, the account in the top bar ----------
+// The first screen keeps one card: choosing GitHub (Microsoft, Google) selects "Sign in", the code
+// is typed on the provider's page, then the card goes on by itself: no vault on the account →
+// the vault is made here and saved there (40b); a vault there → it is opened here (40c). No other
+// screen, no "Restore" detour.
+const welcomeCard = (inner, { org = false } = {}) => `<div class="app"><main class="main" style="margin:6px"><div class="center-stage">
+    <div class="card" style="width:460px">
+      <div class="card-head"><span class="logo logo--lg">${i('key')}</span><h1>Welcome to Cleis</h1></div>${inner}</div></div></main></div>`;
+const chLocal = (on) => `<div class="choice ${on ? 'is-active' : ''}"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">This computer only</b></div><span class="ico">${i('laptop')}</span></div>`;
+const chOrg = `<div class="choice"><span class="radio"></span><div class="txt"><b style="font-weight:var(--weight-medium)">Join an organization</b></div><span class="ico">${i('server')}</span></div>`;
+const chSignIn = (state) => {
+  const prov = (ico, n, on) => `<button class="btn btn--sm" ${on ? 'style="border-color:var(--focus);color:var(--text)"' : ''}>${i(ico)}${n}</button>`;
+  const body = state === 'none'
+    ? `<div style="display:flex;gap:8px;margin-top:var(--s-3)">${prov('window', 'Microsoft')}${prov('globe', 'Google')}${prov('repo', 'GitHub')}</div>`
+    : `<div style="display:flex;align-items:center;gap:8px;margin-top:var(--s-3)"><span class="avatar" style="width:20px;height:20px;font-size:10px">L</span><span>@lea-example</span><span class="chip chip--ok" title="GitHub"><span class="dot"></span>GitHub</span><span style="flex:1"></span><button class="btn btn--ghost btn--sm" title="Another account or provider">Change</button></div>`;
+  const on = state !== 'none' || state === 'pick';
+  return `<div class="choice ${on ? 'is-active' : ''}" ${state === 'none' ? 'title="Your vault follows you to your other computers"' : ''}><span class="radio ${on ? 'on' : ''}"></span><div class="txt" style="flex:1"><b style="font-weight:var(--weight-medium)">Sign in</b>${body}</div><span class="ico">${i('user')}</span></div>`;
+};
+const unlockWith = `<div class="row" style="padding:0"><span class="row-label">Unlock with</span>
+          <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">Password</button><button role="radio" aria-checked="false">PIN</button><button role="radio" aria-checked="false">Windows Hello</button><button role="radio" aria-checked="false" title="Anyone using this Windows account opens Cleis">Nothing</button></div></div>`;
+const pwFields = `<div class="field"><span class="label">Password</span><div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act">${i('eye')}</span></div></div>
+        <div class="field"><span class="label">Confirm</span><div class="input"><span class="grow"></span><span class="act">${i('eye')}</span></div></div>`;
+// 40a. GitHub clicked: "Sign in" is the choice, the code waits on github.com.
+function parcoursCode() {
+  return welcomeCard(`${chLocal(false)}${chSignIn('pick').replace('<div style="display:flex;gap:8px;margin-top:var(--s-3)">', '<div style="display:flex;gap:8px;margin-top:var(--s-3)">').replace(/(<button class="btn btn--sm")(>[\s\S]*?GitHub<\/button>)/, '$1 style="border-color:var(--focus);color:var(--text)"$2')}${chOrg}
+      <div class="section" style="gap:var(--s-3);opacity:.45">${unlockWith}</div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary" style="opacity:.6">Create vault</button></div>`)
+    .replace('</main></div>', `${dlg('Sign in with GitHub', `<div class="code-box"><span class="code code--lg">WDJB-MJHT</span><button class="icon-btn icon-btn--sm" aria-label="Copy" title="Copy">${i('copy')}</button></div>
+      <div style="display:flex;align-items:center;gap:var(--s-2);color:var(--text-muted)"><span class="spinner"></span>Waiting for GitHub…</div>
+      <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary" title="github.com/login/device, the code copied">${i('external')}Open GitHub</button></div>`)}</main></div>`);
+}
+// 40b. Signed in, no vault on the account: the card goes on to the creation, the account kept.
+function parcoursCreer() {
+  return welcomeCard(`${chLocal(false)}${chSignIn('signed')}${chOrg}
+      <div class="section" style="gap:var(--s-3)">${unlockWith}${pwFields}</div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary" title="Then saved to a private repository cleis-vault on @lea-example">Create vault</button></div>`);
+}
+// 40c. Signed in, a vault already on the account: opened here with its password or recovery key.
+function parcoursOuvrir() {
+  return welcomeCard(`${chLocal(false)}${chSignIn('signed')}${chOrg}
+      <div class="section" style="gap:var(--s-3)">
+        <div class="row" style="padding:0"><span class="row-label">${i('repo')}<span class="code">lea-example/cleis-vault</span></span><span style="color:var(--text-muted);font-size:var(--text-sm)">Synced 2 min ago</span></div>
+        <div class="field"><span class="label">Password or recovery key</span><div class="input is-focus"><span class="grow dots">••••••••••••</span><span class="act">${i('eye')}</span></div></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Open vault</button></div>`);
+}
+// 40d. Top bar: the account's picture at the right; its menu.
+function profilCompte() {
+  const avatar = '<span class="avatar" style="background:linear-gradient(135deg,#6b8f71,#3d5a80);color:#fff" title="@lea-example · GitHub">L</span>';
+  const menu = `<div class="menu" style="right:132px;top:44px;width:260px">
+      <div class="member" style="padding:var(--s-2) var(--s-2) var(--s-3)"><span class="avatar" style="width:32px;height:32px;background:linear-gradient(135deg,#6b8f71,#3d5a80);color:#fff">L</span><div class="meta"><span style="font-weight:var(--weight-medium)">@lea-example</span><span class="sub">GitHub · Synced 2 min ago</span></div></div>
+      ${sep}${mi('sync', 'Sync now')}${mi('gear', 'Account')}${sep}${mi('logout', 'Sign out')}</div>`;
+  const html = shell('Vault', `<div class="work">${sidebar()}<section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div></section></div>${statusbar()}`, { overlay: menu });
+  return html.replace(/<span class="avatar" title="Lea Martin">LM<\/span>/, avatar);
+}
+// 40e. Settings › Account, signed out: no "Revoke"; the providers to sign in with.
+function compteLocal40() {
+  const prov = (ico, name, on = false, tip = '') => `<div class="choice ${on ? 'is-active' : ''}" style="padding:var(--s-3)" ${tip ? `title="${tip}"` : ''}><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">${name}</b></div><span class="ico">${i(ico)}</span></div>`;
+  return settingsCompte(`
+    <div class="page-head"><h1>Account</h1></div>
+    <div class="section">${sectionTitle('Sign in', 'Your vault, settings, backups and organizations follow you to your other computers. Everything is encrypted on this computer before it leaves.')}
+      ${prov('laptop', 'Local', true, 'This computer only')}${prov('window', 'Microsoft', false, 'OneDrive, in a folder only Cleis sees')}${prov('globe', 'Google', false, 'Google Drive, in a folder only Cleis sees')}${prov('repo', 'GitHub', false, 'A private repository')}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary">Sign in</button></div>
+    </div>
+    <div class="section">${sectionTitle('Opening Cleis')}
+      <div class="row"><span class="row-label">Unlock with</span>
+        <div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">${i('key')}Password</button><button role="radio" aria-checked="false">${i('hash')}PIN</button><button role="radio" aria-checked="false">${i('fingerprint')}Windows Hello</button><button role="radio" aria-checked="false">${i('laptop')}Nothing</button></div></div>
     </div>`);
 }
 
@@ -1818,6 +1893,11 @@ export const SCREENS = {
   '39b-compte-fusion-bas': ['Account — bottom, delete account', compteFusionBas],
   '39c-revoquer-github': ['Account — revoke GitHub access', revoquerGithub],
   '39d-compte-local': ['Account — local, GitHub access revocable', compteLocalRevoquer],
+  '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
+  '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
+  '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],
+  '40d-profil-compte': ['Top bar — the account and its menu', profilCompte],
+  '40e-compte-local': ['Account — signed out, no Revoke', compteLocal40],
   '38-raccourcis-clavier': ['Settings — keyboard shortcuts', raccourcisClavier],
   '38b-raccourci-conflit': ['Settings — shortcut already in use', raccourciConflit],
 };

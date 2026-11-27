@@ -102,7 +102,7 @@ pub fn page_with(
             .id("sync-title")
             .child(section_title(t, tr("Sync")))
             .tooltip(tip(
-                "Your encrypted vault, kept the same on every device using this place. Your master password stays on your devices.",
+                "Your encrypted vault, kept the same on every device using this place. Your password stays on your devices.",
             )),
     );
     match &c.place {
@@ -181,87 +181,98 @@ pub fn page_with(
             .on_click(cx.listener(move |this, _, _, cx| this.choose_sync_folder(p, cx)))
             .test_support()
     };
-    let places =
-        section(t)
-            .child(
-                div()
-                    .id("places-title")
-                    .child(section_title(
-                        t,
-                        if c.place.is_some() {
-                            "Other places"
-                        } else {
-                            "Places"
-                        },
-                    ))
-                    .tooltip(tip(tr(
-                        "One place at a time; choosing another moves the copy.",
-                    ))),
-            )
-            .child(place_row(
-                "p-onedrive",
-                t,
-                "cloud",
-                "OneDrive",
-                "Folder kept by the OneDrive app",
-                choose("sync-onedrive", Provider::OneDrive, cx),
-                true,
-            ))
-            .child(place_row(
-                "p-gdrive",
-                t,
-                "cloud",
-                "Google Drive",
-                "Folder kept by Google Drive for desktop",
-                choose("sync-gdrive", Provider::GoogleDrive, cx),
-                false,
-            ))
-            .child(place_row(
-                "p-folder",
-                t,
-                "folder",
-                "Folder",
-                "Network share, Dropbox, USB drive",
-                choose("sync-folder", Provider::Folder, cx),
-                false,
-            ))
-            .child(place_row(
-                "p-github",
-                t,
-                "repo",
-                "GitHub",
-                "Private repository",
-                button("sync-github", t, BtnKind::Default, true)
-                    .child(tr("Connect"))
-                    .tooltip(tip(
-                        "A file in one of your private repositories, with an access token",
-                    ))
-                    .on_click(cx.listener(|this, _, window, cx| {
+    // One "Sync" block (27/11/2026): what is connected and its switch, a line, then the places
+    // not connected (the connected one is not offered again).
+    let here = c.place.as_ref().map(|_| c.provider);
+    let offer = |p: Provider| here != Some(p);
+    let mut others: Vec<Div> = vec![];
+    if offer(Provider::OneDrive) {
+        others.push(place_row(
+            "p-onedrive",
+            t,
+            "cloud",
+            "OneDrive",
+            "Folder kept by the OneDrive app",
+            choose("sync-onedrive", Provider::OneDrive, cx),
+            others.is_empty(),
+        ));
+    }
+    if offer(Provider::GoogleDrive) {
+        others.push(place_row(
+            "p-gdrive",
+            t,
+            "cloud",
+            "Google Drive",
+            "Folder kept by Google Drive for desktop",
+            choose("sync-gdrive", Provider::GoogleDrive, cx),
+            others.is_empty(),
+        ));
+    }
+    if offer(Provider::Folder) {
+        others.push(place_row(
+            "p-folder",
+            t,
+            "folder",
+            "Folder",
+            "Network share, Dropbox, USB drive",
+            choose("sync-folder", Provider::Folder, cx),
+            others.is_empty(),
+        ));
+    }
+    if offer(Provider::GitHub) {
+        others.push(place_row(
+            "p-github",
+            t,
+            "repo",
+            "GitHub",
+            "Private repository",
+            button("sync-github", t, BtnKind::Default, true)
+                .child(tr("Connect"))
+                .tooltip(tip(
+                    "A file in one of your private repositories, with an access token",
+                ))
+                .on_click(
+                    cx.listener(|this, _, window, cx| {
                         this.open_place(Provider::GitHub, window, cx)
-                    }))
-                    .test_support(),
-                false,
-            ))
-            .child(place_row(
-                "p-sftp",
-                t,
-                "server",
-                "SFTP",
-                "Your own server",
-                button("sync-sftp", t, BtnKind::Default, true)
-                    .child(tr("Set up"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_place(Provider::Sftp, window, cx)
-                    }))
-                    .test_support(),
-                false,
-            ));
+                    }),
+                )
+                .test_support(),
+            others.is_empty(),
+        ));
+    }
+    if offer(Provider::Sftp) {
+        others.push(place_row(
+            "p-sftp",
+            t,
+            "server",
+            "SFTP",
+            "Your own server",
+            button("sync-sftp", t, BtnKind::Default, true)
+                .child(tr("Set up"))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.open_place(Provider::Sftp, window, cx)),
+                )
+                .test_support(),
+            others.is_empty(),
+        ));
+    }
+    let sync = sync
+        .child(
+            div()
+                .id("places-line")
+                .h(px(1.))
+                .bg(t.line_strong)
+                .tooltip(tip(tr(
+                    "One place at a time; choosing another moves the copy.",
+                ))),
+        )
+        .children(others);
     let device = section(t)
         .child(
             div()
                 .id("device-title")
                 .child(section_title(t, tr("New device")))
-                .tooltip(tip(tr("What a new computer needs besides your master password."))),
+                .tooltip(tip(tr("What a new computer needs besides your password."))),
         )
         .child(
             row(t, true)
@@ -275,7 +286,7 @@ pub fn page_with(
                         .child(icon("file", 16., t.text))
                         .child(tr("Emergency kit"))
                         .tooltip(tip(
-                            "PDF with where your vault is and a space to write your master password. Print it and keep it safe.",
+                            "PDF with where your vault is and a space to write your password. Print it and keep it safe.",
                         )),
                 )
                 .child(
@@ -397,9 +408,7 @@ pub fn page_with(
                         .id("export-label")
                         .flex_1()
                         .child(tr("Encrypted export"))
-                        .tooltip(tip(tr(
-                            "Copy of your vault, opened with your master password",
-                        ))),
+                        .tooltip(tip(tr("Copy of your vault, opened with your password"))),
                 )
                 .child(
                     button("export", t, BtnKind::Default, true)
@@ -415,7 +424,6 @@ pub fn page_with(
         .gap(px(16.))
         .when(with_head, |d| d.child(head))
         .child(sync)
-        .child(places)
         .child(device)
         .child(backups_sec)
         // Mockup 37l: the deletions, at the very bottom (not on the organization's page).

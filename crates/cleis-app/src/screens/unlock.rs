@@ -163,7 +163,7 @@ fn ways_in(u: &Unlock, t: &Tokens, window: &Window, cx: &mut Context<CleisApp>) 
                     .cursor_pointer()
                     .hover(|d| d.text_color(t.text))
                     .child(if has_password {
-                        tr("Use the master password")
+                        tr("Use the password")
                     } else {
                         tr("Use the recovery key")
                     })
@@ -213,7 +213,7 @@ fn ways_in(u: &Unlock, t: &Tokens, window: &Window, cx: &mut Context<CleisApp>) 
         d = d
             .child(field(
                 t,
-                "Master password",
+                "Password",
                 Input::new(&u.password).id("master-password").mask_toggle(),
             ))
             .child(

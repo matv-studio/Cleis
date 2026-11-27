@@ -326,7 +326,8 @@ pub fn open(path: &Path, hello: Option<&[u8; 32]>) -> Result<Vault, String> {
     locked.unlock_device(&key, &f.sealed).map_err(|e| match e {
         // The vault was changed elsewhere (new account keys) or the file is someone else's.
         StoreError::WrongDeviceKey => {
-            "This computer's key no longer opens the vault: use the master password or the recovery key".into()
+            "This computer's key no longer opens the vault: use the password or the recovery key"
+                .into()
         }
         other => other.to_string(),
     })

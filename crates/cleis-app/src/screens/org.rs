@@ -1025,13 +1025,10 @@ const PIN_TRIES: [u32; 3] = [3, 5, 10];
 const PIN_LENGTHS: [u8; 3] = [4, 6, 8];
 /// Mockup 35k (D-76).
 const UNLOCK_RULES: [(cleis_core::org::UnlockRule, &str); 3] = [
-    (
-        cleis_core::org::UnlockRule::PasswordOnly,
-        "Master password only",
-    ),
+    (cleis_core::org::UnlockRule::PasswordOnly, "Password only"),
     (
         cleis_core::org::UnlockRule::PasswordOrHello,
-        "Master password or Windows Hello",
+        "Password or Windows Hello",
     ),
     (cleis_core::org::UnlockRule::Any, "Anything, also nothing"),
 ];
@@ -1250,7 +1247,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     div()
                         .id("master-min-l")
                         .flex_1()
-                        .child(tr("Master password: at least"))
+                        .child(tr("Password: at least"))
                         .tooltip(tip(tr("Asked when a member sets or changes it, and at the next unlock with a shorter one"))),
                 )
                 .child(sel(
@@ -1776,7 +1773,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(titled(
             t,
             tr("Recovery key"),
-            Some(tr("Restores a space when every member holding it lost their master password. Kept outside Cleis.")),
+            Some(tr("Restores a space when every member holding it lost their password. Kept outside Cleis.")),
         ))
         .child(
             row(t, true).child(div().flex_1().child(tr("Admin recovery"))).child(
@@ -4768,11 +4765,22 @@ pub fn demo_welcome(app: &mut CleisApp, window: &mut Window, cx: &mut Context<Cl
 // ---------- Profile, Devices, Spaces (mockups 26–28, D-60) ----------
 
 pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head(t, tr("Profile")))
+        .children(profile_sections(s, t, cx))
+}
+
+/// What the organization knows of you (was Settings › Profile): in Settings › Account since
+/// 27/11/2026 (mockup 39b), one place for the account.
+pub fn profile_sections(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Vec<Div> {
     let Some(o) = s.org.as_ref() else {
-        return div();
+        return vec![];
     };
     let Some(me) = o.me() else {
-        return head(t, tr("Profile"));
+        return vec![];
     };
     let role = o.role().map(|r| r.name.clone()).unwrap_or_default();
     let fp = cleis_crypto::fingerprint(&me.verify_key);
@@ -4826,14 +4834,9 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 ),
             );
     }
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(16.))
-        .child(head(t, tr("Profile")))
-        .child(identity)
-        .child(
-            section(t)
+    vec![
+        identity,
+        section(t)
                 .child(titled(
                     t,
                     tr("Account key"),
@@ -4862,7 +4865,7 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             div()
                                 .id("second-step")
                                 .flex_1()
-                                .tooltip(tip(tr("Asked by the server at sign-in; the code on open (Security) is this computer's own")))
+                                .tooltip(tip(tr("Asked by the server at sign-in; two-factor authentication above is this computer's own")))
                                 .child(tr("Two-step verification")),
                         )
                         .child(
@@ -4888,7 +4891,7 @@ pub fn profile(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 .test_support(),
                         ),
                 ),
-        )
+    ]
 }
 
 pub fn devices(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {

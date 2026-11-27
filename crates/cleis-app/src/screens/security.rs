@@ -90,7 +90,9 @@ fn select_button(id: &'static str, t: &Tokens, label: String, w: f32) -> gpui_ki
     )
 }
 
-pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+/// What was Settings › Security, in Settings › Account since 27/11/2026 (mockups 39a, 39b):
+/// opening Cleis, two-factor authentication, locking, clipboard.
+pub fn sections(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Vec<Div> {
     let p = &s.prefs;
     let ui = &s.security;
     let code_on = p.open_code.is_some();
@@ -99,14 +101,14 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             div()
                 .id("sec-opening")
-                .child(section_title(t, tr("Verification code")))
+                .child(section_title(t, tr("Two-factor authentication")))
                 .tooltip(tip(
-                    "Code asked each time Cleis opens, on top of the master password. This computer only: an organization's two-step verification is in Profile.",
+                    "A code from your authenticator app, asked each time Cleis opens, on top of the password or PIN. This computer only: an organization's two-step verification is below.",
                 )),
         )
         .child(
             row(t, true)
-                .child(div().flex_1().child(tr("Verification code on open")))
+                .child(div().flex_1().child(tr("2FA when Cleis opens")))
                 .child(
                     switch("open-code", t, code_on)
                         .on_click(
@@ -240,21 +242,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     };
     let _ = changed;
     let unlock = opening_section(s, t, cx);
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(16.))
-        .child(
-            div()
-                .text_size(TEXT_XL)
-                .line_height(px(26.))
-                .font_weight(W_STRONG)
-                .child(tr("Security")),
-        )
-        .child(unlock)
-        .child(opening)
-        .child(locking)
-        .child(clipboard)
+    vec![unlock, opening, locking, clipboard]
 }
 
 /// Mockup 35h (D-76): how this computer opens the vault, the recovery key, the master password,
@@ -266,20 +254,13 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let (rule, by) = s.unlock_rule();
     let hello_ok = crate::opening::hello_available();
     let modes = [
-        (
-            Mode::Password,
-            "key",
-            "Master password",
-            None::<&'static str>,
-        ),
+        (Mode::Password, "key", "Password", None::<&'static str>),
         (
             Mode::Pin,
             "hash",
             "PIN",
             if rule.allows_hello() {
-                Some(
-                    "Digits only, on this computer; the master password after too many wrong tries",
-                )
+                Some("Digits only, on this computer; the password after too many wrong tries")
             } else {
                 Some("Not allowed by your organization")
             },
@@ -388,7 +369,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .id("sec-unlock")
                 .child(section_title(t, tr("Opening Cleis")))
                 .tooltip(tip(tr(
-                    "How this computer opens your vault. On another computer, or after reinstalling Windows: the master password or the recovery key.",
+                    "How this computer opens your vault. On another computer, or after reinstalling Windows: the password or the recovery key.",
                 ))),
         )
         .child(
@@ -426,7 +407,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(
             row(t, false)
-                .child(div().flex_1().child(tr("Master password")))
+                .child(div().flex_1().child(tr("Password")))
                 .child(muted(changed))
                 .child(
                     button("chpw", t, BtnKind::Default, false)
@@ -456,9 +437,9 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .when_some(by, |d, org| {
             let label = match rule {
-                cleis_core::org::UnlockRule::PasswordOnly => tr("Master password only"),
+                cleis_core::org::UnlockRule::PasswordOnly => tr("Password only"),
                 cleis_core::org::UnlockRule::PasswordOrHello => {
-                    tr("Master password, PIN or Windows Hello")
+                    tr("Password, PIN or Windows Hello")
                 }
                 cleis_core::org::UnlockRule::Any => tr("Anything, also nothing"),
             };
@@ -561,7 +542,7 @@ fn pin_rows(
                     .id("pin-tries-label")
                     .flex_1()
                     .child(tr("Wrong tries before locking"))
-                    .tooltip(tip(tr("Then the master password or the recovery key"))),
+                    .tooltip(tip(tr("Then the password or the recovery key"))),
             )
             .child(tries),
         row(t, true).child(div().flex_1().child(tr("PIN"))).child(
@@ -661,9 +642,9 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
             card(
                 t,
                 if *has_current {
-                    tr("Change the master password")
+                    tr("Change the password")
                 } else {
-                    tr("Set a master password")
+                    tr("Set a password")
                 },
             )
             .when(*has_current, |d| {
@@ -750,7 +731,7 @@ pub fn dialog(s: &Session, d: &SecDialog, t: &Tokens, cx: &mut Context<CleisApp>
                         .child(hint(
                             "hint-recovery-key",
                             t,
-                            "Opens your vault on any computer, with or without the master password. Keep it outside Cleis: it is shown only now.",
+                            "Opens your vault on any computer, with or without the password. Keep it outside Cleis: it is shown only now.",
                         )),
                 )
                 .child(
@@ -993,7 +974,7 @@ impl CleisApp {
         let done = match mode {
             Mode::Password => {
                 crate::opening::forget(&path);
-                Ok(tr("The master password opens Cleis on this computer"))
+                Ok(tr("The password opens Cleis on this computer"))
             }
             Mode::Nothing => crate::opening::set_nothing(&path, &s.vault)
                 .map(|()| tr("Cleis opens without a password on this computer")),
@@ -1015,7 +996,7 @@ impl CleisApp {
     pub fn remove_password(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         match s.vault.remove_password() {
-            Ok(()) => self.toast(tr("Master password removed"), cx),
+            Ok(()) => self.toast(tr("Password removed"), cx),
             Err(e) => {
                 s.toast = Some(crate::trf!("Not changed: {}", e).into());
                 cx.notify();
@@ -1193,9 +1174,9 @@ impl CleisApp {
                         this.update_prefs(|p| p.password_changed = Some(cleis_core::now()), cx);
                         this.toast(
                             if has_current {
-                                tr("Master password changed")
+                                tr("Password changed")
                             } else {
-                                tr("Master password set")
+                                tr("Password set")
                             },
                             cx,
                         );

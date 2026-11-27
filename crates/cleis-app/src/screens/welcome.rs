@@ -181,7 +181,7 @@ fn restore_card(r: &Restore, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
         .child(section(t).child(field(
             t,
-            "Master password or recovery key",
+            "Password or recovery key",
             Input::new(&r.password).id("restore-password").mask_toggle(),
         )))
         .when_some(r.error.clone().map(|e| crate::i18n::tr_dynamic(&e)), |d, e| {
@@ -533,7 +533,7 @@ pub fn render(
                 .when(w.opening == crate::opening::Mode::Password, |d| {
                     d.child(field(
                         &t,
-                        "Master password",
+                        "Password",
                         Input::new(&w.password).id("new-password").mask_toggle(),
                     ))
                     .child(field(

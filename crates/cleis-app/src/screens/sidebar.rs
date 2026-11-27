@@ -17,14 +17,14 @@ pub fn shortcut_key(s: &Session) -> String {
     let sc = &s.prefs.shortcuts;
     match &s.scope {
         Scope::All => "all".into(),
-        Scope::Personal => sc.key_for("personal", s.prefs.vault_tabs),
-        Scope::Org(k) => sc.key_for(k, s.prefs.vault_tabs),
+        Scope::Personal => sc.key_for("personal", s.vault_tabs()),
+        Scope::Org(k) => sc.key_for(k, s.vault_tabs()),
     }
 }
 
 /// The single Vault tab with shortcuts per vault (mockup 37j): each section carries its own.
 pub fn split_here(s: &Session) -> bool {
-    s.scope == Scope::All && !s.prefs.vault_tabs && s.prefs.shortcuts.split
+    s.scope == Scope::All && !s.vault_tabs() && s.prefs.shortcuts.split
 }
 
 /// Favorites and Renew soon of one vault, under its name (mockup 37j); hidden ones shown dimmed

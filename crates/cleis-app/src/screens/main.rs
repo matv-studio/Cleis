@@ -221,7 +221,7 @@ fn topbar(
     // D-69: with Preferences › Vaults › "Personal vault in its own tab", the personal vault comes
     // first, then one tab per organization; otherwise a single Vault tab shows them all.
     let mut tabs: Vec<(Tab, Option<Scope>, String, String)> = vec![];
-    if s.prefs.vault_tabs {
+    if s.vault_tabs() {
         tabs.push((
             Tab::Vault,
             Some(Scope::Personal),
@@ -358,7 +358,7 @@ fn topbar(
                         .items_center()
                         .gap(px(6.))
                         .font_weight(W_MEDIUM)
-                        .child(if s.prefs.vault_tabs {
+                        .child(if s.vault_tabs() {
                             s.org
                                 .as_ref()
                                 .and_then(|o| o.me().map(|m| m.name.clone()))
@@ -1472,7 +1472,7 @@ impl CleisApp {
             s.tab = tab;
             s.ctx = None;
             if tab == Tab::Vault {
-                let next = scope.unwrap_or(if s.prefs.vault_tabs {
+                let next = scope.unwrap_or(if s.vault_tabs() {
                     s.scope.clone()
                 } else {
                     Scope::All

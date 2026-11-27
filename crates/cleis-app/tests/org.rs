@@ -636,7 +636,15 @@ fn sms_second_step(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Profile", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    // Below the account's own sections (Account holds what Profile was, 27/11/2026).
+    act(cx, h, |w, cx| {
+        w.scroll(
+            "open-code",
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(gpui_kit::px(0.), gpui_kit::px(-4000.))),
+            cx,
+        )
+    });
     act(cx, h, |w, cx| w.click("second-step-set", cx));
     act(cx, h, |w, cx| w.click("srv-method-1", cx));
     act(cx, h, |w, cx| {

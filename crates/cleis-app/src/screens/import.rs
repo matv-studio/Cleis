@@ -259,7 +259,7 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 .id("export-label")
                                 .flex_1()
                                 .child(tr("Encrypted export"))
-                                .tooltip(tip(tr("A sealed copy of your personal vault, opened with the master password"))),
+                                .tooltip(tip(tr("A sealed copy of your personal vault, opened with the password"))),
                         )
                         .child(
                             button("export", t, BtnKind::Default, true)

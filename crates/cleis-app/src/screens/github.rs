@@ -278,6 +278,22 @@ impl CleisApp {
         .detach();
     }
 
+    /// Mockup 39c: Cleis forgets its GitHub token here, then GitHub's page for Cleis opens, where
+    /// "Revoke access" removes the authorization for every computer. GitHub revokes a grant
+    /// through its API only with the application's secret, which a desktop app cannot keep.
+    pub fn revoke_github(&mut self, cx: &mut Context<Self>) {
+        self.disconnect_sync(cx);
+        let url = format!(
+            "{}/settings/connections/applications/{}",
+            self.github_hosts.web.trim_end_matches('/'),
+            gl::CLIENT_ID
+        );
+        if !self.demo {
+            cx.open_url(&url);
+        }
+        self.toast(tr("Click Revoke access on the page GitHub opened"), cx);
+    }
+
     pub fn cancel_github(&mut self, cx: &mut Context<Self>) {
         self.github = None;
         cx.notify();

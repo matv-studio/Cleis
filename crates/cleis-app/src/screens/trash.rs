@@ -262,6 +262,14 @@ impl CleisApp {
                 tr("This device stops syncing there. The copy already there is kept.").to_owned(),
                 "Disconnect",
             ),
+            A::RevokeGitHub => (
+                tr("Revoke GitHub access?").to_owned(),
+                crate::trf!(
+                    "Every computer stops syncing with @{}.",
+                    super::account::github_login(s).unwrap_or_default()
+                ),
+                "Revoke on GitHub",
+            ),
             A::DeleteBackups => (
                 tr("Delete all backups?").to_owned(),
                 crate::trf!(
@@ -271,7 +279,7 @@ impl CleisApp {
                 "Delete",
             ),
             A::RemovePassword => (
-                tr("Remove the master password?").to_owned(),
+                tr("Remove the password?").to_owned(),
                 tr("This computer opens Cleis as chosen; any other computer needs the recovery key. Your other devices follow at their next sync.")
                     .to_owned(),
                 "Remove",
@@ -324,6 +332,7 @@ impl CleisApp {
             ConfirmAction::LeaveOrg => self.org_leave(cx),
             ConfirmAction::RotateKey => self.org_rotate(cx),
             ConfirmAction::DisconnectPlace => self.disconnect_sync(cx),
+            ConfirmAction::RevokeGitHub => self.revoke_github(cx),
             ConfirmAction::RemovePassword => self.remove_password(cx),
             ConfirmAction::DeleteBackups => self.delete_backups(cx),
             ConfirmAction::EmptyTrash => {

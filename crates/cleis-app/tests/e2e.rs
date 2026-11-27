@@ -62,7 +62,7 @@ fn unlock_search_copy_lock(cx: &mut TestAppContext) {
         w.click("unlock", cx);
     });
     app.read_with(cx, |a, _| match &a.phase {
-        Phase::Unlock(u) => assert_eq!(u.error.as_deref(), Some("Wrong master password")),
+        Phase::Unlock(u) => assert_eq!(u.error.as_deref(), Some("Wrong password")),
         _ => panic!("should still be locked"),
     });
 
@@ -127,7 +127,7 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
         _ => panic!(),
     });
 
-    let pw = "a long enough master password";
+    let pw = "a long enough password";
     act(cx, h, |w, cx| {
         // Select what was typed before and replace it, as a person would.
         w.click("new-password", cx);
@@ -674,7 +674,7 @@ fn security_open_code_and_password(cx: &mut TestAppContext) {
     };
     unlock(cx, cleis_app::demo::PASSWORD);
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("open-code", cx));
     act(cx, h, |w, cx| {
         w.input("000000", cx);
@@ -725,7 +725,7 @@ fn security_open_code_and_password(cx: &mut TestAppContext) {
 
     // Change the master password.
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("chpw", cx));
     act(cx, h, |w, cx| {
         w.input("wrong current", cx);
@@ -2266,9 +2266,9 @@ fn opening_without_password(cx: &mut TestAppContext) {
 
     // Back to the master password: set first, then this computer's key goes.
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("opening-Password", cx));
-    let pw = "a long enough master password";
+    let pw = "a long enough password";
     act(cx, h, |w, cx| {
         w.click("pw-new", cx);
         w.input(pw, cx);
@@ -2309,7 +2309,7 @@ fn organization_rule_for_opening(cx: &mut TestAppContext) {
         w.press("enter", cx);
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("opening-Nothing", cx));
     assert_eq!(cleis_app::opening::mode(&path), Mode::Nothing);
     app.update(cx, |a, _| {
@@ -2324,7 +2324,7 @@ fn organization_rule_for_opening(cx: &mut TestAppContext) {
         s.typed_len = Some(cleis_app::demo::PASSWORD.chars().count());
         s.enforce_opening(&path);
         assert_eq!(s.opening, Mode::Password);
-        assert!(s.password_due, "a longer master password is asked for");
+        assert!(s.password_due, "a longer password is asked for");
     });
     assert_eq!(cleis_app::opening::mode(&path), Mode::Password);
 }
@@ -2591,9 +2591,18 @@ fn split_shortcuts_start_in_and_password_menu(cx: &mut TestAppContext) {
     });
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
-        // The demo organization lives in memory only: the personal tab is the one checked here.
-        assert_eq!(s.scope, Scope::Personal);
+        // The demo organization lives in memory only: without an organization there is one vault
+        // and no tab of its own (27/11/2026), whatever the setting.
+        assert!(s.prefs.vault_tabs && !s.vault_tabs());
+        assert_eq!(s.scope, Scope::All);
     });
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+    });
+    cx.run_until_parked();
 
     // The password box's own menu: Generate keeps the old one in History.
     act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
@@ -2762,7 +2771,7 @@ fn pin_for_my_vault(cx: &mut TestAppContext) {
         w.press("enter", cx);
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    act(cx, h, |w, cx| w.click("set-Security", cx));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("opening-Pin", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
@@ -3047,4 +3056,76 @@ fn back_and_forward_through_views(cx: &mut TestAppContext) {
     // Nothing ahead: Alt+→ changes nothing.
     act(cx, h, |w, cx| w.press("alt-right", cx));
     assert_eq!(view(cx).1, "Autofill");
+}
+
+/// Scenario (mockups 39a, 39b, 27/11/2026): Settings › Account holds what Security and Profile
+/// were, Delete account at the bottom, Revoke access only when signed in; no "own tab" choice
+/// without an organization; Sync & backups does not offer the place already connected.
+#[gpui_kit::test]
+fn account_page_holds_security(cx: &mut TestAppContext) {
+    let (addr, _file) = fake_github();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    app.update(cx, |a, _| {
+        a.github_hosts = cleis_app::github_login::Hosts {
+            web: addr.clone(),
+            api: format!("{addr}/api/v3"),
+        }
+    });
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    assert!(!window_has(cx, h, "set-Security") && !window_has(cx, h, "set-Profile"));
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    assert!(window_has(cx, h, "opening-Pin") && window_has(cx, h, "open-code"));
+    assert!(
+        !window_has(cx, h, "acc-revoke"),
+        "nothing to revoke while local"
+    );
+    settings_bottom(cx, h, "open-code");
+    assert!(window_has(cx, h, "erase-account-2"));
+    // One vault: no tab of its own to offer.
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    assert!(!window_has(cx, h, "vault-tabs"));
+    // Signed in to GitHub: Revoke access appears; Sync & backups no longer offers GitHub.
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-signin", cx));
+    for _ in 0..30 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        if app.read_with(
+            cx,
+            |a, _| matches!(&a.phase, Phase::Main(s) if s.sync.remote.is_some()),
+        ) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(window_has(cx, h, "acc-revoke"));
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.sync.place.is_some(), "connected");
+    });
+    assert!(
+        window_has(cx, h, "sync-onedrive"),
+        "the other places are offered"
+    );
+    assert!(!window_has(cx, h, "sync-github"), "not the one connected");
+    // Revoke: GitHub forgotten here (then GitHub's page is opened).
+    act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-revoke", cx));
+    act(cx, h, |w, cx| w.press("tab", cx));
+    app.update(cx, |a, cx| a.revoke_github(cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.sync.remote.is_none() && s.sync.place.is_none());
+    });
 }

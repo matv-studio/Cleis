@@ -72,6 +72,31 @@ pub fn section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
 }
 
+/// Settings › Account, at the bottom (mockup 39b): the account and its data only.
+pub fn account_section(t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    crate::ui::section(t)
+        .child(section_title(t, tr("Delete")))
+        .child(
+            row(t, true)
+                .child(
+                    div()
+                        .id("erase-account-label-2")
+                        .flex_1()
+                        .child(tr("Account and its data"))
+                        .tooltip(tip(tr(
+                            "Vault, backups, settings and this computer's unlock; Cleis starts again from the first launch",
+                        ))),
+                )
+                .child(
+                    button("erase-account-2", t, BtnKind::Danger, true)
+                        .child(icon("trash", 14., gpui_kit::white()))
+                        .child(tr("Delete account"))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_erase(window, cx)))
+                        .test_support(),
+                ),
+        )
+}
+
 /// Where the copy at the sync place is, when there is one (named in the dialog).
 fn remote_name(s: &Session) -> Option<&'static str> {
     s.sync.place.as_ref().map(|_| s.sync.provider.name())
@@ -123,7 +148,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         .child(field(
             t,
             if has_password {
-                tr("Master password")
+                tr("Password")
             } else {
                 tr("Type “delete”")
             },
@@ -269,7 +294,7 @@ impl CleisApp {
                 return;
             }
         } else if typed.is_empty() {
-            e.error = Some(tr("Wrong master password").into());
+            e.error = Some(tr("Wrong password").into());
             cx.notify();
             return;
         }
@@ -301,7 +326,7 @@ impl CleisApp {
             if let Some(check) = check
                 && !check.check(&typed).unwrap_or(false)
             {
-                return Err(tr("Wrong master password").to_owned());
+                return Err(tr("Wrong password").to_owned());
             }
             if remote {
                 match (&remote_place, &place) {

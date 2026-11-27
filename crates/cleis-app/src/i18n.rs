@@ -174,10 +174,7 @@ mod tests {
     #[test]
     fn translates_messages_from_elsewhere() {
         let d = |s: &str| dynamic_in(&FR, s);
-        assert_eq!(
-            d("wrong master password").unwrap(),
-            "mot de passe maître erroné"
-        );
+        assert_eq!(d("wrong password").unwrap(), "mot de passe erroné");
         assert_eq!(
             d("the server cannot be reached: timed out").unwrap(),
             "le serveur est injoignable : timed out"
