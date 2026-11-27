@@ -162,6 +162,7 @@ impl CleisApp {
     /// Closing the main window while the tray icon exists hides it: shortcuts keep working.
     /// Returns whether the window may really close.
     pub fn on_main_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.flush_edits(cx);
         if self.tray.is_none() {
             return true;
         }

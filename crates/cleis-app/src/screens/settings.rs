@@ -323,8 +323,11 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
         )
 }
 
-/// Mockup 35j: All items, Favorites and Renew soon shown or hidden, per vault or everywhere.
+/// Mockups 45a, 45b (27/11/2026): the sidebar's shortcuts as a grid, one row per shortcut, one
+/// column per vault (or every vault), a check box in each cell; Contacts' below, the same way.
 fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    use crate::screens::org::check_box;
+    const COL: f32 = 128.;
     let tabs = s.vault_tabs();
     let per_vault = p.shortcuts.per_vault(tabs);
     let orgs = s.org_tabs();
@@ -339,83 +342,166 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
     }
     // One Vault tab, a set per vault (37i): All items is the vault's own name there.
     let first = usize::from(per_vault && !tabs);
-    let mut d = div().flex().flex_col().child(
-        row(t, true)
-            .child(
+    let head = |label: &str, cols: Vec<(Option<&'static str>, String)>| {
+        let mut h = div()
+            .h(px(32.))
+            .flex()
+            .items_center()
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(TEXT_XS)
+            .font_weight(W_MEDIUM)
+            .text_color(t.text_muted)
+            .child(div().flex_1().child(crate::i18n::tr_owned(label)));
+        for (ico, name) in cols {
+            h = h.child(
                 div()
-                    .id("shortcuts-label")
-                    .flex_1()
-                    .tooltip(tip(tr(
-                        "All items, Favorites and Renew soon at the top of the sidebar",
-                    )))
-                    .child(tr("Shortcuts")),
-            )
-            // Mockup 37i: per vault also with one Vault tab, as soon as there is more than one.
-            .when(!orgs.is_empty(), |r| {
-                r.child(
-                    div()
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .child(tr("Same for every vault")),
-                )
-                .child(toggle(
-                    "shortcuts-same",
-                    t,
-                    !per_vault,
-                    |p| {
-                        let tabs = p.vault_tabs;
-                        p.shortcuts.toggle_same(tabs)
-                    },
-                    cx,
-                ))
-            }),
-    );
-    for (key, ico, name) in vaults {
-        let shown = p.shortcuts.of(&key);
-        let mut r = row(t, true).child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .pl(px(16.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(icon(ico, 16., t.text_muted))
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .child(name),
-                ),
-        );
-        for (ix, label) in ["All items", "Favorites", "Renew soon"]
-            .into_iter()
-            .enumerate()
-            .skip(first)
-        {
-            let k = key.clone();
-            r = r.child(
-                tag_toggle(
-                    SharedString::from(format!("sc-{key}-{ix}")),
-                    t,
-                    label,
-                    shown[ix],
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let k = k.clone();
-                    this.update_prefs(|p| p.shortcuts.toggle(&k, ix), cx);
-                    if let Some(s) = this.session() {
-                        s.refilter();
-                    }
-                }))
-                .test_support(),
+                    .w(px(COL))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.))
+                    .overflow_hidden()
+                    .when_some(ico, |d, i| d.child(icon(i, 14., t.text_muted)))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(name),
+                    ),
             );
         }
-        d = d.child(r.gap(px(6.)));
+        h
+    };
+    let line = |ico: &'static str, label: &str, tip_text: Option<&'static str>| {
+        div()
+            .h(px(36.))
+            .flex()
+            .items_center()
+            .border_b_1()
+            .border_color(t.line)
+            .child(
+                div()
+                    .id(SharedString::from(format!("sc-l-{label}")))
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(icon(ico, 16., t.text_muted))
+                    .child(crate::i18n::tr_owned(label))
+                    .when_some(tip_text, |d, x| d.tooltip(tip(tr(x)))),
+            )
+    };
+    let cell = |id: String, on: bool| {
+        div()
+            .id(SharedString::from(id))
+            .w(px(COL))
+            .flex_none()
+            .h_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .child(check_box(t, on))
+    };
+    let mut grid = div().pl(px(16.)).flex().flex_col().child(head(
+        "Vault",
+        vaults
+            .iter()
+            .map(|(_, i, n)| (Some(*i), n.clone()))
+            .collect(),
+    ));
+    for (ix, (ico, label, tip_text)) in [
+        ("list", "All items", None),
+        ("star", "Favorites", None),
+        (
+            "clock",
+            "Renew soon",
+            Some("Subscriptions renewing in the next 30 days"),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    .skip(first)
+    {
+        let mut r = line(ico, label, tip_text);
+        for (key, _, _) in &vaults {
+            let k = key.clone();
+            r = r.child(
+                cell(format!("sc-{key}-{ix}"), p.shortcuts.of(key)[ix])
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let k = k.clone();
+                        this.update_prefs(|p| p.shortcuts.toggle(&k, ix), cx);
+                        if let Some(s) = this.session() {
+                            s.refilter();
+                        }
+                    }))
+                    .test_support(),
+            );
+        }
+        grid = grid.child(r);
     }
-    d
+    grid = grid
+        .child(div().h(px(12.)))
+        .child(head("Contacts", vec![(None, tr("Shown").into())]));
+    for (ix, (ico, label, tip_text)) in [
+        ("users", "All contacts", None),
+        ("star", "Favorites", None),
+        ("calendar", "Birthdays soon", Some("Next 30 days")),
+        ("list", "Uncategorized", Some("Contacts outside any folder")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        grid = grid.child(
+            line(ico, label, tip_text).child(
+                cell(format!("sc-contacts-{ix}"), p.contact_shortcuts[ix])
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.update_prefs(
+                            |p| p.contact_shortcuts[ix] = !p.contact_shortcuts[ix],
+                            cx,
+                        );
+                    }))
+                    .test_support(),
+            ),
+        );
+    }
+    div()
+        .flex()
+        .flex_col()
+        .child(
+            row(t, true)
+                .child(
+                    div()
+                        .id("shortcuts-label")
+                        .flex_1()
+                        .tooltip(tip(tr("At the top of the sidebar")))
+                        .child(tr("Shortcuts")),
+                )
+                // Mockup 37i: per vault also with one Vault tab, as soon as there is more than one.
+                .when(!orgs.is_empty(), |r| {
+                    r.child(
+                        div()
+                            .text_size(TEXT_SM)
+                            .text_color(t.text_muted)
+                            .child(tr("Same for every vault")),
+                    )
+                    .child(toggle(
+                        "shortcuts-same",
+                        t,
+                        !per_vault,
+                        |p| {
+                            let tabs = p.vault_tabs;
+                            p.shortcuts.toggle_same(tabs)
+                        },
+                        cx,
+                    ))
+                }),
+        )
+        .child(grid)
 }
 
 /// The logo shown in the app: light (default) or dark, whatever the theme (26/11/2026).

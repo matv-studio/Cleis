@@ -43,6 +43,9 @@
   entre coffre personnel et organisation.
 - À essayer sur Windows : Windows Hello pour l'accès à l'organisation ; sur Mac (quand l'appli Mac sera
   construite) : Touch ID.
+- D-100 (maquettes 43a, 44, 45 validées) : cases enregistrées en les quittant, plus de perte du clavier
+  au rechargement ; créations dans l'organisation affichée ; Contacts en sections avec Uncategorized ;
+  Health › Change par une carte ; raccourcis en grille.
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

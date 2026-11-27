@@ -71,6 +71,14 @@ fn switch_to_french(cx: &mut TestAppContext) {
     assert!(price(cx).ends_with(" / month"), "{}", price(cx));
 
     act(cx, &|w, cx| w.click("tab-Settings", cx));
+    // Language and region is under the shortcuts' grid (mockup 45a).
+    act(cx, &|w, cx| {
+        w.scroll(
+            "sc-all-0",
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
+            cx,
+        )
+    });
     act(cx, &|w, cx| w.click("lang", cx));
     act(cx, &|w, cx| w.click("lang-fr", cx));
     app.read_with(cx, |a, _| {
@@ -101,6 +109,14 @@ fn switch_to_french(cx: &mut TestAppContext) {
 
     // Back to English (the appearance file of this machine says English again).
     act(cx, &|w, cx| w.click("tab-Settings", cx));
+    // Language and region is under the shortcuts' grid (mockup 45a).
+    act(cx, &|w, cx| {
+        w.scroll(
+            "sc-all-0",
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
+            cx,
+        )
+    });
     act(cx, &|w, cx| w.click("lang", cx));
     act(cx, &|w, cx| w.click("lang-en", cx));
     assert!(!cleis_app::i18n::is_french());

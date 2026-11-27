@@ -231,6 +231,7 @@ pub fn menu_open(s: &Session) -> bool {
         || s.import.space_menu
         || s.health.vault_menu
         || s.health.space_menu
+        || s.health.change.is_some()
         || s.editor.as_ref().is_some_and(|e| e.menu.is_some())
         || s.org.as_ref().is_some_and(|o| o.ui.menu.is_some())
 }
@@ -358,24 +359,18 @@ fn check_item(id: impl Into<SharedString>, t: &Tokens, label: &str, on: bool) ->
 
 /// "New folder" in the personal vault, "New space" in an organization the member manages.
 fn new_folder_row(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
-    match &s.scope {
-        crate::app::Scope::Org(k) => {
-            let manage = s
-                .all_orgs()
-                .find(|o| o.m.key() == *k)
-                .is_some_and(|o| o.can(Perm::Manage));
-            let k = k.clone();
-            manage.then(|| {
-                act(
-                    item("cx-new-space", t, "folder", tr("New space"), None, false),
-                    cx,
-                    move |this, window, cx| {
-                        this.activate_org(&k);
-                        this.open_new_space(window, cx);
-                    },
-                )
-            })
-        }
+    // The organization shown (its tab, its section, one of its folders, 27/11/2026).
+    match crate::screens::org::org_in_view(s).map(|o| (o.m.key(), o.can(Perm::Manage))) {
+        Some((k, manage)) => manage.then(|| {
+            act(
+                item("cx-new-space", t, "folder", tr("New space"), None, false),
+                cx,
+                move |this, window, cx| {
+                    this.activate_org(&k);
+                    this.open_new_space(window, cx);
+                },
+            )
+        }),
         _ => Some(act(
             item("cx-new-folder", t, "folder", tr("New folder"), None, false),
             cx,
@@ -1331,6 +1326,7 @@ impl CleisApp {
         s.import.space_menu = false;
         s.health.vault_menu = false;
         s.health.space_menu = false;
+        s.health.change = None;
         if let Some(e) = s.editor.as_mut() {
             e.menu = None;
         }
@@ -1511,9 +1507,10 @@ impl CleisApp {
             s.pref_menu = None;
             s.columns_menu = None;
             true
-        } else if s.health.vault_menu || s.health.space_menu {
+        } else if s.health.vault_menu || s.health.space_menu || s.health.change.is_some() {
             s.health.vault_menu = false;
             s.health.space_menu = false;
+            s.health.change = None;
             true
         } else if s.contacts_ui.menu.is_some() {
             s.contacts_ui.menu = None;

@@ -10,9 +10,8 @@ use cleis_core::edit::{self, Field};
 use cleis_core::{ColumnId, EntryId};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Entity, SharedString, Subscription, Task, Window};
+use gpui_kit::{Context, Entity, SharedString, Subscription, Window};
 use std::collections::HashMap;
-use std::time::Duration;
 
 /// Fields shown as single-line boxes, in inspector order.
 pub const LINE_FIELDS: [Field; 7] = [
@@ -38,7 +37,10 @@ pub struct EntryEditor {
     /// 2FA key box open (always open while the item has no key).
     pub editing_totp: bool,
     pub menu: Option<Menu>,
-    pending: Option<Task<()>>,
+    /// Boxes typed in since their last save (27/11/2026: saved when the box is left, Enter, or
+    /// the editing ends; never at each key).
+    pub dirty: std::collections::HashSet<Field>,
+    pub dirty_custom: std::collections::HashSet<ColumnId>,
     _subs: Vec<Subscription>,
 }
 
@@ -78,8 +80,39 @@ fn placeholder(f: Field) -> &'static str {
 }
 
 impl CleisApp {
+    /// Saves what was typed in the item's boxes and not saved yet (the editing ends: another
+    /// item, another tab, locking, closing).
+    pub fn flush_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(ed) = self.editor_mut() else { return };
+        let fields: Vec<Field> = ed.dirty.iter().copied().collect();
+        let custom: Vec<ColumnId> = ed.dirty_custom.iter().cloned().collect();
+        for f in fields {
+            self.commit_field(f, cx);
+        }
+        for id in custom {
+            self.commit_custom(&id, cx);
+        }
+    }
+
+    /// Both inspectors (items, contacts).
+    pub fn flush_edits(&mut self, cx: &mut Context<Self>) {
+        self.flush_editor(cx);
+        self.flush_contact_editor(cx);
+    }
+
     /// Builds the boxes for the selected item when the selection changed.
     pub fn ensure_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The editing of the previous item ends: what was typed is saved first.
+        let changed = match &self.phase {
+            Phase::Main(s) => s.editor.as_ref().is_some_and(|ed| {
+                s.selected != Some(ed.entry) && !ed.dirty.is_empty()
+                    || s.selected != Some(ed.entry) && !ed.dirty_custom.is_empty()
+            }),
+            _ => false,
+        };
+        if changed {
+            self.flush_editor(cx);
+        }
         let Phase::Main(s) = &self.phase else { return };
         let Some(e) = s.selected_entry() else {
             if let Phase::Main(s) = &mut self.phase {
@@ -179,7 +212,8 @@ impl CleisApp {
                 custom_errors: HashMap::new(),
                 editing_totp: !has_totp,
                 menu: None,
-                pending: None,
+                dirty: Default::default(),
+                dirty_custom: Default::default(),
                 _subs: subs,
             });
         }
@@ -188,15 +222,8 @@ impl CleisApp {
     fn on_field_event(&mut self, f: Field, ev: &InputEvent, cx: &mut Context<Self>) {
         match ev {
             InputEvent::Change => {
-                // Written after a pause, so typing is not slowed by saving each key.
-                let task = cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(700))
-                        .await;
-                    this.update(cx, |this, cx| this.commit_field(f, cx)).ok();
-                });
                 if let Some(ed) = self.editor_mut() {
-                    ed.pending = Some(task);
+                    ed.dirty.insert(f);
                 }
             }
             InputEvent::PressEnter { .. } | InputEvent::Blur => self.commit_field(f, cx),
@@ -207,14 +234,8 @@ impl CleisApp {
     fn on_custom_event(&mut self, id: ColumnId, ev: &InputEvent, cx: &mut Context<Self>) {
         match ev {
             InputEvent::Change => {
-                let task = cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(700))
-                        .await;
-                    this.update(cx, |this, cx| this.commit_custom(&id, cx)).ok();
-                });
                 if let Some(ed) = self.editor_mut() {
-                    ed.pending = Some(task);
+                    ed.dirty_custom.insert(id);
                 }
             }
             InputEvent::PressEnter { .. } | InputEvent::Blur => self.commit_custom(&id, cx),
@@ -232,6 +253,7 @@ impl CleisApp {
             return;
         }
         let Some(ed) = s.editor.as_mut() else { return };
+        ed.dirty_custom.remove(id);
         let Some((col, st)) = ed.custom.iter().find(|(c, _)| &c.id == id) else {
             return;
         };
@@ -285,6 +307,7 @@ impl CleisApp {
             return;
         }
         let Some(ed) = s.editor.as_mut() else { return };
+        ed.dirty.remove(&f);
         let value = match f {
             Field::Notes => ed.notes.read(cx).value().to_string(),
             Field::Totp => ed.totp.read(cx).value().to_string(),

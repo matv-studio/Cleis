@@ -1289,5 +1289,13 @@
   "5 minutes": "5 minutes",
   "15 minutes": "15 minutes",
   "30 minutes": "30 minutes",
-  "A sealed copy of the organization, opened with its backup key": "Une copie scellée de l'organisation, ouverte par sa clé de sauvegarde"
+  "A sealed copy of the organization, opened with its backup key": "Une copie scellée de l'organisation, ouverte par sa clé de sauvegarde",
+  "Uncategorized": "Sans dossier",
+  "Contacts of {} outside any folder": "Contacts de {} hors de tout dossier",
+  "Another one": "Un autre",
+  "Apply": "Appliquer",
+  "The current password goes to the item's previous passwords": "Le mot de passe actuel rejoint les anciens mots de passe de l'élément",
+  "At the top of the sidebar": "En haut de la barre latérale",
+  "Subscriptions renewing in the next 30 days": "Abonnements renouvelés dans les 30 prochains jours",
+  "Contacts outside any folder": "Contacts hors de tout dossier"
 }

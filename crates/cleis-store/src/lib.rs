@@ -98,6 +98,9 @@ pub struct SpaceInfo {
     pub mode: EncryptionMode,
     /// Contacts folder rather than a vault space.
     pub for_contacts: bool,
+    /// An organization's contacts outside any folder ("Uncategorized", 27/11/2026).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unfiled: bool,
 }
 
 #[derive(Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
@@ -401,6 +404,7 @@ impl Vault {
             kind,
             mode,
             for_contacts,
+            unfiled: false,
         };
         let wrapped = wrap_key(&self.account.public(), &key, id.0.as_bytes())?;
         let sealed = seal(

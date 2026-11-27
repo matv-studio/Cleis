@@ -1881,6 +1881,120 @@ function serveurSupprimerConfirmer() {
       <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger" disabled>Delete server</button></div>`));
 }
 
+// ---------- 43 (27/11/2026): Health › Change asks first ----------
+// "Change" no longer replaces the password at once: a floating card opens under the button, its
+// right edge on the list's card. In it a generated password, editable by hand, a shuffle button
+// (another one) and Apply. Esc or a click elsewhere closes it, nothing changed.
+function santeChanger() {
+  const pb = (t, cls) => `<span class="chip ${cls}" style="margin-right:4px">${t}</span>`;
+  const r = (c, n, probs, sp, ch, on = false) => `<tr class="${on ? 'is-aimed' : ''}"><td><span class="site"><span class="site-ico">${c}</span><span class="site-name">${n}</span></span></td><td>${probs}</td><td class="muted">${sp}</td><td class="muted">${ch}</td><td><button class="btn btn--sm" ${on ? 'style="border-color:var(--focus)"' : ''}>Change</button></td></tr>`;
+  const pop = `<div class="menu" style="right:0;left:auto;top:212px;width:380px;padding:var(--s-3);display:flex;flex-direction:column;gap:var(--s-3)">
+      <div style="display:flex;align-items:center;gap:var(--s-2)"><span class="site-ico">N</span><span style="font-weight:var(--weight-medium)">Notion</span><span style="flex:1"></span><span style="color:var(--text-muted);font-size:var(--text-sm)" title="Settings › Preferences › Password generator">20 characters</span></div>
+      <div class="input is-focus" title="Edit it by hand if you want"><span class="grow code">k7#Vq2!mWz9@pLx4&amp;Rt8</span><button class="icon-btn icon-btn--sm" aria-label="Shuffle" title="Another one">${i('refresh')}</button></div>
+      <div style="display:flex;justify-content:flex-end;gap:var(--s-2)"><button class="btn btn--sm">Cancel</button><button class="btn btn--primary btn--sm" title="The current password goes to the item's previous passwords">Apply</button></div>
+    </div>`;
+  return shell('Health', `
+    <div class="settings-body" style="padding-top:var(--s-6)"><div class="page" style="max-width:1100px;position:relative">
+      <div class="page-head"><h1>Health report</h1><div class="input select" style="width:170px"><span class="grow">All spaces</span></div><button class="btn">${i('refresh')}Scan</button></div>
+      <div class="grid-3" style="grid-template-columns:repeat(5,1fr)">
+        <div class="section stat danger"><b>4</b><span>Weak</span></div>
+        <div class="section stat warn"><b>6</b><span>Reused</span></div>
+        <div class="section stat warn"><b>9</b><span>Over a year old</span></div>
+        <div class="section stat"><b>5</b><span title="The service offers two-step verification">No 2FA</span></div>
+        <div class="section stat ok"><b>62</b><span>No issue</span></div>
+      </div>
+      <div class="section" style="padding:0;overflow:hidden">
+        <table class="table"><thead><tr><th>Item</th><th>Issues</th><th style="width:140px">Space</th><th style="width:160px">Last changed</th><th style="width:100px"></th></tr></thead><tbody>
+          ${r('N', 'Notion', pb('Weak', 'chip--danger') + pb('Reused ×3', 'chip--warn'), 'General', 'Mar 14, 2024', true)}
+          ${r('S', 'Slack', pb('Reused ×3', 'chip--warn') + pb('Over a year', 'chip--warn'), 'General', 'Feb 2, 2025')}
+          ${r('R', 'Office router', pb('Weak', 'chip--danger') + pb('Over a year', 'chip--warn'), 'General', 'Sep 9, 2023')}
+          ${r('D', 'Dropbox', pb('Reused ×3', 'chip--warn'), 'General', 'Jun 30, 2025')}
+        </tbody></table>
+      </div>
+      ${pop}
+    </div></div>`, { primary: null });
+}
+
+// ---------- 44 (27/11/2026): Contacts as the Vault ----------
+// The sidebar of Contacts follows the Vault's: "My contacts" and the organization are sections
+// (a click lists all of it, + adds a folder), their folders under them. In an organization a
+// contact can stay outside any folder: "Uncategorized" lists those. New contact goes where the
+// list is (the organization shown, its folder); at the top right, the organization's logo.
+function contactsSidebar44(active) {
+  const it = (ico, label, count, { on = false, sub = false, tip = '' } = {}) =>
+    `<div class="side-item ${on ? 'is-active' : ''} ${sub ? 'sub' : ''}" ${tip ? `title="${tip}"` : ''}>${i(ico)}<span>${label}</span>${count !== undefined ? `<span class="count">${count}</span>` : ''}</div>`;
+  const section = (ico, label, count, add, on) => `<div class="side-item side-section ${on ? 'is-active' : ''}">${i(ico)}<span>${label}</span><span class="count">${count}</span><button class="icon-btn icon-btn--sm" aria-label="${add}" title="${add}">${i('plus')}</button></div>`;
+  const lbl = (n, c) => `<div class="side-item"><span class="lbl-dot ${LB[n]}"></span><span>${n}</span><span class="count">${c}</span></div>`;
+  return `<aside class="sidebar pane">
+    ${it('users', 'All contacts', 148, { on: active === 'All' })}${it('star', 'Favorites', 12)}${it('calendar', 'Birthdays soon', 2, { tip: 'Next 30 days' })}
+    <div style="height:var(--s-3)"></div>
+    ${section('user', 'My contacts', 37, 'New folder', active === 'Mine')}
+    ${it('folder', 'Family', 12, { sub: true })}
+    <div style="height:var(--s-2)"></div>
+    ${section('users', 'Example Studio', 111, 'New folder', active === 'Org')}
+    ${it('list', 'Uncategorized', 22, { sub: true, on: active === 'Uncategorized', tip: 'Contacts of Example Studio outside any folder' })}
+    ${it('folder', 'Clients', 42, { sub: true })}${it('folder', 'Suppliers', 31, { sub: true, on: active === 'Suppliers' })}${it('folder', 'Advisors', 9, { sub: true })}${it('folder', 'Team', 7, { sub: true })}
+    <div class="side-group"><span>Labels</span><button class="icon-btn icon-btn--sm" aria-label="New label" title="New label">${i('plus')}</button></div>
+    ${lbl('VIP', 6)}${lbl('Prospect', 14)}${lbl('Freelancer', 11)}
+    <div style="flex:1"></div>
+    <div class="side-item" title="Possible duplicates">${i('users')}<span>Merge & fix</span><span class="count badge">3</span></div>
+    <div class="side-item" title="vCard, CSV">${i('upload')}<span>Import</span></div>
+  </aside>`;
+}
+function contacts44(active) {
+  const logo = active === 'All' || active === 'Mine' ? '' : orgLogo(24);
+  let html = shell('Contacts', `
+    <div class="work">${contactsSidebar44(active)}
+      <section class="center">
+        <div class="toolbar">
+          <div class="input search">${i('search')}<span class="grow ph">Search name, company, phone</span><span style="color:var(--text-faint);font-size:var(--text-sm)">Ctrl+K</span></div>
+          <button class="btn btn--ghost">${i('filter')}Filter</button>
+          <button class="btn btn--ghost">${i('columns')}Columns</button>
+          <div style="flex:1"></div>
+          <div class="segmented" role="radiogroup" aria-label="View"><button role="radio" aria-checked="true" title="Table">${i('list')}</button><button role="radio" aria-checked="false" title="Cards">${i('columns')}</button></div>
+        </div>
+        <div class="table-wrap">${contactsTable(null)}</div>
+      </section>
+    </div>
+    <footer class="statusbar"><span>${active === 'Uncategorized' ? 'Example Studio › Uncategorized' : active === 'Org' ? 'Example Studio' : 'All contacts'}</span><span class="sp"></span><span class="sb-item">${i('shield')}Standard encryption</span></footer>`,
+    { primary: `${i('plus')}New contact` });
+  if (logo) html = html.replace(/<span class="avatar"[^>]*>LM<\/span>/, logo);
+  return html;
+}
+function contactsOrg() { return contacts44('Org'); }
+function contactsUncategorized() { return contacts44('Uncategorized'); }
+
+// ---------- 45 (27/11/2026): sidebar shortcuts as a grid, not pills ----------
+// One row per shortcut (a new one is a new row), one column per vault (or "Every vault" when the
+// same set serves all), a check box in each cell. Contacts get their own block, the same way.
+function raccourcisGrille(per = true) {
+  const ck = (on) => `<span class="check ${on ? 'on' : ''}" style="margin:auto">${on ? i('check') : ''}</span>`;
+  const cols = per ? [['user', 'My vault'], ['users', 'Example Studio']] : [['list', 'Every vault']];
+  const head = (first) => `<div style="display:grid;grid-template-columns:1fr repeat(${cols.length},128px);align-items:center;height:32px;color:var(--text-muted);font-size:var(--text-xs);font-weight:var(--weight-medium);border-bottom:1px solid var(--line)"><span>${first}</span>${cols.map(([ic, n]) => `<span style="display:flex;align-items:center;justify-content:center;gap:6px">${i(ic)}${n}</span>`).join('')}</div>`;
+  const line = (ic, label, vals, tip = '') => `<div style="display:grid;grid-template-columns:1fr repeat(${vals.length},128px);align-items:center;height:36px;border-bottom:1px solid var(--line)" ${tip ? `title="${tip}"` : ''}><span style="display:flex;align-items:center;gap:8px">${i(ic)}${label}</span>${vals.map(ck).join('')}</div>`;
+  const v = (a, b) => (per ? [a, b] : [a]);
+  const headC = `<div style="display:grid;grid-template-columns:1fr 128px;align-items:center;height:32px;color:var(--text-muted);font-size:var(--text-xs);font-weight:var(--weight-medium);border-bottom:1px solid var(--line)"><span>Contacts</span><span style="display:flex;justify-content:center">Shown</span></div>`;
+  return settings('Preferences', `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Vaults')}
+      <div class="row"><span class="row-label">Personal vault in its own tab</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label" title="At the top of the sidebar">Shortcuts</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Same for every vault</span><span class="switch ${per ? '' : 'on'}"></span></div>
+      <div style="padding-left:var(--s-4)">
+        ${head('Vault')}
+        ${line('list', 'All items', v(true, true))}
+        ${line('star', 'Favorites', v(true, false))}
+        ${line('clock', 'Renew soon', v(false, true), 'Subscriptions renewing in the next 30 days')}
+        <div style="height:var(--s-3)"></div>
+        ${headC}
+        ${line('users', 'All contacts', [true])}
+        ${line('star', 'Favorites', [true])}
+        ${line('calendar', 'Birthdays soon', [true], 'Next 30 days')}
+        ${line('list', 'Uncategorized', [true], 'Contacts outside any folder')}
+      </div>
+    </div>`);
+}
+function raccourcisGrilleMeme() { return raccourcisGrille(false); }
+
 // 38. Settings › Shortcuts (27/11/2026): every keyboard shortcut in one place, each one changed by
 // pressing the new keys. The global ones move here from Autofill (one place, not two).
 function raccourcisClavier() {
@@ -2035,6 +2149,11 @@ export const SCREENS = {
   '42j-serveur-supprimer-confirmer': ['Server — delete, confirmed', serveurSupprimerConfirmer],
   '42k-logo-organisation': ['Server — organization logo, none yet', serveurLogo],
   '42l-logo-survol': ['Server — organization logo under the pointer', serveurLogoSurvol],
+  '43a-sante-changer': ['Health — Change asks first', santeChanger],
+  '44a-contacts-organisation': ['Contacts — the organization as a section', contactsOrg],
+  '44b-contacts-sans-dossier': ['Contacts — organization, uncategorized', contactsUncategorized],
+  '45a-raccourcis-grille': ['Preferences — shortcuts as a grid, per vault', raccourcisGrille],
+  '45b-raccourcis-grille-meme': ['Preferences — shortcuts as a grid, same for every vault', raccourcisGrilleMeme],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],

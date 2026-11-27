@@ -1578,6 +1578,7 @@ impl CleisApp {
     /// Shows a tab; a vault tab also sets what the vault shows and the organization shown.
     pub fn open_tab(&mut self, tab: Tab, scope: Option<crate::app::Scope>, cx: &mut Context<Self>) {
         use crate::app::Scope;
+        self.flush_edits(cx);
         if let Some(Scope::Org(k)) = &scope {
             self.activate_org(k);
         }
@@ -1646,9 +1647,11 @@ impl CleisApp {
     /// New item, selected, its name box focused and selected so typing replaces it.
     pub fn new_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let space = match s.filter {
-            Filter::Space(sp) => sp,
-            _ => s.vault.home_space(),
+        // In the organization shown, never the personal vault (27/11/2026).
+        let Some(space) = s.target_space() else {
+            s.toast = Some(tr("Your role does not allow adding here").into());
+            cx.notify();
+            return;
         };
         let e = Entry::new(space, "New password");
         if s.vault.put_entry(&e).is_err() {

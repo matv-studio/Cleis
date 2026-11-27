@@ -195,6 +195,19 @@ pub fn find_vaults(dir: &Path) -> Vec<PathBuf> {
 
 /// Reads everything again from the vault (after a sync brought changes).
 pub fn reload(s: &mut Session) -> cleis_store::Result<()> {
+    // The boxes being typed in stay (and keep the keyboard) unless the item itself changed
+    // elsewhere (27/11/2026: a sync no longer takes the focus away).
+    let entry_at = s
+        .editor
+        .as_ref()
+        .and_then(|ed| s.entries.iter().find(|e| e.id == ed.entry))
+        .map(|e| (e.id, e.updated));
+    let contact_at = s
+        .contacts_ui
+        .editor
+        .as_ref()
+        .and_then(|ed| s.contacts.iter().find(|c| c.id == ed.contact))
+        .map(|c| (c.id, c.updated));
     s.entries = s.vault.entries()?;
     s.trash = s.vault.trashed_entries()?;
     s.contacts = s.vault.contacts()?;
@@ -202,10 +215,20 @@ pub fn reload(s: &mut Session) -> cleis_store::Result<()> {
     s.columns = s.vault.vault_columns()?;
     s.columns.extend(s.vault.contact_columns()?);
     s.prefs = s.vault.preferences()?;
-    s.editor = None;
-    s.contacts_ui.editor = None;
+    if entry_at.is_none_or(|(id, at)| !s.entries.iter().any(|e| e.id == id && e.updated == at)) {
+        s.editor = None;
+    }
+    if contact_at.is_none_or(|(id, at)| !s.contacts.iter().any(|c| c.id == id && c.updated == at)) {
+        s.contacts_ui.editor = None;
+    }
     s.refilter();
     crate::org::hide_org_entries(s);
+    if s.editor
+        .as_ref()
+        .is_some_and(|ed| s.selected != Some(ed.entry))
+    {
+        s.editor = None;
+    }
     Ok(())
 }
 

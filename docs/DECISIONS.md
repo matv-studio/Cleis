@@ -803,6 +803,27 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   - En suspens : la charte n'est pas modifiée (aplat tel que choisi) ; « Sync & backups » garde son
     sélecteur « Mine / <org> » (D-67, audit U-15).
 
+- **D-100 Saisie enregistrée en quittant ; ce qui est créé va où est la liste** (27/11/2026, demandes
+  de l'utilisateur ; maquettes 43a, 44a, 44b, 45a, 45b validées).
+  - Une case d'un inspecteur (élément, contact) n'est plus enregistrée 700 ms après la dernière touche,
+    mais quand on la quitte, Entrée, ou quand l'édition se termine (autre élément, autre onglet,
+    verrouillage, fermeture : `flush_edits`). Un rechargement venu d'une synchronisation garde les
+    cases (et le clavier) si l'élément n'a pas changé ailleurs : « Saved » ne sortait pas du focus,
+    c'était le rechargement qui reconstruisait les cases.
+  - New password, et les actions du clic droit, vont dans l'organisation affichée (sa section, son
+    onglet, un de ses dossiers : `Session::target_space`) ; « New folder » y devient « New space ». Le
+    logo de l'organisation reste en haut à droite dans ses dossiers et dans ses contacts.
+  - Contacts comme Vault : « My contacts » et chaque organisation sont des sections (tout leur
+    contenu), leurs dossiers dessous ; « Uncategorized » rejoint All contacts, Favorites, Birthdays
+    soon (contacts hors de tout dossier : l'espace personnel par défaut et, par organisation, un espace
+    `unfiled` créé par un administrateur au premier contact ajouté à son niveau, donné à tous les
+    membres et à chaque invité). Les dossiers de contacts d'une organisation passent par elle
+    (espaces `for_contacts`), un dossier personnel reste personnel.
+  - Health › Change ouvre une carte sous le bouton : mot de passe proposé, modifiable, ↻, Annuler,
+    Apply ; rien ne change avant Apply.
+  - Préférences : les raccourcis de la barre latérale en grille (une ligne par raccourci, une colonne
+    par coffre ou « Every vault », Contacts dessous), plus de gélules.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

@@ -51,6 +51,9 @@ for theme in ${THEMES:-dark}; do
   shot "org-password-$theme" --demo --unlocked --menu org-password --theme $theme
   shot "server-logo-$theme" --demo --unlocked --tab settings --page server --theme $theme
   shot "delete-org-$theme" --demo --unlocked --tab settings --page server --menu delete-org --theme $theme
+  # 27/11/2026 (mockups 43a, 44a, 45a): Change asks first, Contacts as the Vault, shortcuts' grid.
+  shot "health-change-$theme" --demo --unlocked --menu health-change --theme $theme
+  shot "contacts-org-$theme" --demo --unlocked --menu contacts-org --theme $theme
   shot "ctx-password-$theme" --demo --unlocked --menu ctx-password --theme $theme
   shot "shortcuts-$theme" --demo --unlocked --tab settings --page shortcuts --theme $theme
   shot "account-$theme" --demo --unlocked --tab settings --page account --theme $theme

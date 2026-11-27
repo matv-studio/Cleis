@@ -727,6 +727,23 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
         e.id
     });
     sync(cx, &lea);
+    // 27/11/2026 (mockup 44a): a contact at the organization's level, outside any folder: its
+    // "Uncategorized" space is made the first time, and goes to whoever is invited.
+    let okey = session(cx, &lea, |s| s.org.as_ref().unwrap().m.key());
+    act(cx, lh, |w, cx| w.click("tab-Contacts", cx));
+    act(cx, lh, |w, cx| w.click(format!("cf-org-{okey}"), cx));
+    act(cx, lh, |w, cx| w.click("new-contact", cx));
+    sync(cx, &lea);
+    let unfiled = session(cx, &lea, |s| {
+        let sp = cleis_app::screens::contacts::unfiled_of(s, &okey).expect("made");
+        let c = s
+            .contacts
+            .iter()
+            .find(|c| Some(c.id) == s.selected_contact)
+            .unwrap();
+        assert_eq!(c.space, sp);
+        sp
+    });
     act(cx, lh, |w, cx| w.click("tab-Settings", cx));
     act(cx, lh, |w, cx| w.click("set-Members", cx));
     act(cx, lh, |w, cx| w.click("invite", cx));
@@ -748,6 +765,13 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
     sync(cx, &hugo);
     sync(cx, &lea);
     sync(cx, &hugo);
+    // Invited, Hugo has the organization's "Uncategorized" contacts too.
+    session(cx, &hugo, |s| {
+        assert!(
+            s.contacts.iter().any(|c| c.space == unfiled),
+            "the contact reached him"
+        );
+    });
     let hugo_id = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.member);
     lea.update(cx, |a, cx| {
         a.org_member(

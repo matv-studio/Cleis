@@ -3215,15 +3215,31 @@ fn method_short(m: Method) -> &'static str {
 /// The organization the vault shows (its tab, or its section in the sidebar), if any (D-98: its
 /// logo then takes the profile's place at the top right).
 pub fn org_in_view(s: &Session) -> Option<&OrgSession> {
-    use crate::app::{Filter, Scope};
-    if s.tab != crate::app::Tab::Vault {
-        return None;
+    use crate::app::{Filter, Scope, Tab};
+    match s.tab {
+        Tab::Vault => {
+            // One of its folders counts too (27/11/2026).
+            if let Filter::Space(sp) = s.filter
+                && let Some(o) = s.org_of(sp)
+            {
+                return Some(o);
+            }
+            s.all_orgs().find(|o| match (&s.scope, &s.filter) {
+                (Scope::Org(k), _) => *k == o.m.key(),
+                (_, Filter::Org(h)) => *h == crate::app::org_hash(&o.m.key()),
+                _ => false,
+            })
+        }
+        Tab::Contacts => match &s.contacts_ui.filter {
+            super::contacts::ContactFilter::Folder(sp) => s.org_of(*sp),
+            super::contacts::ContactFilter::Org(k) => s.all_orgs().find(|o| o.m.key() == *k),
+            _ => match &s.scope {
+                Scope::Org(k) => s.all_orgs().find(|o| o.m.key() == *k),
+                _ => None,
+            },
+        },
+        _ => None,
     }
-    s.all_orgs().find(|o| match (&s.scope, &s.filter) {
-        (Scope::Org(k), _) => *k == o.m.key(),
-        (_, Filter::Org(h)) => *h == crate::app::org_hash(&o.m.key()),
-        _ => false,
-    })
 }
 
 /// The organization whose PIN is asked, when the vault shows it (its tab, or its section in the
@@ -4988,6 +5004,38 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         }
         "delete-org" => {
             app.open_delete_org(window, cx);
+        }
+        // Mockup 44a: Contacts, the organization's section.
+        "contacts-org" => {
+            if let Some(s) = app.session()
+                && let Some(k) = s.org.as_ref().map(|o| o.m.key())
+            {
+                s.tab = crate::app::Tab::Contacts;
+                s.contacts_ui.filter = super::contacts::ContactFilter::Org(k);
+            }
+        }
+        // Mockup 43a: Health › Change on the first item whose password is the problem.
+        "health-change" => {
+            let id = app.session().and_then(|s| {
+                let (f, _) = cleis_core::health::scan(
+                    &s.entries,
+                    &cleis_core::health::Policy::default(),
+                    cleis_core::now(),
+                );
+                f.into_iter()
+                    .find(|f| {
+                        f.issues
+                            .iter()
+                            .any(|i| matches!(i, cleis_core::health::Issue::Weak))
+                    })
+                    .map(|f| f.entry)
+            });
+            if let Some(id) = id {
+                if let Some(s) = app.session() {
+                    s.tab = crate::app::Tab::Health;
+                }
+                app.open_health_change(id, window, cx);
+            }
         }
         "wheel" => {
             if let Some(s) = app.session() {

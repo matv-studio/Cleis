@@ -8,9 +8,8 @@ use cleis_core::ContactId;
 use cleis_core::contact_edit::{self, Applied, Field, List};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Entity, SharedString, Subscription, Task, Window};
+use gpui_kit::{Context, Entity, SharedString, Subscription, Window};
 use std::collections::HashMap;
-use std::time::Duration;
 
 pub struct ContactEditor {
     pub contact: ContactId,
@@ -22,7 +21,8 @@ pub struct ContactEditor {
     /// Boxes of the custom contact columns of the contact's folder.
     pub custom: Vec<(cleis_core::column::ColumnDef, Entity<InputState>)>,
     pub custom_errors: HashMap<cleis_core::ColumnId, SharedString>,
-    pending: Option<Task<()>>,
+    /// Boxes typed in since their last save (saved when left, Enter, or the editing ends).
+    pub dirty: std::collections::HashSet<Field>,
     _subs: Vec<Subscription>,
 }
 
@@ -51,9 +51,31 @@ impl CleisApp {
             .filter(|id| s.contacts.iter().any(|c| c.id == *id))
     }
 
+    /// Saves what was typed in the contact's boxes and not saved yet.
+    pub fn flush_contact_editor(&mut self, cx: &mut Context<Self>) {
+        let fields: Vec<Field> = match &self.phase {
+            Phase::Main(s) => s
+                .contacts_ui
+                .editor
+                .as_ref()
+                .map(|ed| ed.dirty.iter().copied().collect())
+                .unwrap_or_default(),
+            _ => return,
+        };
+        for f in fields {
+            self.commit_contact_field(f, cx);
+        }
+    }
+
     /// Builds the contact boxes (and the search box) when the contact changed.
     pub fn ensure_contact_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let shown = self.shown_contact();
+        // The editing of the previous contact ends: what was typed is saved first.
+        let leaving = matches!(&self.phase, Phase::Main(s) if s.contacts_ui.editor.as_ref()
+            .is_some_and(|ed| Some(ed.contact) != shown && !ed.dirty.is_empty()));
+        if leaving {
+            self.flush_contact_editor(cx);
+        }
         let Phase::Main(s) = &mut self.phase else {
             return;
         };
@@ -182,7 +204,7 @@ impl CleisApp {
                 errors: HashMap::new(),
                 custom,
                 custom_errors: HashMap::new(),
-                pending: None,
+                dirty: Default::default(),
                 _subs: subs,
             });
         }
@@ -191,17 +213,10 @@ impl CleisApp {
     fn on_contact_event(&mut self, f: Field, ev: &InputEvent, cx: &mut Context<Self>) {
         match ev {
             InputEvent::Change => {
-                let task = cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(700))
-                        .await;
-                    this.update(cx, |this, cx| this.commit_contact_field(f, cx))
-                        .ok();
-                });
                 if let Phase::Main(s) = &mut self.phase
                     && let Some(ed) = s.contacts_ui.editor.as_mut()
                 {
-                    ed.pending = Some(task);
+                    ed.dirty.insert(f);
                 }
             }
             InputEvent::PressEnter { .. } | InputEvent::Blur => self.commit_contact_field(f, cx),
@@ -217,6 +232,7 @@ impl CleisApp {
         let Some(ed) = s.contacts_ui.editor.as_mut() else {
             return;
         };
+        ed.dirty.remove(&f);
         let value = match f {
             Field::Notes => ed.notes.read(cx).value().to_string(),
             _ => match ed.inputs.get(&f) {

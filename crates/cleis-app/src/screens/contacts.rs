@@ -31,6 +31,13 @@ pub enum ContactFilter {
     Folder(SpaceId),
     Label(String),
     Merge,
+    /// "My contacts": every personal contact (27/11/2026, as My vault).
+    Mine,
+    /// An organization's section: all its contacts (its key).
+    Org(String),
+    /// Contacts outside any folder: the personal ones not in a folder of their own, and each
+    /// organization's "Uncategorized" (a shortcut, with All contacts).
+    Uncategorized,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +61,8 @@ pub struct ContactsUi {
     pub cards: bool,
     /// Box of the new folder being named (sidebar +).
     pub new_folder: Option<Entity<InputState>>,
+    /// The organization the folder being named goes to (`None`: personal).
+    pub new_folder_org: Option<String>,
     /// Merge & fix: group opened for review, and the contact kept.
     pub review: Option<(Vec<ContactId>, ContactId)>,
     pub focus_next: Option<Field>,
@@ -106,6 +115,9 @@ pub fn listed(s: &Session) -> Vec<&Contact> {
             ContactFilter::Birthdays => birthday_soon(c),
             ContactFilter::Folder(sp) => c.space == *sp,
             ContactFilter::Label(l) => c.labels.contains(l),
+            ContactFilter::Mine => s.org_of(c.space).is_none() && is_personal(s, c.space),
+            ContactFilter::Org(k) => s.org_of(c.space).is_some_and(|o| o.m.key() == *k),
+            ContactFilter::Uncategorized => is_uncategorized(s, c.space),
         })
         .filter(|c| q.is_empty() || matches(&c.search_text(), q))
         .collect();
@@ -116,6 +128,50 @@ pub fn listed(s: &Session) -> Vec<&Contact> {
         v.sort_by_key(|c| fold(&c.display_name()));
     }
     v
+}
+
+/// A personal contacts space.
+fn is_personal(s: &Session, sp: SpaceId) -> bool {
+    s.spaces
+        .iter()
+        .any(|x| x.id == sp && x.kind == SpaceKind::Personal)
+}
+
+/// An organization's "Uncategorized" contacts space.
+fn is_unfiled(s: &Session, sp: SpaceId) -> bool {
+    s.spaces.iter().any(|x| x.id == sp && x.unfiled)
+}
+
+/// Outside any folder: the default personal contacts space, or an organization's
+/// "Uncategorized".
+fn is_uncategorized(s: &Session, sp: SpaceId) -> bool {
+    Some(sp) == personal_default(s) || is_unfiled(s, sp)
+}
+
+/// The personal contacts space new contacts go to by default ("My contacts").
+fn personal_default(s: &Session) -> Option<SpaceId> {
+    s.spaces
+        .iter()
+        .find(|sp| sp.for_contacts && sp.kind == SpaceKind::Personal)
+        .map(|sp| sp.id)
+}
+
+/// The organization's "Uncategorized" space, if made.
+pub fn unfiled_of(s: &Session, org: &str) -> Option<SpaceId> {
+    s.spaces
+        .iter()
+        .find(|sp| sp.unfiled && s.org_of(sp.id).is_some_and(|o| o.m.key() == org))
+        .map(|sp| sp.id)
+}
+
+/// The organization a contacts filter shows (its section, "Uncategorized", one of its
+/// folders).
+fn filter_org(s: &Session, f: &ContactFilter) -> Option<String> {
+    match f {
+        ContactFilter::Org(k) => Some(k.clone()),
+        ContactFilter::Folder(sp) => s.org_of(*sp).map(|o| o.m.key()),
+        _ => None,
+    }
 }
 
 fn all_labels(s: &Session) -> Vec<(String, usize)> {
@@ -212,8 +268,11 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
         .p(px(8.))
         .flex()
         .flex_col()
-        .gap(px(2.))
-        .child(
+        .gap(px(2.));
+    // 27/11/2026: shown or hidden in Preferences › Shortcuts › Contacts.
+    let on = s.prefs.contact_shortcuts;
+    if on[0] {
+        side = side.child(
             side_item(
                 "cf-all",
                 t,
@@ -224,8 +283,10 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
             )
             .on_click(cx.listener(set(ContactFilter::All)))
             .test_support(),
-        )
-        .child(
+        );
+    }
+    if on[1] {
+        side = side.child(
             side_item(
                 "cf-fav",
                 t,
@@ -236,8 +297,10 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
             )
             .on_click(cx.listener(set(ContactFilter::Favorites)))
             .test_support(),
-        )
-        .child(
+        );
+    }
+    if on[2] {
+        side = side.child(
             side_item(
                 "cf-bday",
                 t,
@@ -250,85 +313,159 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
             .on_click(cx.listener(set(ContactFilter::Birthdays)))
             .test_support(),
         );
-    let count = |sp: SpaceId| s.contacts.iter().filter(|c| c.space == sp).count();
-    let folders = |kind: SpaceKind| {
-        s.spaces
-            .iter()
-            .filter(move |sp| sp.for_contacts && sp.kind == kind)
-    };
-    side = side.child(group_head(t, tr("Personal")));
-    for sp in folders(SpaceKind::Personal) {
-        let id = sp.id;
+    }
+    if on[3] {
         side = side.child(
             side_item(
-                format!("cf-folder-{}", sp.id),
+                "cf-unfiled",
                 t,
-                Some("user"),
-                crate::i18n::space(&sp.name),
-                Some(count(sp.id)),
-                *f == ContactFilter::Folder(id),
+                Some("list"),
+                tr("Uncategorized"),
+                Some(
+                    s.contacts
+                        .iter()
+                        .filter(|c| is_uncategorized(s, c.space))
+                        .count(),
+                ),
+                *f == ContactFilter::Uncategorized,
             )
-            .on_click(cx.listener(set(ContactFilter::Folder(id))))
+            .tooltip(tip(tr("Contacts outside any folder")))
+            .on_click(cx.listener(set(ContactFilter::Uncategorized)))
             .test_support(),
         );
     }
-    // Audit L-13: one group per organization, under its name (D-69); folders no membership
-    // claims under "Shared".
-    let org: Vec<_> = folders(SpaceKind::Organization).collect();
-    let mut groups: Vec<(String, Vec<&cleis_store::SpaceInfo>)> = s
-        .all_orgs()
-        .map(|o| {
-            (
-                o.m.name.clone(),
-                org.iter()
-                    .copied()
-                    .filter(|sp| o.names.contains_key(&sp.id))
-                    .collect(),
-            )
+    let count = |sp: SpaceId| s.contacts.iter().filter(|c| c.space == sp).count();
+    let new_folder_row = |side: gpui_kit::Stateful<Div>, org: Option<&str>| match &ui.new_folder {
+        Some(input) if ui.new_folder_org.as_deref() == org => side.child(
+            div()
+                .pl(px(20.))
+                .pr(px(4.))
+                .child(Input::new(input).id("new-folder-name").small()),
+        ),
+        _ => side,
+    };
+    // 27/11/2026 (mockups 44): sections as in the Vault, their folders below.
+    let section = |id: String,
+                   ico: &'static str,
+                   label: SharedString,
+                   n: usize,
+                   filter: ContactFilter,
+                   add: Option<(String, Option<String>)>,
+                   cx: &mut Context<CleisApp>| {
+        let active = *f == filter;
+        side_item(id, t, Some(ico), label, Some(n), active)
+            .font_weight(W_MEDIUM)
+            .when(!active, |d| d.text_color(t.text))
+            .when_some(add, |d, (add_id, org)| {
+                d.child(
+                    icon_button(SharedString::from(add_id), t, "plus", true)
+                        .tooltip(tip(tr("New folder")))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.start_new_folder_in(org.clone(), window, cx);
+                        }))
+                        .test_support(),
+                )
+            })
+            .on_click(cx.listener(set(filter)))
+            .test_support()
+    };
+    let sub = |id: String,
+               ico: &'static str,
+               label: SharedString,
+               n: usize,
+               filter: ContactFilter,
+               cx: &mut Context<CleisApp>| {
+        side_item(id, t, Some(ico), label, Some(n), *f == filter)
+            .pl(px(24.))
+            .on_click(cx.listener(set(filter)))
+            .test_support()
+    };
+    // My contacts: every personal contact; its other folders below.
+    let mine = s
+        .contacts
+        .iter()
+        .filter(|c| s.org_of(c.space).is_none() && is_personal(s, c.space))
+        .count();
+    side = side.child(div().h(px(10.))).child(section(
+        "cf-mine".into(),
+        "user",
+        tr("My contacts").into(),
+        mine,
+        ContactFilter::Mine,
+        Some(("new-folder".into(), None)),
+        cx,
+    ));
+    let default = personal_default(s);
+    for sp in s
+        .spaces
+        .iter()
+        .filter(|sp| sp.for_contacts && sp.kind == SpaceKind::Personal && Some(sp.id) != default)
+    {
+        side = side.child(sub(
+            format!("cf-folder-{}", sp.id),
+            "folder",
+            crate::i18n::space(&sp.name).into(),
+            count(sp.id),
+            ContactFilter::Folder(sp.id),
+            cx,
+        ));
+    }
+    side = new_folder_row(side, None);
+    // One section per organization (D-69): all its contacts, "Uncategorized", its folders.
+    for o in s.all_orgs() {
+        let k = o.m.key();
+        let n = s
+            .contacts
+            .iter()
+            .filter(|c| s.org_of(c.space).is_some_and(|x| x.m.key() == k))
+            .count();
+        let manage = o.can(cleis_core::org::Perm::Manage);
+        side = side.child(div().h(px(10.))).child(section(
+            format!("cf-org-{k}"),
+            if o.pin.is_some() { "lock" } else { "users" },
+            o.m.name.clone().into(),
+            n,
+            ContactFilter::Org(k.clone()),
+            manage.then(|| (format!("new-folder-{k}"), Some(k.clone()))),
+            cx,
+        ));
+        for sp in s
+            .spaces
+            .iter()
+            .filter(|sp| sp.for_contacts && !sp.unfiled && o.names.contains_key(&sp.id))
+        {
+            side = side.child(sub(
+                format!("cf-folder-{}", sp.id),
+                "folder",
+                crate::i18n::space(&sp.name).into(),
+                count(sp.id),
+                ContactFilter::Folder(sp.id),
+                cx,
+            ));
+        }
+        side = new_folder_row(side, Some(k.as_str()));
+    }
+    // Folders no membership claims (an organization left, the demo without its organization).
+    let orphans: Vec<_> = s
+        .spaces
+        .iter()
+        .filter(|sp| {
+            sp.for_contacts && sp.kind == SpaceKind::Organization && s.org_of(sp.id).is_none()
         })
         .collect();
-    let orphans: Vec<_> = org
-        .iter()
-        .copied()
-        .filter(|sp| s.org_of(sp.id).is_none())
-        .collect();
-    if !orphans.is_empty() || groups.is_empty() {
-        groups.push((tr("Shared").into(), orphans));
-    }
-    for (gi, (name, spaces)) in groups.into_iter().enumerate() {
-        let head = group_head(t, &name);
-        side = side.child(if gi == 0 {
-            head.child(
-                icon_button("new-folder", t, "plus", true)
-                    .tooltip(tip(tr("New folder")))
-                    .on_click(cx.listener(|this, _, window, cx| this.start_new_folder(window, cx)))
-                    .test_support(),
-            )
-        } else {
-            head
-        });
-        for sp in spaces {
-            let id = sp.id;
-            side = side.child(
-                side_item(
-                    format!("cf-folder-{}", sp.id),
-                    t,
-                    Some("folder"),
-                    crate::i18n::space(&sp.name),
-                    Some(count(sp.id)),
-                    *f == ContactFilter::Folder(id),
-                )
-                .on_click(cx.listener(set(ContactFilter::Folder(id))))
-                .test_support(),
-            );
+    if !orphans.is_empty() {
+        side = side.child(group_head(t, tr("Shared")));
+        for sp in orphans {
+            side = side.child(sub(
+                format!("cf-folder-{}", sp.id),
+                "folder",
+                crate::i18n::space(&sp.name).into(),
+                count(sp.id),
+                ContactFilter::Folder(sp.id),
+                cx,
+            ));
         }
-    }
-    if let Some(input) = &ui.new_folder {
-        side = side.child(
-            div()
-                .px(px(4.))
-                .child(Input::new(input).id("new-folder-name").small()),
-        );
     }
     let labels = all_labels(s);
     if !labels.is_empty() {
@@ -2014,15 +2151,39 @@ impl CleisApp {
 
     pub fn new_contact(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let space = match s.contacts_ui.filter {
-            ContactFilter::Folder(sp) => sp,
-            _ => s
-                .spaces
-                .iter()
-                .find(|sp| sp.for_contacts && sp.kind == SpaceKind::Personal)
-                .or_else(|| s.spaces.iter().find(|sp| sp.for_contacts))
-                .map(|sp| sp.id)
-                .unwrap_or_else(|| s.vault.home_space()),
+        // Where the list is (27/11/2026): the folder, the organization shown (its
+        // "Uncategorized", made the first time by an admin), or the personal contacts.
+        let space = match &s.contacts_ui.filter {
+            ContactFilter::Folder(sp) => Some(*sp),
+            ContactFilter::Org(k) => {
+                let k = k.clone();
+                match unfiled_of(s, &k) {
+                    Some(sp) => Some(sp),
+                    None => {
+                        let manage = s
+                            .all_orgs()
+                            .find(|o| o.m.key() == k)
+                            .is_some_and(|o| o.can(cleis_core::org::Perm::Manage));
+                        if manage {
+                            self.in_org(&k, |app| {
+                                app.org_new_contacts_space("Uncategorized".into(), true, cx)
+                            })
+                            .flatten()
+                        } else {
+                            None
+                        }
+                    }
+                }
+            }
+            _ => personal_default(s)
+                .or_else(|| s.spaces.iter().find(|sp| sp.for_contacts).map(|sp| sp.id))
+                .or(Some(s.vault.home_space())),
+        };
+        let Some(s) = self.session() else { return };
+        let Some(space) = space.filter(|sp| s.may(*sp, cleis_core::org::Perm::Edit)) else {
+            s.toast = Some(tr("Your role does not allow adding here").into());
+            cx.notify();
+            return;
         };
         let mut c = Contact::new(space);
         c.given = tr("New contact").into();
@@ -2146,7 +2307,29 @@ impl CleisApp {
         }
     }
 
+    /// "New folder" from a menu: in the organization shown if this member manages it, else
+    /// personal.
     pub fn start_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let org = self.session().and_then(|s| {
+            filter_org(s, &s.contacts_ui.filter).filter(|k| {
+                s.all_orgs()
+                    .find(|o| o.m.key() == *k)
+                    .is_some_and(|o| o.can(cleis_core::org::Perm::Manage))
+            })
+        });
+        self.start_new_folder_in(org, window, cx);
+    }
+
+    /// A folder named in place under its section: personal, or the organization's (`org`).
+    pub fn start_new_folder_in(
+        &mut self,
+        org: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(s) = self.session() {
+            s.contacts_ui.new_folder_org = org;
+        }
         let st = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Folder name")));
         st.update(cx, |st, cx| st.focus(window, cx));
         let sub = cx.subscribe_in(
@@ -2184,10 +2367,17 @@ impl CleisApp {
             cx.notify();
             return;
         }
+        // An organization's folder goes through it (its members get it as a space).
+        if let Some(k) = s.contacts_ui.new_folder_org.take() {
+            let name = name.to_owned();
+            self.in_org(&k, |app| app.org_new_contacts_space(name, false, cx));
+            cx.notify();
+            return;
+        }
         let r = s.vault.create_space(
             name,
-            SpaceKind::Organization,
-            cleis_store::EncryptionMode::Standard,
+            SpaceKind::Personal,
+            cleis_store::EncryptionMode::EndToEnd,
             true,
         );
         match r.and_then(|id| Ok((id, s.vault.spaces()?))) {

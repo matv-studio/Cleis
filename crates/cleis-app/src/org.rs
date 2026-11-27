@@ -2124,6 +2124,14 @@ impl CleisApp {
 
     pub fn org_invite(&mut self, mut req: NewInvite, cx: &mut Context<Self>) {
         let to = req.email.clone();
+        // The organization's "Uncategorized" contacts are everyone's (27/11/2026).
+        if let Some(s) = self.session()
+            && let Some(k) = s.org.as_ref().map(|o| o.m.key())
+            && let Some(sp) = crate::screens::contacts::unfiled_of(s, &k)
+            && !req.spaces.contains(&sp)
+        {
+            req.spaces.push(sp);
+        }
         // Shared folder (D-78): the code is made here and never goes to the folder.
         let folder = self
             .session()
@@ -2476,11 +2484,33 @@ impl CleisApp {
         reserved: bool,
         cx: &mut Context<Self>,
     ) {
+        self.org_create_space(name, mode, reserved, (false, false), cx);
+    }
+
+    /// A contacts folder of the organization (27/11/2026), or its "Uncategorized" space
+    /// (`unfiled`, given to every member). Returns the new space, usable at once.
+    pub fn org_new_contacts_space(
+        &mut self,
+        name: String,
+        unfiled: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<SpaceId> {
+        self.org_create_space(name, SpaceMode::Standard, false, (true, unfiled), cx)
+    }
+
+    fn org_create_space(
+        &mut self,
+        name: String,
+        mode: SpaceMode,
+        reserved: bool,
+        (for_contacts, unfiled): (bool, bool),
+        cx: &mut Context<Self>,
+    ) -> Option<SpaceId> {
         // A reserved space is end-to-end (D-61).
         let mode = if reserved { SpaceMode::EndToEnd } else { mode };
-        let Some(s) = self.session() else { return };
-        let Some(o) = s.org.as_ref() else { return };
-        let Some(st) = o.state.as_ref() else { return };
+        let s = self.session()?;
+        let o = s.org.as_ref()?;
+        let st = o.state.as_ref()?;
         let info = SpaceInfo {
             id: SpaceId::new(),
             name: name.trim().into(),
@@ -2489,14 +2519,37 @@ impl CleisApp {
                 SpaceMode::Standard => EncryptionMode::Standard,
                 SpaceMode::EndToEnd => EncryptionMode::EndToEnd,
             },
-            for_contacts: false,
+            for_contacts,
+            unfiled,
+        };
+        // "Uncategorized" is everyone's: its key wrapped for each member right away.
+        let everyone: Vec<(MemberId, [u8; 32])> = if unfiled {
+            st.members
+                .iter()
+                .filter(|m| !m.revoked && m.id != st.me.id)
+                .map(|m| (m.id, m.account_public))
+                .collect()
+        } else {
+            vec![]
         };
         let org_public = st.org.org_public.clone();
         let recovery = st.org.recovery_public.clone();
         let key = o.m.key();
         let Ok((sealed, wrapped, k)) = s.vault.create_org_space(&key, info.clone()) else {
-            return;
+            return None;
         };
+        let grants: Vec<Wrap> = everyone
+            .iter()
+            .filter_map(|(m, p)| {
+                wrap_key(&PublicKey(*p), &k, info.id.0.as_bytes())
+                    .ok()
+                    .map(|w| Wrap {
+                        space: info.id,
+                        member: *m,
+                        wrapped: w,
+                    })
+            })
+            .collect();
         let wrap_to = |p: &Option<Vec<u8>>| {
             p.as_ref()
                 .and_then(|p| p.clone().try_into().ok())
@@ -2520,6 +2573,13 @@ impl CleisApp {
         }
         let _ = crate::sync::reload(s);
         let id = info.id;
+        if for_contacts {
+            s.contacts_ui.filter = if unfiled {
+                crate::screens::contacts::ContactFilter::Org(key.clone())
+            } else {
+                crate::screens::contacts::ContactFilter::Folder(id)
+            };
+        }
         self.org_request::<_, PushReply>(
             "/v1/spaces",
             req,
@@ -2530,13 +2590,24 @@ impl CleisApp {
                     let _ = s.vault.remove_org_space(id);
                     let _ = crate::sync::reload(s);
                 } else if let Some(s) = app.session() {
-                    s.filter = crate::app::Filter::Space(id);
-                    s.refilter();
+                    if !for_contacts {
+                        s.filter = crate::app::Filter::Space(id);
+                        s.refilter();
+                    }
+                    if !grants.is_empty() {
+                        app.org_request::<_, PushReply>(
+                            "/v1/grants",
+                            Grants { wraps: grants },
+                            |_, _, _| {},
+                            cx,
+                        );
+                    }
                 }
                 cx.notify();
             },
             cx,
         );
+        Some(id)
     }
 
     /// Re-encrypts a space (screen 10): new key, every item sealed again, the key wrapped for

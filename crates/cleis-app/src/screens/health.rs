@@ -29,6 +29,12 @@ pub struct HealthUi {
     pub space: Option<SpaceId>,
     pub only: IssueKind,
     pub space_menu: bool,
+    /// "Change" (mockup 43a): the item, and the box with the new password proposed.
+    pub change: Option<(
+        EntryId,
+        gpui_kit::Entity<gpui_kit::component::input::InputState>,
+    )>,
+    pub subs: Vec<gpui_kit::Subscription>,
 }
 
 fn matches(i: &Issue, k: IssueKind) -> bool {
@@ -160,6 +166,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         .iter()
         .filter(|f| f.issues.iter().any(|i| matches(i, ui.only)))
         .collect();
+    let open_here = ui.change.as_ref().map(|(e, _)| *e);
     for f in shown.iter().take(200) {
         let Some(e) = entries.iter().find(|e| e.id == f.entry) else {
             continue;
@@ -219,23 +226,37 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                         .child(crate::format::date(e.password_changed)),
                 )
                 .child(
-                    div().w(px(100.)).flex_none().px(px(12.)).child(
-                        button(
-                            SharedString::from(format!("fix-{id}")),
-                            t,
-                            BtnKind::Default,
-                            true,
+                    div()
+                        .w(px(100.))
+                        .flex_none()
+                        .px(px(12.))
+                        .relative()
+                        .child(
+                            button(
+                                SharedString::from(format!("fix-{id}")),
+                                t,
+                                BtnKind::Default,
+                                true,
+                            )
+                            .when(open_here == Some(id), |b| b.border_color(t.focus))
+                            .child(if needs_password {
+                                tr("Change")
+                            } else {
+                                tr("Add 2FA")
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if needs_password {
+                                    this.open_health_change(id, window, cx)
+                                } else {
+                                    this.fix_from_health(id, false, window, cx)
+                                }
+                            }))
+                            .test_support(),
                         )
-                        .child(if needs_password {
-                            tr("Change")
-                        } else {
-                            tr("Add 2FA")
-                        })
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.fix_from_health(id, needs_password, window, cx)
-                        }))
-                        .test_support(),
-                    ),
+                        .when_some(
+                            ui.change.as_ref().filter(|(e, _)| *e == id),
+                            |d, (_, field)| d.child(change_card(e, field, t, cx)),
+                        ),
                 ),
         );
     }
@@ -483,6 +504,65 @@ impl CleisApp {
         cx.notify();
     }
 
+    /// "Change" (mockup 43a): a card under the button proposes a new password, editable;
+    /// nothing changes before Apply.
+    pub fn open_health_change(&mut self, id: EntryId, window: &mut Window, cx: &mut Context<Self>) {
+        let Ok(p) = cleis_core::generator::generate(&Default::default()) else {
+            return;
+        };
+        let field = cx.new(|cx| {
+            gpui_kit::component::input::InputState::new(window, cx).default_value(p.to_string())
+        });
+        field.update(cx, |i, cx| i.focus(window, cx));
+        let sub = cx.subscribe_in(
+            &field,
+            window,
+            |this, _, ev: &gpui_kit::component::input::InputEvent, _, cx| {
+                if matches!(
+                    ev,
+                    gpui_kit::component::input::InputEvent::PressEnter { .. }
+                ) {
+                    this.apply_health_change(cx);
+                }
+            },
+        );
+        if let Some(s) = self.session() {
+            s.health.change = Some((id, field));
+            s.health.subs.push(sub);
+        }
+        cx.notify();
+    }
+
+    /// ↻: another password in the box.
+    pub fn shuffle_health_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(field) = self
+            .session()
+            .and_then(|s| s.health.change.as_ref().map(|(_, f)| f.clone()))
+        else {
+            return;
+        };
+        if let Ok(p) = cleis_core::generator::generate(&Default::default()) {
+            field.update(cx, |i, cx| i.set_value(p.to_string(), window, cx));
+        }
+    }
+
+    /// Apply: the box's password becomes the item's (the old one goes to its history).
+    pub fn apply_health_change(&mut self, cx: &mut Context<Self>) {
+        let Some((id, field)) = self.session().and_then(|s| s.health.change.take()) else {
+            return;
+        };
+        let p = field.read(cx).value().to_string();
+        if p.is_empty() {
+            if let Some(s) = self.session() {
+                s.health.change = Some((id, field));
+            }
+            return;
+        }
+        self.update_entry(id, |e| e.set_password(p, None), cx);
+        self.toast(tr("Password changed"), cx);
+        cx.notify();
+    }
+
     /// Opens the item in the vault: with a new generated password (the old one stays in its
     /// history) when the password is the problem, on the 2FA key box otherwise.
     pub fn fix_from_health(
@@ -504,4 +584,82 @@ impl CleisApp {
             self.generate_password(id, window, cx);
         }
     }
+}
+
+/// Mockup 43a: under "Change", its right edge on the list's card; the password proposed (edit it
+/// by hand if wanted), ↻ for another, Cancel and Apply.
+fn change_card(
+    e: &cleis_core::Entry,
+    field: &gpui_kit::Entity<gpui_kit::component::input::InputState>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    use gpui_kit::component::input::Input;
+    let len = field.read(cx).value().chars().count();
+    gpui_kit::deferred(
+        menu_box(t)
+            .id("health-change")
+            .top(px(34.))
+            .right_0()
+            .w(px(380.))
+            .p(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(site_icon(t, e.name.chars().next().unwrap_or('?'), 20.))
+                    .child(div().flex_1().font_weight(W_MEDIUM).child(e.name.clone()))
+                    .child(
+                        div()
+                            .text_size(TEXT_SM)
+                            .text_color(t.text_muted)
+                            .child(crate::trf!("{} characters", len)),
+                    ),
+            )
+            .child(
+                Input::new(field)
+                    .id("health-new-password")
+                    .font_family(FONT_MONO)
+                    .suffix(
+                        icon_button("health-shuffle", t, "refresh", true)
+                            .tooltip(crate::ui::tip(tr("Another one")))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.shuffle_health_change(window, cx)
+                            }))
+                            .test_support(),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        button("health-change-cancel", t, BtnKind::Default, true)
+                            .child(tr("Cancel"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(s) = this.session() {
+                                    s.health.change = None;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .child(
+                        button("health-change-apply", t, BtnKind::Primary, true)
+                            .child(tr("Apply"))
+                            .tooltip(crate::ui::tip(tr(
+                                "The current password goes to the item's previous passwords",
+                            )))
+                            .on_click(cx.listener(|this, _, _, cx| this.apply_health_change(cx)))
+                            .test_support(),
+                    ),
+            )
+            .test_support(),
+    )
+    .with_priority(2)
 }

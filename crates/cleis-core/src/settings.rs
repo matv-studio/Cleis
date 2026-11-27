@@ -284,6 +284,8 @@ pub struct Preferences {
     pub dark_logo: bool,
     /// Sidebar shortcuts per vault (26/11/2026).
     pub shortcuts: SidebarShortcuts,
+    /// Contacts' shortcuts (27/11/2026): All contacts, Favorites, Birthdays soon, Uncategorized.
+    pub contact_shortcuts: [bool; 4],
     /// Shortcuts inside Cleis changed from `APP_KEYS` (mockup 38); `""`: none.
     pub app_keys: std::collections::BTreeMap<String, String>,
     /// Order of the folders and spaces in the sidebar (dragged); the others follow by name.
@@ -315,6 +317,7 @@ impl Default for Preferences {
             update_prereleases: true,
             dark_logo: false,
             shortcuts: SidebarShortcuts::default(),
+            contact_shortcuts: [true; 4],
             app_keys: Default::default(),
             space_order: Vec::new(),
             sort_by: SortBy::Name,

@@ -424,6 +424,26 @@ impl Session {
         )
     }
 
+    /// Where something new goes (27/11/2026): the folder shown; in an organization shown (its
+    /// tab, its section), its first folder this member may write in; otherwise the personal
+    /// vault. `None`: nowhere this member may add.
+    pub fn target_space(&self) -> Option<cleis_core::SpaceId> {
+        if let Filter::Space(sp) = self.filter {
+            return self.may(sp, cleis_core::org::Perm::Edit).then_some(sp);
+        }
+        match crate::screens::org::org_in_view(self) {
+            Some(o) => self
+                .spaces
+                .iter()
+                .filter(|sp| !sp.for_contacts && o.names.contains_key(&sp.id))
+                .map(|sp| sp.id)
+                .find(|sp| {
+                    o.can(cleis_core::org::Perm::Edit) && self.may(*sp, cleis_core::org::Perm::Edit)
+                }),
+            None => Some(self.vault.home_space()),
+        }
+    }
+
     /// The organization a space belongs to.
     pub fn org_of(&self, space: cleis_core::SpaceId) -> Option<&crate::org::OrgSession> {
         self.all_orgs().find(|o| o.names.contains_key(&space))
@@ -1243,6 +1263,8 @@ impl CleisApp {
     }
 
     pub fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // What was typed and not saved yet goes first.
+        self.flush_edits(cx);
         // Last changes sent before the keys are wiped.
         let remote = matches!(&self.phase, Phase::Main(s)
             if s.sync.auto && s.sync.place.is_some() && s.gate.is_none() && s.sync.remote.is_some());

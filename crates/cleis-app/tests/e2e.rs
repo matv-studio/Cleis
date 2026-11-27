@@ -169,6 +169,8 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("new-item", cx));
     act(cx, h, |w, cx| w.click("fav", cx));
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    // Tabs is under the shortcuts' grid (mockup 45a).
+    settings_down(cx, h, "sc-all-0", 420.);
     act(cx, h, |w, cx| w.click("tab-contacts", cx));
     act(cx, h, |w, cx| w.click("lock", cx));
     act(cx, h, |w, cx| {
@@ -904,14 +906,52 @@ fn health_change_weak_password(cx: &mut TestAppContext) {
         let e = s.entries.iter().find(|e| e.id == f.entry).unwrap();
         (e.id, e.password.clone())
     });
+    // Mockup 43a: "Change" proposes; nothing changes before Apply. Cancel leaves it as it was.
     let fix: &'static str = format!("fix-{id}").leak();
     act(cx, h, |w, cx| w.click(fix, cx));
+    let proposed = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            app.update(cx, |a, cx| {
+                a.session()
+                    .and_then(|s| s.health.change.as_ref().map(|(_, f)| f.clone()))
+                    .map(|f| f.read(cx).value().to_string())
+            })
+        })
+    };
+    let first = proposed(cx).expect("the card is open");
+    assert_eq!(first.chars().count(), 20);
+    let unchanged = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.entries
+                .iter()
+                .find(|e| e.id == id)
+                .unwrap()
+                .password
+                .clone()
+        })
+    };
+    assert_eq!(unchanged(cx), old);
+    act(cx, h, |w, cx| w.click("health-shuffle", cx));
+    assert_ne!(proposed(cx).unwrap(), first, "another one");
+    act(cx, h, |w, cx| w.click("health-change-cancel", cx));
+    assert!(proposed(cx).is_none());
+    assert_eq!(unchanged(cx), old);
+    // Again, edited by hand, then applied: the item has it, the old one in its history, and
+    // the report stays on screen.
+    act(cx, h, |w, cx| w.click(fix, cx));
+    act(cx, h, |w, cx| {
+        w.click("health-new-password", cx);
+        w.press("ctrl-a", cx);
+        w.input("my-own-Long-passphrase-2026", cx);
+        w.click("health-change-apply", cx);
+    });
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
-        assert_eq!(s.tab, Tab::Vault);
-        assert_eq!(s.selected, Some(id));
+        assert_eq!(s.tab, Tab::Health);
+        assert!(s.health.change.is_none());
         let e = s.entries.iter().find(|e| e.id == id).unwrap();
-        assert_ne!(e.password, old);
+        assert_eq!(e.password, "my-own-Long-passphrase-2026");
         assert_eq!(e.password_history.last().unwrap().password, old);
     });
 }
@@ -1802,6 +1842,7 @@ fn server_address_and_activity_tab(cx: &mut TestAppContext) {
     });
 
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    settings_down(cx, h, "sc-all-0", 420.);
     act(cx, h, |w, cx| w.click("tab-activity", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
@@ -2540,6 +2581,17 @@ fn account_sign_in(cx: &mut TestAppContext) {
 }
 
 /// Scrolls the settings page to its bottom (the sections below the window), over `over`.
+/// A settings page moved down by `by` pixels, the pointer over `over`.
+fn settings_down(cx: &mut TestAppContext, h: WindowHandle<Root>, over: &'static str, by: f32) {
+    act(cx, h, |w, cx| {
+        w.scroll(
+            over,
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-by))),
+            cx,
+        )
+    });
+}
+
 fn settings_bottom(cx: &mut TestAppContext, h: WindowHandle<Root>, over: &'static str) {
     act(cx, h, |w, cx| {
         w.scroll(
@@ -3229,4 +3281,190 @@ fn no_password_opens_on_a_new_computer(cx: &mut TestAppContext) {
         app2.read_with(cx, |a, _| matches!(a.phase, Phase::Main(_)))
     });
     app2.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
+}
+
+/// 27/11/2026: a box is saved when it is left (or Enter, or the editing ends), never at each key;
+/// a reload brought by a sync keeps the box being typed in, and its keyboard.
+#[gpui_kit::test]
+fn edits_saved_when_left(cx: &mut TestAppContext) {
+    use cleis_core::edit::Field;
+    use gpui_kit::Focusable as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("new-item", cx));
+    act(cx, h, |w, cx| {
+        w.input("Example Bank", cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| {
+        w.click("edit-username", cx);
+        w.input("ines", cx);
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(3));
+    cx.run_until_parked();
+    let saved = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => s
+                .vault
+                .entries()
+                .unwrap()
+                .into_iter()
+                .find(|e| e.name == "Example Bank")
+                .map(|e| (e.username.clone(), e.urls.join(" "))),
+            _ => None,
+        })
+        .unwrap()
+    };
+    assert_eq!(saved(cx).0, "", "not saved while typing");
+    // A sync's reload: the box stays, with the keyboard.
+    app.update(cx, |a, _| {
+        if let Phase::Main(s) = &mut a.phase {
+            cleis_app::sync::reload(s).unwrap();
+        }
+    });
+    cx.run_until_parked();
+    let focused = cx
+        .update_window(h.into(), |_, w, cx| {
+            app.update(cx, |a, cx| {
+                let Phase::Main(s) = &a.phase else { panic!() };
+                s.editor.as_ref().is_some_and(|ed| {
+                    ed.inputs[&Field::Username]
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(w)
+                })
+            })
+        })
+        .unwrap();
+    assert!(focused, "the box kept the keyboard");
+    // Left for another box: saved.
+    // A box hears it lost the keyboard only in an active window (as on a desktop).
+    act(cx, h, |w, _| w.activate_window());
+    act(cx, h, |w, cx| w.click("edit-website", cx));
+    assert_eq!(saved(cx).0, "ines");
+    // Typed, then another item chosen: saved too.
+    act(cx, h, |w, cx| w.input("example-bank.com", cx));
+    let other = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.entries.iter().find(|e| e.name == "Figma").unwrap().id,
+        _ => panic!(),
+    });
+    act(cx, h, |w, cx| {
+        w.click_at(
+            format!("row-{other}"),
+            gpui_kit::point(gpui_kit::px(30.), gpui_kit::px(10.)),
+            cx,
+        )
+    });
+    assert!(saved(cx).1.contains("example-bank.com"));
+}
+
+/// 27/11/2026 (mockups 44, 45): what is made goes where the list is. In the organization's section
+/// (or one of its folders) New password lands in it, its logo stands at the top right; Contacts
+/// has its sections too, Uncategorized among the shortcuts, and the shortcuts' grid hides them.
+#[gpui_kit::test]
+fn organization_view_targets(cx: &mut TestAppContext) {
+    use cleis_app::screens::contacts::ContactFilter;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+    });
+    cx.run_until_parked();
+    let key = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.org.as_ref().unwrap().m.key(),
+        _ => panic!(),
+    });
+    let in_view = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => cleis_app::screens::org::org_in_view(s).is_some(),
+            _ => false,
+        })
+    };
+    assert!(!in_view(cx), "the profile at first");
+    // The organization's section: New password goes to one of its spaces.
+    act(cx, h, |w, cx| w.click(format!("org-{key}"), cx));
+    assert!(in_view(cx));
+    act(cx, h, |w, cx| w.click("new-item", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s.selected_entry().expect("made and selected");
+        let o = s
+            .org_of(e.space)
+            .expect("in the organization, not My vault");
+        assert_eq!(o.m.key(), key);
+    });
+    // One of its folders: still its logo.
+    let design = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.spaces.iter().find(|x| x.name == "Design").unwrap().id,
+        _ => panic!(),
+    });
+    act(cx, h, |w, cx| w.click(format!("sp-{design}"), cx));
+    assert!(in_view(cx));
+    // My vault: the profile again, and New password stays personal.
+    let home = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.vault.home_space(),
+        _ => panic!(),
+    });
+    act(cx, h, |w, cx| w.click(format!("sp-{home}"), cx));
+    assert!(!in_view(cx));
+    act(cx, h, |w, cx| w.click("new-item", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.selected_entry().unwrap().space, home);
+    });
+
+    // Contacts: the organization's section lists only its contacts, its logo at the top right.
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    act(cx, h, |w, cx| w.click(format!("cf-org-{key}"), cx));
+    assert!(in_view(cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.contacts_ui.filter, ContactFilter::Org(key.clone()));
+    });
+    // My contacts: a new contact is personal.
+    act(cx, h, |w, cx| w.click("cf-mine", cx));
+    assert!(!in_view(cx));
+    act(cx, h, |w, cx| w.click("new-contact", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s
+            .contacts
+            .iter()
+            .find(|c| Some(c.id) == s.selected_contact)
+            .unwrap();
+        assert!(s.org_of(c.space).is_none());
+    });
+    // Uncategorized, among the shortcuts: the new contact is in it (no folder of its own).
+    act(cx, h, |w, cx| w.click("cf-unfiled", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.contacts_ui.filter, ContactFilter::Uncategorized);
+    });
+    // The grid of Preferences hides Birthdays soon.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("sc-contacts-2", cx));
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    assert!(!window_has(cx, h, "cf-bday"));
+    assert!(window_has(cx, h, "cf-unfiled"));
 }
