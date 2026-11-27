@@ -73,6 +73,16 @@ pub fn keys(k: &str) -> String {
     }
 }
 
+/// Outline of the row or card whose menu is open (it is not selected: mockup 37o).
+pub fn aim_ring(t: &Tokens, radius: Pixels) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .border_1()
+        .border_color(t.focus)
+        .rounded(radius)
+}
+
 /// Listener for `.on_mouse_down(MouseButton::Right, …)` on a row.
 pub fn on_right(
     target: CtxTarget,
@@ -1238,17 +1248,8 @@ impl CleisApp {
         cx: &mut Context<Self>,
     ) {
         let Some(s) = self.session() else { return };
-        // The row right-clicked becomes the selection, as in the file managers.
-        match target {
-            CtxTarget::Entry(id) => {
-                if s.selected != Some(id) {
-                    s.selected = Some(id);
-                    s.reveal = false;
-                }
-            }
-            CtxTarget::Contact(id) => s.selected_contact = Some(id),
-            _ => {}
-        }
+        // The right-clicked row keeps the selection and the inspector as they are: only a left
+        // click opens an item. The row is outlined while its menu is open (`aimed`).
         s.folder_menu = None;
         s.filter_menu = false;
         if let Some(ed) = s.editor.as_mut() {
@@ -1396,11 +1397,23 @@ impl CleisApp {
             cx.notify();
             return true;
         }
+        // With a row's menu open, its keys act on that row, not on the selection.
+        let aimed = s.ctx.as_ref().map(|m| m.target);
         match s.tab {
             Tab::Vault => {
-                let Some(e) = s.selected_entry().cloned() else {
+                let id = match aimed {
+                    Some(CtxTarget::Entry(id)) => Some(id),
+                    _ => s.selected,
+                };
+                let Some(e) = id
+                    .and_then(|id| s.entries.iter().find(|e| e.id == id))
+                    .cloned()
+                else {
                     return false;
                 };
+                if aimed.is_some() {
+                    s.ctx = None;
+                }
                 let id = e.id;
                 // Mockup 38: the keys chosen in Settings › Shortcuts.
                 let p = s.prefs.clone();
@@ -1422,9 +1435,14 @@ impl CleisApp {
                 true
             }
             Tab::Contacts if del || super::keys::pressed(k, &s.prefs.app_key("trash")) => {
-                let Some(id) = s.selected_contact else {
+                let id = match aimed {
+                    Some(CtxTarget::Contact(id)) => Some(id),
+                    _ => s.selected_contact,
+                };
+                let Some(id) = id else {
                     return false;
                 };
+                s.ctx = None;
                 self.ask_delete_contact(id, cx);
                 true
             }

@@ -40,13 +40,64 @@ pub mod unlock {
         crate::platform::hello_sign(name, challenge)
     }
 
-    /// Seals a key for this system account ("Nothing": Windows DPAPI; elsewhere unchanged).
+    /// Seals a secret for this system account ("Nothing", the PIN's device secret): Windows
+    /// DPAPI; macOS a key kept in the login Keychain (D-83); elsewhere unchanged.
     pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
         crate::platform::protect(secret)
     }
 
     pub fn unprotect(stored: &[u8]) -> Result<Vec<u8>, String> {
         crate::platform::unprotect(stored)
+    }
+
+    /// Start of a secret sealed by the Keychain's key (macOS); anything else was written
+    /// unsealed by an earlier version.
+    pub const KEYCHAIN_MAGIC: &[u8; 4] = b"CLKC";
+    /// Binds the sealed secret to its use.
+    const KEYCHAIN_AAD: &[u8] = b"cleis/keychain/v1";
+
+    /// `KEYCHAIN_MAGIC` then AES-256-GCM of `secret` (cleis-crypto's format, version byte first).
+    pub fn keychain_seal(
+        key: &cleis_crypto::SymmetricKey,
+        secret: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        let sealed = cleis_crypto::seal(key, KEYCHAIN_AAD, secret).map_err(|e| e.to_string())?;
+        Ok([KEYCHAIN_MAGIC.as_slice(), &sealed].concat())
+    }
+
+    /// The secret of `keychain_seal`, or `None` if `stored` was not sealed this way.
+    pub fn keychain_open(
+        key: &cleis_crypto::SymmetricKey,
+        stored: &[u8],
+    ) -> Option<Result<Vec<u8>, String>> {
+        let sealed = stored.strip_prefix(KEYCHAIN_MAGIC.as_slice())?;
+        Some(cleis_crypto::open(key, KEYCHAIN_AAD, sealed).map_err(|e| e.to_string()))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn keychain_seal_round_trip_and_refusals() {
+            let key = cleis_crypto::SymmetricKey::from_bytes([7; 32]);
+            let sealed = keychain_seal(&key, b"device secret").unwrap();
+            assert!(sealed.starts_with(KEYCHAIN_MAGIC));
+            assert!(!sealed.windows(13).any(|w| w == b"device secret"));
+            assert_eq!(
+                keychain_open(&key, &sealed).unwrap().unwrap(),
+                b"device secret"
+            );
+            // Another Mac's key (or another account's) opens nothing.
+            let other = cleis_crypto::SymmetricKey::from_bytes([8; 32]);
+            assert!(keychain_open(&other, &sealed).unwrap().is_err());
+            // Altered: refused.
+            let mut bad = sealed.clone();
+            *bad.last_mut().unwrap() ^= 1;
+            assert!(keychain_open(&key, &bad).unwrap().is_err());
+            // Written unsealed by an earlier version: left to the caller.
+            assert!(keychain_open(&key, b"raw secret").is_none());
+        }
     }
 }
 

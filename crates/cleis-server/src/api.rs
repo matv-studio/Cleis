@@ -213,6 +213,7 @@ impl Caller {
                 StatusCode::FORBIDDEN,
                 "setup_code",
                 "Set up your verification code first.".into(),
+                None,
             ))
         } else {
             Ok(())
@@ -292,9 +293,10 @@ impl FromRequestParts<Arc<App>> for Caller {
         let id = MemberId(member.parse().unwrap_or_default());
         // D-79: past "Ask again after", the PIN is asked again before anything else.
         if pin_due(&conn, id, &device, now())? {
-            return Err(ApiErr::unauthorized(
+            return Err(ApiErr::pin(
                 "pin_required",
                 "Enter the organization's PIN.",
+                db::policy(&conn).pin.length,
             ));
         }
         let role_id: String =
@@ -506,6 +508,7 @@ fn throttle(app: &App, peer: &Peer, failed: bool) -> Result<(), ApiErr> {
             StatusCode::TOO_MANY_REQUESTS,
             "throttled",
             "Too many attempts. Wait a few minutes.".into(),
+            None,
         ))
     } else {
         Ok(())
@@ -922,6 +925,7 @@ fn new_code(
             StatusCode::TOO_MANY_REQUESTS,
             "throttled",
             "Too many codes sent today. Try again tomorrow or ask an administrator.".into(),
+            None,
         ));
     }
     conn.execute(
@@ -975,7 +979,7 @@ async fn send(app: &Arc<App>, to: crate::delivery::To, code: String) -> Result<(
         .map_err(|_| ApiErr::bad("delivery"))?
         .map_err(|e| {
             eprintln!("{e}");
-            ApiErr(StatusCode::BAD_GATEWAY, "delivery", e)
+            ApiErr(StatusCode::BAD_GATEWAY, "delivery", e, None)
         })
 }
 
@@ -1254,15 +1258,17 @@ fn pin_check(
     }
     let policy = db::policy(conn);
     if pin_locked(&policy, m.pin_fails) {
-        return Err(ApiErr::unauthorized(
+        return Err(ApiErr::pin(
             "pin_locked",
             "Too many wrong PINs. Ask an admin to unlock your access.",
+            policy.pin.length,
         ));
     }
     let Some(pin) = pin else {
-        return Err(ApiErr::unauthorized(
+        return Err(ApiErr::pin(
             "pin_required",
             "Enter the organization's PIN.",
+            policy.pin.length,
         ));
     };
     let stored: PinHash = db::meta_json(conn, "pin").ok_or_else(|| ApiErr::bad("No PIN set."))?;
@@ -1280,18 +1286,20 @@ fn pin_check(
         )?;
         if pin_locked(&policy, fails) {
             end_sessions(conn, m.id)?;
-            return Err(ApiErr::unauthorized(
+            return Err(ApiErr::pin(
                 "pin_locked",
                 "Too many wrong PINs. Ask an admin to unlock your access.",
+                policy.pin.length,
             ));
         }
         let left = policy.pin.tries.saturating_sub(fails);
-        return Err(ApiErr::unauthorized(
+        return Err(ApiErr::pin(
             "wrong_pin",
             &format!(
                 "Wrong PIN. {left} {} left.",
                 if left == 1 { "try" } else { "tries" }
             ),
+            policy.pin.length,
         ));
     }
     conn.execute(

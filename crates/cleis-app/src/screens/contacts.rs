@@ -636,6 +636,9 @@ fn table(
         for col in &cols {
             row = row.child(contact_cell(s, c, col, selected, t, cx));
         }
+        if s.aimed(super::ctx::CtxTarget::Contact(id)) {
+            row = row.relative().child(super::ctx::aim_ring(t, RADIUS_SM));
+        }
         rows = rows.child(row.test_support());
     }
     div()
@@ -647,7 +650,13 @@ fn table(
         .child(rows)
 }
 
-fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn cards(
+    list: &[&Contact],
+    sel: Option<ContactId>,
+    aimed: Option<ContactId>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Div {
     let mut grid = div().flex().flex_wrap().gap(px(12.)).p(px(12.));
     for c in list {
         let id = c.id;
@@ -661,6 +670,10 @@ fn cards(list: &[&Contact], sel: Option<ContactId>, t: &Tokens, cx: &mut Context
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("card-{id}")))
+                .relative()
+                .when(aimed == Some(id), |d| {
+                    d.child(super::ctx::aim_ring(t, RADIUS_LG))
+                })
                 .w(px(240.))
                 .p(px(12.))
                 .flex()
@@ -826,7 +839,11 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         )),
                 );
         let body = if ui.cards {
-            cards(&list, sel, t, cx)
+            let aimed = s.ctx.as_ref().and_then(|m| match m.target {
+                super::ctx::CtxTarget::Contact(id) => Some(id),
+                _ => None,
+            });
+            cards(&list, sel, aimed, t, cx)
         } else {
             table(s, &list, sel, t, cx)
         };

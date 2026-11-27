@@ -67,22 +67,27 @@ pub struct App {
 #[derive(Clone, Copy, Debug)]
 pub struct Peer(pub SocketAddr);
 
-/// A refused request.
+/// A refused request: status, stable code, message, and the PIN's length with the `pin_*` codes
+/// (the app shows that many boxes, D-79).
 #[derive(Debug)]
-pub struct ApiErr(pub StatusCode, pub &'static str, pub String);
+pub struct ApiErr(pub StatusCode, pub &'static str, pub String, pub Option<u8>);
 
 impl ApiErr {
     pub fn forbidden(msg: &str) -> Self {
-        Self(StatusCode::FORBIDDEN, "forbidden", msg.into())
+        Self(StatusCode::FORBIDDEN, "forbidden", msg.into(), None)
     }
     pub fn bad(msg: &str) -> Self {
-        Self(StatusCode::BAD_REQUEST, "bad_request", msg.into())
+        Self(StatusCode::BAD_REQUEST, "bad_request", msg.into(), None)
     }
     pub fn not_found(msg: &str) -> Self {
-        Self(StatusCode::NOT_FOUND, "not_found", msg.into())
+        Self(StatusCode::NOT_FOUND, "not_found", msg.into(), None)
     }
     pub fn unauthorized(code: &'static str, msg: &str) -> Self {
-        Self(StatusCode::UNAUTHORIZED, code, msg.into())
+        Self(StatusCode::UNAUTHORIZED, code, msg.into(), None)
+    }
+    /// A `pin_*` refusal, with the PIN's length.
+    pub fn pin(code: &'static str, msg: &str, length: u8) -> Self {
+        Self(StatusCode::UNAUTHORIZED, code, msg.into(), Some(length))
     }
 }
 
@@ -93,6 +98,7 @@ impl From<rusqlite::Error> for ApiErr {
             StatusCode::INTERNAL_SERVER_ERROR,
             "server",
             "The server could not save this change.".into(),
+            None,
         )
     }
 }
@@ -104,6 +110,7 @@ impl IntoResponse for ApiErr {
             axum::Json(ApiError {
                 error: self.1.into(),
                 message: self.2,
+                pin_length: self.3,
             }),
         )
             .into_response()

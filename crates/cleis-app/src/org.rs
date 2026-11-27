@@ -77,6 +77,9 @@ pub struct Local {
     pub offline_days: Option<u32>,
     /// The policy's PIN (D-79), as last received: asked again after this many hours.
     pub pin_hours: Option<u32>,
+    /// Its length, as last received: the boxes shown before the server answers.
+    #[serde(default)]
+    pub pin_len: Option<u8>,
     /// The PIN was last given on this computer until then: the organization's spaces open
     /// without asking it again before.
     pub pin_until: Option<i64>,
@@ -336,6 +339,7 @@ impl Conn {
                     serde_json::from_slice(&r.body).unwrap_or(ApiError {
                         error: "http".into(),
                         message: crate::trf!("HTTP {}", r.status),
+                        pin_length: None,
                     }),
                 ))
             }
@@ -373,6 +377,8 @@ pub enum Outcome {
     NeedPin {
         message: Option<String>,
         locked: bool,
+        /// The PIN's length, as the server says (D-79).
+        length: Option<u8>,
     },
     /// This member was removed from the organization.
     Revoked,
@@ -467,6 +473,10 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
                     _ => None,
                 },
                 locked: c == "pin_locked",
+                length: match &e {
+                    NetError::Api(_, a) => a.pin_length,
+                    _ => None,
+                },
             },
             Some("revoked") => Outcome::Revoked,
             Some("setup_code") => Outcome::Failed(tr("Set up your verification code").into()),
@@ -565,15 +575,39 @@ impl CodePrompt {
     }
 }
 
-/// The organization's PIN being asked (mockup 36h).
-#[derive(Default)]
+/// The organization's PIN being asked (mockup 36h): one box per digit, as for the vault's PIN.
 pub struct PinPrompt {
-    pub input: Option<Entity<InputState>>,
+    /// Made at the next render (they need the keyboard focus).
+    pub boxes: Option<crate::screens::pin::PinBoxes>,
+    /// Digits, from the server's refusal or the policy last received (D-79).
+    pub len: u8,
     pub error: Option<String>,
     pub busy: bool,
     /// Too many wrong PINs: an admin has to unlock this member.
     pub locked: bool,
+    /// The boxes took the keyboard once shown.
+    pub focused: bool,
 }
+
+impl PinPrompt {
+    pub fn new(len: u8) -> Self {
+        Self {
+            boxes: None,
+            len: if crate::opening::PIN_LENGTHS.contains(&usize::from(len)) {
+                len
+            } else {
+                PIN_DEFAULT_LEN
+            },
+            error: None,
+            busy: false,
+            locked: false,
+            focused: false,
+        }
+    }
+}
+
+/// The organization PIN's length when nothing says otherwise (`PinRule::default`).
+pub const PIN_DEFAULT_LEN: u8 = 6;
 
 /// Progress of "Server on the NAS", from its background task.
 enum NasEvent {
@@ -738,7 +772,7 @@ impl CleisApp {
             let pin = (!demo
                 && local.pin_hours.is_some()
                 && local.pin_until.is_none_or(|t| cleis_core::now() >= t))
-            .then(PinPrompt::default);
+            .then(|| PinPrompt::new(local.pin_len.unwrap_or(PIN_DEFAULT_LEN)));
             let mut o = OrgSession {
                 m,
                 token: None,
@@ -1336,6 +1370,7 @@ impl CleisApp {
                 let pin = state.policy.pin;
                 let was_asked = o.pin.take().is_some();
                 o.local.pin_hours = pin.on.then_some(pin.again_hours);
+                o.local.pin_len = pin.on.then_some(pin.length);
                 if pin.on && (was_asked || o.local.pin_until.is_none()) {
                     o.local.pin_until =
                         Some(cleis_core::now() + i64::from(pin.again_hours.max(1)) * 3600);
@@ -1417,14 +1452,26 @@ impl CleisApp {
                     .unwrap_or(Method::AuthenticatorApp);
                 self.org_setup_pick(first, cx);
             }
-            Outcome::NeedPin { message, locked } => {
+            Outcome::NeedPin {
+                message,
+                locked,
+                length,
+            } => {
                 o.again = false;
-                let p = o.pin.get_or_insert_with(PinPrompt::default);
+                if length.is_some() {
+                    o.local.pin_len = length;
+                }
+                let len = o.local.pin_len.unwrap_or(PIN_DEFAULT_LEN);
+                let p = o.pin.get_or_insert_with(|| PinPrompt::new(len));
                 p.busy = false;
                 p.error = message;
                 p.locked = locked;
-                if let Some(i) = p.input.clone() {
-                    self.pin_clear = Some(i);
+                // Another length: new boxes; otherwise emptied for the next try.
+                if p.len != len && crate::opening::PIN_LENGTHS.contains(&usize::from(len)) {
+                    p.len = len;
+                    p.boxes = None;
+                } else if let Some(b) = p.boxes.as_mut() {
+                    b.clear();
                 }
                 if let Some(s) = self.session() {
                     hide_org_entries(s);
@@ -2152,36 +2199,40 @@ impl CleisApp {
         );
     }
 
-    /// Security policy › Organization PIN: the PIN typed becomes the organization's (D-79).
-    pub fn org_set_pin(&mut self, cx: &mut Context<Self>) {
+    /// Security policy › Organization PIN: the PIN typed twice in the boxes (37f) becomes the
+    /// organization's (D-79). The dialog closes once the server took it.
+    pub fn org_set_pin(&mut self, pin: Zeroizing<String>, cx: &mut Context<Self>) {
         let Some(o) = self.session().and_then(|s| s.org.as_mut()) else {
             return;
         };
         let Some(rule) = o.state.as_ref().map(|st| st.policy.pin) else {
             return;
         };
-        let Some(input) = o.ui.pin_new.clone() else {
-            return;
-        };
-        let pin = input.read(cx).value().trim().to_string();
         if !rule.accepts(&pin) {
             self.toast(crate::trf!("The PIN has {} digits", rule.length), cx);
             return;
         }
-        self.pin_clear = Some(input);
         self.org_request::<_, PushReply>(
             "/v1/policy/pin",
-            PinSet { pin },
+            PinSet {
+                pin: pin.to_string(),
+            },
             |app, r, cx| {
-                if r.is_ok() {
-                    if let Some(st) = app
-                        .session()
-                        .and_then(|s| s.org.as_mut())
-                        .and_then(|o| o.state.as_mut())
-                    {
-                        st.pin_set = true;
+                let Some(s) = app.session() else { return };
+                match r {
+                    Ok(_) => {
+                        s.pin_setup = None;
+                        if let Some(st) = s.org.as_mut().and_then(|o| o.state.as_mut()) {
+                            st.pin_set = true;
+                        }
+                        app.toast(tr("PIN set"), cx);
                     }
-                    app.toast(tr("PIN set"), cx);
+                    Err(e) => {
+                        if let Some(d) = s.pin_setup.as_mut() {
+                            d.busy = false;
+                            d.error = Some(crate::i18n::tr_dynamic(&e).into());
+                        }
+                    }
                 }
             },
             cx,
@@ -3226,16 +3277,12 @@ impl CleisApp {
         if p.busy || p.locked {
             return;
         }
-        let typed = p
-            .input
-            .as_ref()
-            .map(|i| i.read(cx).value().trim().to_string())
-            .unwrap_or_default();
-        if typed.is_empty() {
-            p.error = Some(tr("Enter the PIN").into());
+        let Some(b) = p.boxes.as_ref().filter(|b| b.full()) else {
+            p.error = Some(crate::trf!("The PIN has {} digits", p.len));
             cx.notify();
             return;
-        }
+        };
+        let typed = b.value.to_string();
         p.busy = true;
         p.error = None;
         // A new sign-in: the session (if any) was opened before the PIN was asked.

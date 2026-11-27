@@ -1233,6 +1233,9 @@ pub struct ApiError {
     /// `not_found`, `bad_request`, `unauthorized`.
     pub error: String,
     pub message: String,
+    /// The organization PIN's length, with `pin_required`, `wrong_pin` and `pin_locked` (D-79).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_length: Option<u8>,
 }
 
 #[cfg(test)]

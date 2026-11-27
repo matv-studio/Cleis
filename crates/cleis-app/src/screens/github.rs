@@ -18,6 +18,9 @@ use std::time::Duration;
 pub struct GitHubSignIn {
     pub code: Option<DeviceCode>,
     pub error: Option<SharedString>,
+    /// Signed in on the first launch, but the account has no vault yet (mockup 37r): a new one
+    /// can be made here and saved to it.
+    pub no_vault: Option<Signed>,
     /// The code was typed: the repository is being found or made.
     pub finishing: bool,
     /// Counts the sign-ins: a cancelled one stops polling.
@@ -26,8 +29,20 @@ pub struct GitHubSignIn {
     pub hosts: Hosts,
 }
 
+/// A GitHub account signed in: what the next step needs.
+#[derive(Clone)]
+pub struct Signed {
+    pub login: String,
+    pub token: zeroize::Zeroizing<String>,
+    pub hosts: Hosts,
+}
+
 pub fn dialog(app: &CleisApp, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<AnyElement> {
     let g = app.github.as_ref()?;
+    if let Some(n) = &g.no_vault {
+        return Some(overlay(t, no_vault_card(n, t, cx)));
+    }
+    let restoring = matches!(app.phase, Phase::Welcome(_));
     let code: SharedString = g
         .code
         .as_ref()
@@ -80,10 +95,107 @@ pub fn dialog(app: &CleisApp, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<
                         .test_support(),
                 ),
         )
-        .child(div().id("gh-status").child(status).tooltip(tip(crate::trf!(
-            "A private repository {} is made in your account",
-            gl::REPO_NAME
-        ))))
+        .child(
+            div()
+                .id("gh-status")
+                .child(status)
+                .tooltip(tip(if restoring {
+                    crate::trf!(
+                        "Cleis looks for the private repository {} in your account",
+                        gl::REPO_NAME
+                    )
+                } else {
+                    crate::trf!(
+                        "A private repository {} is made in your account",
+                        gl::REPO_NAME
+                    )
+                })),
+        )
+        .child(
+            div()
+                .pt(px(8.))
+                .flex()
+                .justify_end()
+                .gap(px(8.))
+                .child(
+                    button("gh-cancel", t, BtnKind::Default, false)
+                        .child(tr("Cancel"))
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_github(cx)))
+                        .test_support(),
+                )
+                .child(if g.error.is_some() {
+                    // The code is spent (expired, refused): a new one.
+                    button("gh-retry", t, BtnKind::Primary, false)
+                        .child(tr("Try again"))
+                        .on_click(cx.listener(|this, _, window, cx| this.start_github(window, cx)))
+                        .test_support()
+                } else {
+                    button("gh-open", t, BtnKind::Primary, false)
+                        .when(g.code.is_none() || g.finishing, |b| b.opacity(0.6))
+                        .child(icon("external", 14., t.primary_ink))
+                        .child(tr("Open GitHub"))
+                        .tooltip(tip(tr("github.com/login/device, the code copied")))
+                        .on_click(cx.listener(|this, _, _, cx| this.open_github_page(cx)))
+                        .test_support()
+                }),
+        );
+    Some(overlay(t, card))
+}
+
+fn overlay(t: &Tokens, card: Div) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(t.overlay)
+        .child(
+            div()
+                .id("github-dialog")
+                .occlude()
+                .child(card)
+                .test_support(),
+        )
+        .into_any_element()
+}
+
+/// Mockup 37r: signed in on the first launch, no vault on the account. The account is named;
+/// a new vault can be made here and saved to it, or another account tried.
+fn no_vault_card(n: &Signed, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    dialog_box(t)
+        .child(
+            div()
+                .text_size(TEXT_LG)
+                .line_height(px(20.))
+                .font_weight(W_MEDIUM)
+                .child(tr("No vault on this account")),
+        )
+        .child(
+            div()
+                .id("gh-account")
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .p(px(12.))
+                .bg(t.bg)
+                .border_1()
+                .border_color(t.line_strong)
+                .rounded(RADIUS_LG)
+                .child(icon("repo", 16., t.text_muted))
+                .child(div().flex_1().child(format!("@{}", n.login)))
+                .child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.text_muted)
+                        .child(tr("Signed in")),
+                )
+                .tooltip(tip(crate::trf!(
+                    "No private repository {} on this account",
+                    gl::REPO_NAME
+                )))
+                .test_support(),
+        )
         .child(
             div()
                 .pt(px(8.))
@@ -97,32 +209,27 @@ pub fn dialog(app: &CleisApp, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<
                         .test_support(),
                 )
                 .child(
-                    button("gh-open", t, BtnKind::Primary, false)
-                        .when(g.code.is_none(), |b| b.opacity(0.6))
-                        .child(icon("external", 14., t.primary_ink))
-                        .child(tr("Open GitHub"))
-                        .tooltip(tip(tr("github.com/login/device, the code copied")))
-                        .on_click(cx.listener(|this, _, _, cx| this.open_github_page(cx)))
+                    button("gh-other", t, BtnKind::Ghost, false)
+                        .child(tr("Other account"))
+                        .tooltip(tip(tr(
+                            "Sign out of github.com first, then sign in with the other account",
+                        )))
+                        .on_click(cx.listener(|this, _, window, cx| this.start_github(window, cx)))
+                        .test_support(),
+                )
+                .child(
+                    button("gh-create", t, BtnKind::Primary, false)
+                        .child(tr("Create my vault"))
+                        .tooltip(tip(crate::trf!(
+                            "A new vault on this computer, saved to the private repository {} of this account",
+                            gl::REPO_NAME
+                        )))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.create_for_github(window, cx)
+                        }))
                         .test_support(),
                 ),
-        );
-    Some(
-        div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(t.overlay)
-            .child(
-                div()
-                    .id("github-dialog")
-                    .occlude()
-                    .child(card)
-                    .test_support(),
-            )
-            .into_any_element(),
-    )
+        )
 }
 
 fn waiting(t: &Tokens, text: &str) -> Div {
@@ -174,6 +281,98 @@ impl CleisApp {
     pub fn cancel_github(&mut self, cx: &mut Context<Self>) {
         self.github = None;
         cx.notify();
+    }
+
+    /// Mockup 37r › Create my vault: back to the first launch's creation, the account kept; once
+    /// the vault exists (and its recovery key is put away) it is saved to the account.
+    pub fn create_for_github(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(n) = self.github.take().and_then(|g| g.no_vault) else {
+            return;
+        };
+        if let Phase::Welcome(w) = &mut self.phase {
+            w.restore = None;
+            w.error = None;
+            let pw = w.password.clone();
+            pw.update(cx, |s, cx| s.focus(window, cx));
+        }
+        self.toast(crate::trf!("Saved to GitHub @{} once created", n.login), cx);
+        self.github_after = Some(n);
+        cx.notify();
+    }
+
+    /// The vault made after 37r: its repository made on the account, then the GitHub place
+    /// connected as from Settings (the dialog shows the step).
+    pub fn resume_github(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.phase, Phase::Main(_)) {
+            return;
+        }
+        let Some(n) = self.github_after.take() else {
+            return;
+        };
+        let round = self.github.as_ref().map_or(0, |g| g.round) + 1;
+        self.github = Some(GitHubSignIn {
+            round,
+            hosts: n.hosts.clone(),
+            finishing: true,
+            ..Default::default()
+        });
+        cx.notify();
+        self.finish_github(round, n.hosts, n.token, true, window, cx);
+    }
+
+    /// The token given: the account's vault repository found (or made), then connected.
+    fn finish_github(
+        &mut self,
+        round: u64,
+        hosts: Hosts,
+        token: zeroize::Zeroizing<String>,
+        create: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (h, tok) = (hosts.clone(), token.clone());
+        let task = cx.background_spawn(async move {
+            let who = gl::login(&h, &tok)?;
+            match gl::vault_repo(&h, &tok, &who, create) {
+                Ok(found) => Ok(Ok(found)),
+                Err(e) if !create && e == gl::NO_VAULT => Ok(Err(who)),
+                Err(e) => Err(e),
+            }
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let found = task.await;
+            this.update_in(cx, |this, window, cx| {
+                if !this.github.as_ref().is_some_and(|g| g.round == round) {
+                    return;
+                }
+                if let Ok(Ok((repo, branch))) = &found {
+                    this.github = None;
+                    this.connect_github(repo, branch, &hosts.api, token.as_str(), window, cx);
+                    return;
+                }
+                let Some(g) = this.github.as_mut() else {
+                    return;
+                };
+                match found {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(login)) => {
+                        g.finishing = false;
+                        g.no_vault = Some(Signed {
+                            login,
+                            token,
+                            hosts,
+                        });
+                    }
+                    Err(e) => {
+                        g.finishing = false;
+                        g.error = Some(crate::i18n::tr_dynamic(&e).into());
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The page where the code is typed; the code copied, ready to paste.
@@ -233,28 +432,13 @@ impl CleisApp {
                         return;
                     }
                     Ok(Poll::Token(token)) => {
-                        this.update(cx, |this, cx| {
-                            if let Some(g) = this.github.as_mut() {
+                        this.update_in(cx, |this, window, cx| {
+                            if let Some(g) = this.github.as_mut().filter(|g| g.round == round) {
                                 g.finishing = true;
                             }
                             cx.notify();
-                        })
-                        .ok();
-                        let h = hosts.clone();
-                        let tok = token.clone();
-                        let found = exec
-                            .spawn(async move {
-                                let who = gl::login(&h, &tok)?;
-                                gl::vault_repo(&h, &tok, &who, !restoring)
-                            })
-                            .await;
-                        this.update_in(cx, |this, window, cx| match found {
-                            Ok((repo, branch)) => {
-                                let api = hosts.api.clone();
-                                this.github = None;
-                                this.connect_github(&repo, &branch, &api, &token, window, cx);
-                            }
-                            Err(e) => fail(e)(this, cx),
+                            let token = zeroize::Zeroizing::new(token);
+                            this.finish_github(round, hosts, token, !restoring, window, cx);
                         })
                         .ok();
                         return;

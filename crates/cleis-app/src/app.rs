@@ -494,6 +494,11 @@ impl Session {
         }
     }
 
+    /// Whether a right-click menu is open on this row (outlined, not selected).
+    pub fn aimed(&self, target: crate::screens::ctx::CtxTarget) -> bool {
+        self.ctx.as_ref().is_some_and(|m| m.target == target)
+    }
+
     pub fn selected_entry(&self) -> Option<&Entry> {
         self.selected
             .and_then(|id| self.entries.iter().find(|e| e.id == id))
@@ -511,14 +516,15 @@ pub struct CleisApp {
     pub phase: Phase,
     /// Sign in with GitHub under way (mockup 37n), whatever the phase.
     pub github: Option<crate::screens::github::GitHubSignIn>,
+    /// Signed in on the first launch with no vault on the account (mockup 37r): the vault made
+    /// next is saved to it.
+    pub github_after: Option<crate::screens::github::Signed>,
     /// Where GitHub is: github.com, or the tests' stand-in.
     pub github_hosts: crate::github_login::Hosts,
     /// Theme forced on the command line (screenshots); otherwise preferences decide.
     pub forced_mode: Option<Mode>,
     /// The colour wheel's field to rewrite at the next render (it needs the window).
     pub wheel_field: Option<(Entity<InputState>, String)>,
-    /// The PIN box to empty at the next render (a wrong PIN, D-79).
-    pub pin_clear: Option<Entity<InputState>>,
     /// Main window, brought back when a shortcut is pressed while the vault is locked.
     pub main_window: Option<gpui_kit::AnyWindowHandle>,
     pub autofill: crate::autofill::AutofillState,
@@ -606,7 +612,6 @@ impl CleisApp {
             phase: Phase::Unlock(first),
             forced_mode,
             wheel_field: None,
-            pin_clear: None,
             main_window: Some(window.window_handle()),
             autofill: Default::default(),
             no_shortcuts: false,
@@ -619,6 +624,7 @@ impl CleisApp {
             },
             toast_seen: None,
             github: None,
+            github_after: None,
             github_hosts: Default::default(),
             _ticker: ticker,
             _subs: vec![],

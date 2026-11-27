@@ -175,13 +175,56 @@ pub fn hello_sign(_name: &str, _challenge: &[u8]) -> Result<Vec<u8>, String> {
     Err("Windows Hello is not available on this system".into())
 }
 
-/// "Nothing": the key is kept as is; the application writes it to a file only its user reads.
+/// D-83: the login Keychain keeps one random key for this user; the secrets of "Nothing" and of
+/// the PIN are sealed with it (as DPAPI does on Windows). The Keychain asks the user once if
+/// another build of Cleis reads it; refused or locked, nothing opens and the master password is
+/// asked.
+const KEYCHAIN_SERVICE: &str = "studio.matv.cleis";
+const KEYCHAIN_ACCOUNT: &str = "device-key";
+/// `errSecItemNotFound`.
+const ITEM_NOT_FOUND: i32 = -25300;
+
+fn keychain_error(e: security_framework::base::Error) -> String {
+    e.message()
+        .unwrap_or_else(|| format!("Keychain error {}", e.code()))
+}
+
+/// The Keychain's key; made and kept the first time when `create`.
+fn device_key(create: bool) -> Result<cleis_crypto::SymmetricKey, String> {
+    use security_framework::passwords::{
+        PasswordOptions, generic_password, set_generic_password_options,
+    };
+    match generic_password(PasswordOptions::new_generic_password(
+        KEYCHAIN_SERVICE,
+        KEYCHAIN_ACCOUNT,
+    )) {
+        Ok(v) => {
+            let v = zeroize::Zeroizing::new(v);
+            cleis_crypto::SymmetricKey::from_slice(&v).map_err(|e| e.to_string())
+        }
+        Err(e) if e.code() == ITEM_NOT_FOUND && create => {
+            let key = cleis_crypto::SymmetricKey::generate().map_err(|e| e.to_string())?;
+            let mut o = PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+            o.set_label("Cleis");
+            o.set_description("Opens Cleis on this Mac without the master password");
+            set_generic_password_options(key.as_bytes(), o).map_err(keychain_error)?;
+            Ok(key)
+        }
+        Err(e) => Err(keychain_error(e)),
+    }
+}
+
 pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
-    Ok(secret.to_vec())
+    crate::unlock::keychain_seal(&device_key(true)?, secret)
 }
 
 pub fn unprotect(stored: &[u8]) -> Result<Vec<u8>, String> {
-    Ok(stored.to_vec())
+    if !stored.starts_with(crate::unlock::KEYCHAIN_MAGIC) {
+        // Written unsealed by an earlier version: read as is (sealed when next written).
+        return Ok(stored.to_vec());
+    }
+    let key = device_key(false)?;
+    crate::unlock::keychain_open(&key, stored).unwrap_or_else(|| Err("not sealed".into()))
 }
 
 /// Whether the system wants animations (macOS "Reduce motion": to read when the Mac app is built).

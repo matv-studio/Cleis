@@ -115,7 +115,6 @@ pub struct NasForm {
 pub struct OrgUi {
     pub subs: Vec<Subscription>,
     /// Security policy › Organization PIN: the new PIN's box (D-79).
-    pub pin_new: Option<Entity<InputState>>,
     pub menu: Option<OrgMenu>,
     pub invite: Option<InviteForm>,
     /// Code of the invitation just made, shown with a copy button.
@@ -1278,13 +1277,15 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             )),
         ))
         .child(
-            row(t, true).child(div().flex_1().child(tr("PIN"))).child(
-                switch("pol-pin", t, pin.on)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.org_set_policy(|p| p.pin.on = !p.pin.on, cx)
-                    }))
-                    .test_support(),
-            ),
+            row(t, true)
+                .child(div().flex_1().child(tr("Ask a PIN")))
+                .child(
+                    switch("pol-pin", t, pin.on)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.org_set_policy(|p| p.pin.on = !p.pin.on, cx)
+                        }))
+                        .test_support(),
+                ),
         );
     if pin.on {
         let len_ix = PIN_LENGTHS
@@ -1301,11 +1302,7 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(tr(if st.pin_set {
-                                "Change the PIN"
-                            } else {
-                                "Set the PIN"
-                            }))
+                            .child(tr("PIN"))
                             .when(!st.pin_set, |d| {
                                 d.child(
                                     div()
@@ -1319,19 +1316,12 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             ))),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .items_center()
-                            .when_some(o.ui.pin_new.as_ref(), |d, i| {
-                                d.child(div().w(px(120.)).child(Input::new(i).id("pin-new")))
-                            })
-                            .child(
-                                button("pin-set", t, BtnKind::Default, false)
-                                    .child(tr("Set"))
-                                    .on_click(cx.listener(|this, _, _, cx| this.org_set_pin(cx)))
-                                    .test_support(),
-                            ),
+                        button("pin-set", t, BtnKind::Default, false)
+                            .child(tr(if st.pin_set { "Change" } else { "Set" }))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_org_pin_setup(window, cx)
+                            }))
+                            .test_support(),
                     ),
             )
             .child(
@@ -3163,7 +3153,7 @@ pub fn pin_shown(s: &Session) -> Option<&OrgSession> {
 }
 
 /// Mockup 36h: the organization's PIN, in the place of its items.
-pub fn pin_card(o: &OrgSession, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+pub fn pin_card(o: &OrgSession, t: &Tokens, window: &Window, cx: &mut Context<CleisApp>) -> Div {
     let Some(p) = o.pin.as_ref() else {
         return div();
     };
@@ -3197,7 +3187,10 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .id("pin-label")
                     .text_color(t.text_muted)
                     .child(tr("Organization PIN"))
-                    .tooltip(tip(tr("Set by your organization"))),
+                    .tooltip(tip(crate::trf!(
+                        "Set by your organization · {} digits",
+                        p.len
+                    ))),
             ),
     );
     if p.locked {
@@ -3212,10 +3205,26 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         );
     } else {
         body = body
-            .when_some(p.input.as_ref(), |d, i| {
-                d.child(gpui_kit::component::Sizable::large(
-                    Input::new(i).id("org-pin").mask_toggle(),
-                ))
+            .when_some(p.boxes.as_ref(), |d, b| {
+                // The boxes of the organization shown (only one PIN card at a time).
+                let get: super::pin::Get = |app| {
+                    let s = app.session()?;
+                    let key = pin_shown(s)?.m.key();
+                    s.all_orgs_mut()
+                        .find(|o| o.m.key() == key)?
+                        .pin
+                        .as_mut()?
+                        .boxes
+                        .as_mut()
+                };
+                let done: super::pin::Done = |app, _, cx| {
+                    let Some(key) = app.session().and_then(|s| pin_shown(s).map(|o| o.m.key()))
+                    else {
+                        return;
+                    };
+                    app.in_org(&key, |app| app.org_pin_submit(cx));
+                };
+                d.child(super::pin::boxes("org-pin", b, t, window, get, done, cx))
             })
             .when_some(p.error.clone(), |d, e| {
                 d.child(
@@ -3229,7 +3238,9 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 button("pin-open", t, BtnKind::Primary, false)
                     .h(px(32.))
                     .w_full()
-                    .when(busy, |b| b.opacity(0.6))
+                    .when(busy || !p.boxes.as_ref().is_some_and(|b| b.full()), |b| {
+                        b.opacity(0.6)
+                    })
                     .child(tr("Open"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let key = key.clone();
@@ -3835,46 +3846,26 @@ pub fn join_form(window: &mut Window, cx: &mut Context<CleisApp>) -> (JoinForm, 
 impl CleisApp {
     /// Inputs of the organization screens (they need the window).
     pub fn ensure_org_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // D-79: the PIN box of each organization that asks it; emptied after a wrong PIN.
-        if let Some(i) = self.pin_clear.take() {
-            i.update(cx, |i, cx| i.set_value("", window, cx));
-        }
+        // D-79 (mockup 36h): the PIN boxes of each organization that asks it; the shown one
+        // takes the keyboard the first time it appears.
+        let shown = self.session().and_then(|s| pin_shown(s).map(|o| o.m.key()));
         let Some(s) = self.session() else { return };
-        let wanted: Vec<String> = s
-            .all_orgs()
-            .filter(|o| {
-                o.pin
-                    .as_ref()
-                    .is_some_and(|p| p.input.is_none() && !p.locked)
-            })
-            .map(|o| o.m.key())
-            .collect();
-        for key in wanted {
-            let st = cx.new(|cx| {
-                InputState::new(window, cx)
-                    .masked(true)
-                    .placeholder("••••••")
-            });
-            let k = key.clone();
-            cx.subscribe_in(
-                &st,
-                window,
-                move |this, _, ev: &gpui_kit::component::input::InputEvent, _, cx| {
-                    if matches!(
-                        ev,
-                        gpui_kit::component::input::InputEvent::PressEnter { .. }
-                    ) {
-                        this.in_org(&k, |app| app.org_pin_submit(cx));
-                    }
-                },
-            )
-            .detach();
-            if let Some(o) = self
-                .session()
-                .and_then(|s| s.all_orgs_mut().find(|o| o.m.key() == key))
-                && let Some(p) = o.pin.as_mut()
+        for o in s.all_orgs_mut() {
+            let here = shown.as_deref() == Some(o.m.key().as_str());
+            let Some(p) = o.pin.as_mut() else { continue };
+            if p.locked {
+                continue;
+            }
+            if p.boxes.is_none() {
+                p.boxes = Some(super::pin::PinBoxes::new(usize::from(p.len), cx));
+                p.focused = false;
+            }
+            if here
+                && !p.focused
+                && let Some(b) = p.boxes.as_ref()
             {
-                p.input = Some(st);
+                window.focus(&b.focus, cx);
+                p.focused = true;
             }
         }
         let Some(s) = self.session() else { return };
@@ -3897,13 +3888,6 @@ impl CleisApp {
             if let Some(s) = self.session() {
                 s.vault_name = Some((st, sub));
             }
-        }
-        let Some(s) = self.session() else { return };
-        if s.settings_page == "Security policy"
-            && let Some(o) = s.org.as_mut()
-            && o.ui.pin_new.is_none()
-        {
-            o.ui.pin_new = Some(cx.new(|cx| InputState::new(window, cx).masked(true)));
         }
         if let Some(j) = self.join_form_mut()
             && let (Some(fill), Some(a)) = (j.address_fill.take(), j.address.clone())
@@ -4469,6 +4453,28 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
         }
         "pin-setup" => app.open_pin_setup(crate::opening::DEFAULT_PIN_LEN, window, cx),
+        // Mockup 37q: Security policy › Organization PIN › Change.
+        "org-pin-setup" => {
+            if let Some(st) = app
+                .session()
+                .and_then(|s| s.org.as_mut())
+                .and_then(|o| o.state.as_mut())
+            {
+                st.policy.pin.on = true;
+            }
+            app.open_org_pin_setup(window, cx);
+        }
+        // Mockup 37r: signed in with GitHub, no vault on the account.
+        "github-novault" => {
+            app.github = Some(crate::screens::github::GitHubSignIn {
+                no_vault: Some(crate::screens::github::Signed {
+                    login: "lea-example".into(),
+                    token: zeroize::Zeroizing::new(String::new()),
+                    hosts: app.github_hosts.clone(),
+                }),
+                ..Default::default()
+            });
+        }
         "erase-account" => app.open_erase(window, cx),
         "github" => {
             app.github = Some(crate::screens::github::GitHubSignIn {
@@ -4546,8 +4552,9 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
             let (target, at, sub) = match m {
                 "ctx-entry" => {
+                    // D-88: the row right-clicked is outlined, not selected (the panel stays closed).
                     let id = s.visible.get(1).map(|i| s.entries[*i].id);
-                    s.selected = id;
+                    s.selected = None;
                     (
                         id.map(CtxTarget::Entry),
                         point(px(470.), px(196.)),
@@ -4564,7 +4571,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 ),
                 "ctx-contact" => {
                     let id = super::contacts::listed(s).get(1).map(|c| c.id);
-                    s.selected_contact = id;
+                    s.selected_contact = None;
                     (id.map(CtxTarget::Contact), point(px(420.), px(196.)), None)
                 }
                 "ctx-member" => (
@@ -4620,7 +4627,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             if let Some(s) = app.session() {
                 let key = s.org.as_ref().map(|o| o.m.key());
                 if let (Some(o), Some(k)) = (s.org.as_mut(), key) {
-                    o.pin = Some(crate::org::PinPrompt::default());
+                    o.pin = Some(crate::org::PinPrompt::new(crate::org::PIN_DEFAULT_LEN));
                     s.filter = crate::app::Filter::Org(crate::app::org_hash(&k));
                 }
                 crate::org::hide_org_entries(s);

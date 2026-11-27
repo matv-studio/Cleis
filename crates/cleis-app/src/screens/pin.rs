@@ -138,6 +138,8 @@ pub fn digits_tip(len: usize) -> SharedString {
 
 /// Choosing a PIN for this computer (mockup 37f): typed twice, in the same boxes.
 pub struct PinSetup {
+    /// The organization whose PIN this is (Security policy, 36g), or `None` for this computer's.
+    pub org: Option<String>,
     pub first: PinBoxes,
     pub confirm: PinBoxes,
     pub max_tries: u8,
@@ -171,7 +173,11 @@ pub fn setup_dialog(
                 .text_size(TEXT_LG)
                 .line_height(px(20.))
                 .font_weight(W_MEDIUM)
-                .child(tr("New PIN")),
+                .child(tr(if d.org.is_some() {
+                    "Organization PIN"
+                } else {
+                    "New PIN"
+                })),
         )
         .child(boxes(
             "pin-new", &d.first, t, window, get_first, first_done, cx,
@@ -254,9 +260,34 @@ impl CleisApp {
         window.focus(&first.focus, cx);
         if let Some(s) = self.session() {
             s.pin_setup = Some(PinSetup {
+                org: None,
                 first,
                 confirm,
                 max_tries: tries,
+                error: None,
+                busy: false,
+            });
+        }
+        cx.notify();
+    }
+
+    /// Security policy › Organization PIN › Set (36g): the same dialog, for the organization.
+    pub fn open_org_pin_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let Some(o) = s.org.as_ref() else { return };
+        let Some(len) = o.state.as_ref().map(|st| usize::from(st.policy.pin.length)) else {
+            return;
+        };
+        let key = o.m.key();
+        let first = PinBoxes::new(len, cx);
+        let confirm = PinBoxes::new(len, cx);
+        window.focus(&first.focus, cx);
+        if let Some(s) = self.session() {
+            s.pin_setup = Some(PinSetup {
+                org: Some(key),
+                first,
+                confirm,
+                max_tries: 0,
                 error: None,
                 busy: false,
             });
@@ -283,6 +314,11 @@ impl CleisApp {
         d.busy = true;
         d.error = None;
         let (pin, len, tries) = (d.first.value.clone(), d.first.len, d.max_tries);
+        if let Some(key) = d.org.clone() {
+            self.in_org(&key, |app| app.org_set_pin(pin, cx));
+            cx.notify();
+            return;
+        }
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let prepared = cx

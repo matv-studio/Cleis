@@ -120,6 +120,7 @@ fn answer(status: u16, error: &str, message: &str) -> Answer {
         body: serde_json::to_vec(&cleis_core::org::ApiError {
             error: error.into(),
             message: message.into(),
+            pin_length: None,
         })
         .unwrap_or_default(),
     }

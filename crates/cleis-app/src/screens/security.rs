@@ -1028,6 +1028,8 @@ impl CleisApp {
             s.security.dialog = None;
             window.focus(&s.main_focus.clone(), cx);
         }
+        // Mockup 37r: the new vault's recovery key put away, it goes to the GitHub account.
+        self.resume_github(window, cx);
         cx.notify();
     }
 

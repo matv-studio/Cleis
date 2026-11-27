@@ -11,6 +11,11 @@
 - Essais : 194 réussis (dont 9 nouveaux de bout en bout), clippy, fmt.
 - À essayer sur Windows : PIN (DPAPI réel), Windows Hello, connexion GitHub réelle (code sur
   github.com/login/device), clic droit sur le champ mot de passe.
+- Suite du 27/11 (D-88 à D-90, maquettes 37p à 37r) : clic droit sans ouverture (ligne cernée), PIN de
+  l'organisation en cases (longueur envoyée par le serveur, saisie admin dans le dialogue 37f), trousseau
+  macOS pour le PIN et « Rien », GitHub sans coffre au premier lancement (« Create my vault »). Docs et
+  builds rangés aussi dans `D:\.PRJCT_Perso\Dev\Cleis\` (pont du bureau : écriture seulement, pas de
+  déplacement ni suppression).
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

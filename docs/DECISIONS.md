@@ -662,8 +662,8 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   `.unlock` est retiré (mot de passe maître ou clé de récupération). Cases de la maquette 36h
   (`screens/pin.rs`). Une règle d'organisation qui admet Windows Hello admet le PIN (libellé « Master
   password, PIN or Windows Hello »).
-  - En suspens : sous macOS et Linux, `protect` ne scelle pas encore (Trousseau à brancher) : le PIN n'y est
-    protégé que par Argon2id, comme « Rien ». Le PIN de l'organisation (D-79) garde son champ simple.
+  - macOS (27/11/2026, D-89) : `protect` scelle avec une clé du trousseau de session. Linux : non scellé
+    (Argon2id seul, comme « Rien »).
 - **D-84 Connexion GitHub par code** (27/11/2026, maquette 37n, « comme Revel »). Application OAuth
   « Cleis » de matv-studio (Client ID `Ov23li1POERzptJCQDPI`, device flow ; jetons sans expiration :
   « Expire user access tokens » décoché par l'utilisateur). Portée `repo` ; dépôt privé `cleis-vault` créé au
@@ -681,6 +681,26 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   plus les composants nouveaux (nom sur place, PIN, code à saisir ailleurs, point de connexion, ligne de
   raccourci) dans `charte-design-apps.md` et sur le canevas « Charte de design des apps internes »
   (planche « Mouvement et détails »).
+- **D-88 Clic droit sans ouverture** (27/11/2026, maquette 37p, demande de l'utilisateur). Le clic droit sur
+  une ligne ou une carte (coffre, contacts) ouvre son menu sans changer la sélection ni l'inspecteur :
+  seul le clic gauche ouvre un élément. La ligne visée est cernée (`--focus`, 1 px) tant que son menu est
+  ouvert, et les raccourcis pressés menu ouvert agissent sur elle (`Session::aimed`), comme le Finder.
+- **D-89 PIN : cases partout, trousseau macOS** (27/11/2026, maquettes 36h, 37q). Le PIN de l'organisation
+  se saisit dans les cases de 36h (`pin::boxes`), envoyé dès la dernière case ; la longueur vient du refus
+  du serveur (`ApiError::pin_length`, champ facultatif : un ancien serveur n'envoie rien, la longueur
+  connue en dernier sert, sinon 6) et de la politique reçue (`Local::pin_len`). L'administrateur fixe le PIN
+  dans le dialogue de 37f (« Organization PIN », saisi deux fois) au lieu d'un champ. macOS : une clé
+  aléatoire de 32 octets dans le trousseau de session (service `studio.matv.cleis`, compte `device-key`,
+  crate `security-framework` 3) scelle en AES-256-GCM (`cleis-crypto`, préfixe `CLKC`) les secrets de
+  « Rien » et du PIN, comme DPAPI sous Windows ; un fichier écrit sans sceau par une version antérieure
+  reste lu tel quel. Trousseau classique et non le trousseau protégé (il demande une signature Apple, D-34) :
+  macOS peut demander une fois l'accord après une mise à jour non signée ; refusé, le mot de passe maître
+  est demandé.
+- **D-90 GitHub sans coffre au premier lancement** (27/11/2026, maquette 37r, retour de l'utilisateur sur
+  0.2.3). « Restore › GitHub » sur un compte sans dépôt `cleis-vault` ne crée rien de lui-même : le
+  dialogue nomme le compte et propose « Create my vault » (le coffre est créé ici puis, une fois la clé de
+  récupération rangée, le dépôt privé est créé et le coffre envoyé), « Other account » ou « Cancel ».
+  Après une erreur (code expiré, refus), le bouton devient « Try again » au lieu d'« Open GitHub ».
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

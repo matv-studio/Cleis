@@ -844,11 +844,18 @@ fn organization_pin(cx: &mut TestAppContext) {
     act(cx, lh, |w, cx| w.click("pol-pin", cx));
     act(cx, lh, |w, cx| w.click("pin-len-0", cx));
     sync(cx, &lea);
+    // Set: typed twice in the boxes of 37f (the first ones have the keyboard).
+    act(cx, lh, |w, cx| w.click("pin-set", cx));
+    assert!(session(cx, &lea, |s| s
+        .pin_setup
+        .as_ref()
+        .is_some_and(|d| d.org.is_some() && d.first.len == 4)));
     act(cx, lh, |w, cx| {
-        w.click("pin-new", cx);
         w.input("4821", cx);
-        w.click("pin-set", cx);
+        w.input("4821", cx);
     });
+    cx.run_until_parked();
+    assert!(session(cx, &lea, |s| s.pin_setup.is_none()));
     sync(cx, &lea);
     session(cx, &lea, |s| {
         let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
@@ -875,10 +882,21 @@ fn organization_pin(cx: &mut TestAppContext) {
     assert!(!sees_figma(cx));
     let okey = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.key());
     act(cx, hh, |w, cx| w.click(format!("org-{okey}"), cx));
+    // The boxes take the server's length and go on once full (mockup 36h).
+    assert_eq!(
+        session(cx, &hugo, |s| s
+            .org
+            .as_ref()
+            .unwrap()
+            .pin
+            .as_ref()
+            .unwrap()
+            .len),
+        4
+    );
     act(cx, hh, |w, cx| {
         w.click("org-pin", cx);
         w.input("0000", cx);
-        w.click("pin-open", cx);
     });
     cx.run_until_parked();
     let err = session(cx, &hugo, |s| {
@@ -894,7 +912,6 @@ fn organization_pin(cx: &mut TestAppContext) {
     act(cx, hh, |w, cx| {
         w.click("org-pin", cx);
         w.input("4821", cx);
-        w.click("pin-open", cx);
     });
     cx.run_until_parked();
     assert!(session(cx, &hugo, |s| s

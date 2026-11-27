@@ -760,9 +760,12 @@ fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
         let e = &s.entries[*i];
         let id = e.id;
         let selected = s.selected == Some(id);
+        let aimed = s.aimed(super::ctx::CtxTarget::Entry(id));
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("vcard-{id}")))
+                .relative()
+                .when(aimed, |d| d.child(super::ctx::aim_ring(t, RADIUS_LG)))
                 .w(px(240.))
                 .p(px(12.))
                 .flex()
@@ -983,7 +986,7 @@ fn edit_bar(t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
         )
 }
 
-fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<CleisApp>) -> Div {
+fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<CleisApp>) -> Div {
     let cols: Vec<ColumnDef> =
         cleis_core::column::visible_columns(&s.columns, cleis_core::column::Table::Vault, None)
             .into_iter()
@@ -1062,6 +1065,10 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                     })
                     .collect();
                 let sel = s.selected;
+                let aimed_at = s.ctx.as_ref().and_then(|m| match m.target {
+                    super::ctx::CtxTarget::Entry(id) => Some(id),
+                    _ => None,
+                });
                 let widths: Vec<Option<f32>> = cols.iter().map(|c| vault_width(s, c)).collect();
                 let editing = s.customize;
                 // Items take each other's place in "My order", or while customizing.
@@ -1116,6 +1123,9 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                             row = row.child(row_cell(
                                 &e, c, &all_cols, &t, now, selected, *w, editing, cx,
                             ));
+                        }
+                        if aimed_at == Some(id) {
+                            row = row.relative().child(super::ctx::aim_ring(&t, RADIUS_SM));
                         }
                         row.test_support()
                     })
@@ -1275,7 +1285,7 @@ fn vault_page(s: &Session, t: &Tokens, _window: &mut Window, cx: &mut Context<Cl
                 .when(s.filter != Filter::Trash, |d| {
                     // D-79: an organization whose PIN is asked shows the PIN, not its items.
                     match super::org::pin_shown(s) {
-                        Some(o) => d.child(super::org::pin_card(o, t, cx)),
+                        Some(o) => d.child(super::org::pin_card(o, t, window, cx)),
                         None => d
                             .child(center)
                             .when_some(s.selected_entry().cloned(), |d, e| {

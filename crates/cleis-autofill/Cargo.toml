@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 cleis-core.workspace = true
+cleis-crypto.workspace = true
 global-hotkey = "0.10"
 enigo = "0.6"
 arboard = { version = "3", default-features = false }
@@ -38,6 +39,8 @@ windows-registry = "0.6"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+# Opening Cleis (D-83): the key that seals the PIN's and "Nothing"'s secrets, in the login Keychain.
+security-framework = "3"
 
 [lints]
 workspace = true

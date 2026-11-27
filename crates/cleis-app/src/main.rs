@@ -73,7 +73,8 @@ fn main() {
     let tab = value("--tab");
     let page = value("--page");
     let quick_access = flag("--quick-access") && unlocked;
-    let menu = value("--menu").filter(|_| unlocked);
+    // `--restore --menu github-novault`: the first launch's dialog (mockup 37r).
+    let menu = value("--menu").filter(|m| unlocked || (flag("--restore") && m == "github-novault"));
     // Screenshots of the unlock screen as Windows Hello or "nothing" shows it (D-76).
     let unlock_with = value("--unlock-with").filter(|_| demo);
     // Screenshots: a newer version shown as published (`--update 0.2.1`).

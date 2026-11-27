@@ -1201,8 +1201,24 @@ type RepoFile = std::sync::Arc<std::sync::Mutex<Option<(String, Vec<u8>)>>>;
 
 /// A stand-in for GitHub's contents API on 127.0.0.1: one file, its sha checked on writes.
 fn fake_github() -> (String, RepoFile) {
+    let (addr, file, _) = fake_github_account(true);
+    (addr, file)
+}
+
+/// [`fake_github`] whose account has the repository `cleis-vault` or not: made by
+/// `POST /user/repos` (the flag says whether it exists).
+fn fake_github_account(
+    repo: bool,
+) -> (
+    String,
+    RepoFile,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     use std::io::{BufRead, BufReader, Read, Write};
+    use std::sync::atomic::Ordering;
     let file: RepoFile = Default::default();
+    let has_repo = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(repo));
+    let made = has_repo.clone();
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = format!("http://{}", l.local_addr().unwrap());
     let f = file.clone();
@@ -1262,16 +1278,31 @@ fn fake_github() -> (String, RepoFile) {
                     Some(r#"{"access_token":"github_pat_example","token_type":"bearer"}"#)
                 } else if line.contains("/api/v3/user ") {
                     Some(r#"{"login":"lea-example"}"#)
-                } else if line.contains("/api/v3/repos/lea-example/cleis-vault ") {
+                } else if line.contains("/api/v3/repos/lea-example/cleis-vault ")
+                    && made.load(Ordering::SeqCst)
+                {
                     Some(r#"{"default_branch":"main","private":true}"#)
                 } else {
                     None
                 };
                 let (status, out): (u16, Vec<u8>) = if let Some(d) = device {
                     (200, d.as_bytes().to_vec())
+                } else if line.starts_with("POST /api/v3/user/repos ")
+                    && auth == "Bearer github_pat_example"
+                {
+                    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    assert_eq!(
+                        (v["name"].as_str(), v["private"].as_bool()),
+                        (Some("cleis-vault"), Some(true))
+                    );
+                    made.store(true, Ordering::SeqCst);
+                    (
+                        201,
+                        br#"{"full_name":"lea-example/cleis-vault","default_branch":"main","private":true}"#.to_vec(),
+                    )
                 } else if auth != "Bearer github_pat_example" {
                     (401, br#"{"message":"Bad credentials"}"#.to_vec())
-                } else if !path_ok {
+                } else if !path_ok || !made.load(Ordering::SeqCst) {
                     (404, br#"{"message":"Not Found"}"#.to_vec())
                 } else if line.starts_with("GET") {
                     match &*f.lock().unwrap() {
@@ -1312,7 +1343,7 @@ fn fake_github() -> (String, RepoFile) {
             }
         }
     });
-    (addr, file)
+    (addr, file, has_repo)
 }
 
 /// Scenario (mockup 23b, D-65): sync with a file in a GitHub repository; another device's copy
@@ -1458,10 +1489,18 @@ fn context_menu_and_shortcuts(cx: &mut TestAppContext) {
         })
     };
 
+    // Only a left click opens an item: the right-clicked row keeps the selection as it was
+    // (mockup 37o), outlined while its menu is open.
+    let first = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.selected,
+        _ => None,
+    });
+    assert_ne!(first, Some(figma));
     act(cx, h, |w, cx| w.right_click(format!("row-{figma}"), cx));
     main(cx, &|s| {
         assert!(s.ctx.is_some());
-        assert_eq!(s.selected, Some(figma));
+        assert_eq!(s.selected, first);
+        assert!(s.aimed(cleis_app::screens::ctx::CtxTarget::Entry(figma)));
     });
     act(cx, h, |w, cx| w.press("escape", cx));
     main(cx, &|s| assert!(s.ctx.is_none()));
@@ -1488,8 +1527,14 @@ fn context_menu_and_shortcuts(cx: &mut TestAppContext) {
         assert_eq!(e.space, banking);
     });
 
+    // With a row's menu open, its keys act on that row: Ctrl+D duplicates Figma.
+    act(cx, h, |w, cx| w.right_click(format!("row-{figma}"), cx));
     act(cx, h, |w, cx| w.press("ctrl-d", cx));
-    main(cx, &|s| assert_eq!(s.entries.len(), count + 1));
+    main(cx, &|s| {
+        assert!(s.ctx.is_none());
+        assert_eq!(s.entries.len(), count + 1);
+        assert_eq!(s.selected_entry().unwrap().name, "Figma copy");
+    });
     // Audit U-3: arrows move through the list; Ctrl+N makes a new item.
     let before = app.read_with(cx, |a, _| match &a.phase {
         Phase::Main(s) => s.selected,
@@ -2861,4 +2906,82 @@ fn keyboard_shortcuts(cx: &mut TestAppContext) {
     assert_eq!(count(cx), n);
     act(cx, h, |w, cx| w.press("ctrl-shift-d", cx));
     assert_eq!(count(cx), n + 1);
+}
+
+/// Scenario (mockup 37r): a new computer, Restore › GitHub, but the account has no vault yet.
+/// The dialog names the account and offers to make the vault here: once made (its recovery
+/// key put away), the private repository is made on the account and the vault sent to it.
+#[gpui_kit::test]
+fn github_without_vault_creates_one(cx: &mut TestAppContext) {
+    use std::sync::atomic::Ordering;
+    let (addr, file, has_repo) = fake_github_account(false);
+    let hosts = cleis_app::github_login::Hosts {
+        web: addr.clone(),
+        api: format!("{addr}/api/v3"),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let (h, app) = open(cx, &dir.path().join("new/vault.cleis"));
+    app.update(cx, |a, _| a.github_hosts = hosts.clone());
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("signin-github", cx));
+    let mut seen = false;
+    for _ in 0..30 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| {
+            a.github.as_ref().is_some_and(|g| g.no_vault.is_some())
+        }) {
+            seen = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(seen, "the dialog says the account has no vault");
+    assert!(window_has(cx, h, "gh-account") && window_has(cx, h, "gh-create"));
+    // Restoring does not make a repository on its own.
+    assert!(!has_repo.load(Ordering::SeqCst));
+    act(cx, h, |w, cx| w.click("gh-create", cx));
+    app.read_with(cx, |a, _| {
+        assert!(a.github.is_none() && a.github_after.is_some());
+        let Phase::Welcome(w) = &a.phase else {
+            panic!()
+        };
+        assert!(w.restore.is_none());
+    });
+    act(cx, h, |w, cx| {
+        w.click("new-password", cx);
+        w.input("correct horse battery staple", cx);
+        w.click("confirm-password", cx);
+        w.input("correct horse battery staple", cx);
+        w.click("create", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if app.read_with(cx, |a, _| matches!(a.phase, Phase::Main(_))) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    // Nothing sent before the recovery key is put away.
+    assert!(!has_repo.load(Ordering::SeqCst));
+    act(cx, h, |w, cx| w.click("recovery-key-done", cx));
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if file.lock().unwrap().is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        has_repo.load(Ordering::SeqCst),
+        "the private repository was made"
+    );
+    assert!(file.lock().unwrap().is_some(), "the vault was sent");
+    app.read_with(cx, |a, _| {
+        assert!(a.github.is_none() && a.github_after.is_none());
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.sync.provider, cleis_app::sync::Provider::GitHub);
+        assert!(s.sync.remote.is_some());
+    });
 }

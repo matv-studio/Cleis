@@ -187,6 +187,9 @@ pub fn login(h: &Hosts, token: &str) -> Result<String, String> {
 
 /// The vault's repository `login/cleis-vault` and its branch; made private the first time when
 /// `create` (an existing vault is only looked for on a new computer).
+/// `vault_repo` found no repository to restore (the account has no vault yet).
+pub const NO_VAULT: &str = "No vault on this GitHub account yet";
+
 pub fn vault_repo(
     h: &Hosts,
     token: &str,
@@ -203,7 +206,7 @@ pub fn vault_repo(
             }
             Ok((full, branch))
         }
-        404 if !create => Err("No vault on this GitHub account yet".into()),
+        404 if !create => Err(NO_VAULT.into()),
         404 => {
             let url = format!("{}/user/repos", h.api.trim_end_matches('/'));
             checked(&url)?;

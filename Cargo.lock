@@ -1288,11 +1288,13 @@ version = "0.2.3"
 dependencies = [
  "arboard",
  "cleis-core",
+ "cleis-crypto",
  "enigo",
  "global-hotkey",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "security-framework",
  "thiserror 2.0.21",
  "uiautomation",
  "windows 0.62.2",

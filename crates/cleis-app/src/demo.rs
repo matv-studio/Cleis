@@ -803,6 +803,7 @@ pub fn org(s: &mut crate::app::Session) {
             host_dir: None,
             offline_days: None,
             pin_hours: None,
+            pin_len: None,
             pin_until: None,
             folder: None,
         },

@@ -1208,5 +1208,16 @@
   "Choose a PIN, Windows Hello or Nothing first": "Choisissez d’abord un code PIN, Windows Hello ou Rien",
   "No vault on this GitHub account yet": "Pas encore de coffre sur ce compte GitHub",
   "The code expired: sign in again": "Le code a expiré : reconnectez-vous",
-  "Access refused on GitHub": "Accès refusé sur GitHub"
+  "Access refused on GitHub": "Accès refusé sur GitHub",
+  "Set by your organization · {} digits": "Fixé par votre organisation · {} chiffres",
+  "Try again": "Réessayer",
+  "No vault on this account": "Aucun coffre sur ce compte",
+  "No private repository {} on this account": "Aucun dépôt privé {} sur ce compte",
+  "Other account": "Autre compte",
+  "Sign out of github.com first, then sign in with the other account": "Déconnectez-vous d'abord de github.com, puis connectez-vous avec l'autre compte",
+  "Create my vault": "Créer mon coffre",
+  "A new vault on this computer, saved to the private repository {} of this account": "Un nouveau coffre sur cet ordinateur, enregistré dans le dépôt privé {} de ce compte",
+  "Saved to GitHub @{} once created": "Enregistré sur GitHub @{} une fois créé",
+  "Cleis looks for the private repository {} in your account": "Cleis cherche le dépôt privé {} dans votre compte",
+  "Ask a PIN": "Demander un code PIN"
 }

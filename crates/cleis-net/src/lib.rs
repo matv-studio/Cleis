@@ -277,6 +277,7 @@ fn decode<R: DeserializeOwned>(r: Response) -> Result<R, NetError> {
         let e = serde_json::from_slice::<ApiError>(&r.body).unwrap_or(ApiError {
             error: "http".into(),
             message: format!("HTTP {}", r.status),
+            pin_length: None,
         });
         Err(NetError::Api(r.status, e))
     }

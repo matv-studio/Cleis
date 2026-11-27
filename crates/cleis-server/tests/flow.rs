@@ -1203,7 +1203,13 @@ fn organization_pin() {
         .unwrap();
     // The admin who set it goes on; the member is asked it.
     lea.state();
-    assert_eq!(noa.sign_in(None).unwrap_err().code(), Some("pin_required"));
+    // The refusal names the PIN's length: the app shows that many boxes.
+    match noa.sign_in(None).unwrap_err() {
+        NetError::Api(_, a) => {
+            assert_eq!((a.error.as_str(), a.pin_length), ("pin_required", Some(4)))
+        }
+        e => panic!("{e}"),
+    }
     noa.pin = Some("0000".into());
     let e = noa.sign_in(None).unwrap_err();
     assert_eq!(e.code(), Some("wrong_pin"));
