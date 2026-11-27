@@ -26,12 +26,13 @@
   gardée dans le compte (`vault.key`) et un nouvel ordinateur ouvre le coffre en se connectant ; premier
   écran : organisation → « Unlock with » après l'invitation vérifiée, tête « Sign in » sans survol.
   GitHub App décidée (maquettes 41a-41b envoyées), à coder quand l'application existe.
-- En attente de l'utilisateur : Entra « Cleis-Sync » créée (D-103, ID
-  `ab08c5d7-e197-4b7d-beea-105b96bc68b5`) ; y ajouter `Files.ReadWrite.AppFolder` et `offline_access` ;
-  application Google (Cloud) à enregistrer, Client ID à fournir ; la connexion Microsoft / Google
-  (coffre dans le dossier d'appli OneDrive, dossier caché appDataFolder de Google Drive) se code
-  ensuite sur le même parcours.
 - D-103 : Microsoft multi-locataire par `common` (comptes perso et pro de tout locataire).
+- D-104 : coffre synchronisé dans OneDrive (dossier d'application) ou Google Drive (appDataFolder),
+  connexion par le navigateur (PKCE, 127.0.0.1), depuis Account ou le premier écran ; Revoke access ;
+  e-mail du profil facultatif même avec une organisation. Applications Microsoft et Google publiées,
+  pages matv.app/cleis faites. À essayer sur Windows : compte Microsoft perso, compte alunites.com,
+  compte Google (création, nouvel ordinateur, révocation). Rien ne part en brouillon de version avant
+  la validation de l'utilisateur.
 - Retours du 27/11 après la 911cfc3 : « Unlock Cleis with » (D-98), choix de l'ouverture passant sous
   le libellé quand la ligne est trop courte (débordait en français), carte « Sign in » cliquable et
   survolée en entier quand elle peut l'être (boutons des fournisseurs gardant leur clic), trait d'accent

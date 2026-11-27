@@ -23,12 +23,12 @@ pub struct Pending {
 }
 
 /// `n` (at most 32) random bytes, base64url.
-fn random_b64(n: usize) -> Result<String, String> {
+pub(crate) fn random_b64(n: usize) -> Result<String, String> {
     let r: [u8; 32] = cleis_crypto::random_bytes().map_err(|e| e.to_string())?;
     Ok(B64.encode(&r[..n.min(32)]))
 }
 
-fn pct(s: &str) -> String {
+pub(crate) fn pct(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
@@ -40,7 +40,7 @@ fn pct(s: &str) -> String {
     out
 }
 
-fn unpct(s: &str) -> String {
+pub(crate) fn unpct(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = vec![];
     let mut i = 0;
@@ -147,14 +147,17 @@ pub fn parse_callback(line: &str, state: &str) -> Result<String, String> {
     code.ok_or_else(|| "no code".into())
 }
 
-/// Waits for the browser (5 minutes at most), then gets the ID token.
-pub fn finish(p: Pending) -> Result<String, String> {
-    p.listener
-        .set_nonblocking(true)
-        .map_err(|e| e.to_string())?;
+/// The browser's answer on the loopback address (5 minutes at most): the authorization code,
+/// once `state` matches; the tab shows whether it worked.
+pub(crate) fn wait_code(
+    listener: &TcpListener,
+    state: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<String, String> {
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + Duration::from_secs(300);
     let code = loop {
-        match p.listener.accept() {
+        match listener.accept() {
             Ok((stream, _)) => {
                 stream.set_nonblocking(false).ok();
                 stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
@@ -170,7 +173,7 @@ pub fn finish(p: Pending) -> Result<String, String> {
                     );
                     continue;
                 }
-                let r = parse_callback(&line, &p.state);
+                let r = parse_callback(&line, state);
                 let page = match &r {
                     Ok(_) => "Signed in. You can close this tab and go back to Cleis.",
                     Err(_) => "Sign-in refused. Go back to Cleis to try again.",
@@ -188,6 +191,9 @@ pub fn finish(p: Pending) -> Result<String, String> {
                 break r?;
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err("Cancelled".into());
+                }
                 if Instant::now() > deadline {
                     return Err("No answer from the browser".into());
                 }
@@ -196,6 +202,16 @@ pub fn finish(p: Pending) -> Result<String, String> {
             Err(e) => return Err(e.to_string()),
         }
     };
+    Ok(code)
+}
+
+/// Waits for the browser (5 minutes at most), then gets the ID token.
+pub fn finish(p: Pending) -> Result<String, String> {
+    let code = wait_code(
+        &p.listener,
+        &p.state,
+        &std::sync::atomic::AtomicBool::new(false),
+    )?;
     let mut form = format!(
         "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&code_verifier={}",
         pct(&code),

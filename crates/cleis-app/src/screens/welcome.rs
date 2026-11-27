@@ -460,7 +460,7 @@ pub fn render(
     if let Some(r) = w
         .restore
         .as_ref()
-        .filter(|r| r.signed.is_none() && app.github.is_none())
+        .filter(|r| r.signed.is_none() && app.github.is_none() && app.cloud.is_none())
     {
         let dlg = r
             .place
@@ -473,13 +473,39 @@ pub fn render(
     let opened = w.restore.as_ref().filter(|r| r.signed.is_some());
     let login = opened
         .and_then(|r| r.signed.clone())
-        .or_else(|| app.github_after.as_ref().map(|n| n.login.clone()));
-    let chosen = if opened.is_some() || app.github_after.is_some() {
+        .or_else(|| app.github_after.as_ref().map(|n| n.login.clone()))
+        .or_else(|| {
+            app.cloud_after
+                .as_ref()
+                .and_then(|(p, _)| p.account().map(str::to_owned))
+        });
+    // Which account (D-104): Microsoft or Google by their place, GitHub otherwise.
+    let account_cloud = app
+        .cloud_after
+        .as_ref()
+        .and_then(|(p, _)| p.cloud())
+        .or_else(|| {
+            opened
+                .and_then(|r| r.remote.as_ref())
+                .and_then(|(p, _)| p.cloud())
+        })
+        .or_else(|| app.cloud.as_ref().map(|c| c.cloud));
+    let chosen = if opened.is_some() || app.github_after.is_some() || app.cloud_after.is_some() {
         Some(Start::Account)
     } else {
         w.choice
     };
-    let signing = app.github.is_some() && chosen.is_none();
+    let signing = (app.github.is_some() || app.cloud.is_some()) && chosen.is_none();
+    let ms_ok = app
+        .cloud_hosts
+        .microsoft
+        .usable(crate::cloud::Cloud::Microsoft);
+    let google_ok = app.cloud_hosts.google.usable(crate::cloud::Cloud::Google);
+    let signing_with = if app.github.is_some() {
+        Some(Provider::GitHub)
+    } else {
+        app.cloud.as_ref().map(|c| c.cloud.provider())
+    };
     let busy = w.busy;
     let step2 = chosen.is_some();
     // The head of an option: in the middle it chooses; once up, it brings the options back down.
@@ -487,6 +513,7 @@ pub fn render(
         move |this: &mut CleisApp, window: &mut Window, cx: &mut Context<CleisApp>| {
             let up = matches!(&this.phase, Phase::Welcome(w) if w.choice.is_some())
                 || this.github_after.is_some()
+                || this.cloud_after.is_some()
                 || matches!(&this.phase, Phase::Welcome(w) if w.restore.is_some());
             if up {
                 this.welcome_back(cx);
@@ -499,12 +526,13 @@ pub fn render(
         let acc = |id: &'static str,
                    ico: &str,
                    label: &str,
+                   p: Provider,
                    planned: Option<&'static str>,
                    cx: &mut Context<CleisApp>| {
             button(id, &t, BtnKind::Default, true)
                 .child(icon(ico, 14., t.text))
                 .child(crate::i18n::tr_owned(label))
-                .when(id == "signin-github" && signing, |b| {
+                .when(signing && signing_with == Some(p), |b| {
                     b.border_color(t.focus)
                 })
                 .when_some(planned, |b, why| b.opacity(0.45).tooltip(tip(tr(why))))
@@ -512,11 +540,12 @@ pub fn render(
                 .on_click(cx.listener(move |this, _, window, cx| {
                     cx.stop_propagation();
                     if planned.is_none() {
-                        this.sign_in_elsewhere(Provider::GitHub, window, cx)
+                        this.sign_in_elsewhere(p, window, cx)
                     }
                 }))
                 .test_support()
         };
+        let missing = Some("Not available in this build");
         div()
             .flex()
             .gap(px(8.))
@@ -524,17 +553,26 @@ pub fn render(
                 "signin-microsoft",
                 "window",
                 "Microsoft",
-                Some("Available once Cleis is registered with Microsoft"),
+                Provider::OneDrive,
+                (!ms_ok).then_some(missing).flatten(),
                 cx,
             ))
             .child(acc(
                 "signin-google",
                 "globe",
                 "Google",
-                Some("Available once Cleis is registered with Google"),
+                Provider::GoogleDrive,
+                (!google_ok).then_some(missing).flatten(),
                 cx,
             ))
-            .child(acc("signin-github", "repo", "GitHub", None, cx))
+            .child(acc(
+                "signin-github",
+                "repo",
+                "GitHub",
+                Provider::GitHub,
+                None,
+                cx,
+            ))
             .into_any_element()
     };
     let account_row = |login: &str, cx: &mut Context<CleisApp>| {
@@ -553,8 +591,17 @@ pub fn render(
                     .to_string(),
                 20.,
             ))
-            .child(format!("@{login}"))
-            .child(chip(&t, Tone::Ok, "GitHub", true))
+            .child(if account_cloud.is_some() {
+                login.to_owned()
+            } else {
+                format!("@{login}")
+            })
+            .child(chip(
+                &t,
+                Tone::Ok,
+                account_cloud.map_or("GitHub", |c| c.name()),
+                true,
+            ))
             .child(div().flex_1())
             .child(
                 button("signed-change", &t, BtnKind::Ghost, true)
@@ -636,7 +683,13 @@ pub fn render(
         let measure = w.below_h.clone();
         let body = match opened {
             Some(r) => open_here(r, login.as_deref().unwrap_or(""), &t, cx),
-            None => create_here(w, app.github_after.is_some(), &t, window, cx),
+            None => create_here(
+                w,
+                app.github_after.is_some() || app.cloud_after.is_some(),
+                &t,
+                window,
+                cx,
+            ),
         };
         crate::ui::page_in(
             format!("welcome-below-{}-{}", w.round, ready),
@@ -828,7 +881,14 @@ fn open_here(r: &Restore, _login: &str, t: &Tokens, cx: &mut Context<CleisApp>) 
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(icon("repo", 16., t.text_muted))
+                .child(icon(
+                    r.remote
+                        .as_ref()
+                        .and_then(|(p, _)| p.cloud())
+                        .map_or("repo", |c| c.icon()),
+                    16.,
+                    t.text_muted,
+                ))
                 .child(
                     div()
                         .flex_1()
@@ -885,6 +945,10 @@ impl CleisApp {
     pub fn welcome_back(&mut self, cx: &mut Context<Self>) {
         self.github = None;
         self.github_after = None;
+        if let Some(c) = self.cloud.take().and_then(|c| c.cancel) {
+            c.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.cloud_after = None;
         if let Phase::Welcome(w) = &mut self.phase {
             w.choice = None;
             w.org = false;

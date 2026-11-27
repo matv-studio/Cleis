@@ -4967,6 +4967,64 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 s.sync.auto = false;
             }
         }
+        // D-104: signed in with Microsoft or Google, the vault in the account (shown only).
+        "onedrive" | "gdrive" => {
+            let path = app.path.clone();
+            if let Some(s) = app.session() {
+                let (provider, place) = if m == "onedrive" {
+                    (
+                        crate::sync::Provider::OneDrive,
+                        crate::remote::RemotePlace::OneDrive {
+                            path: crate::screens::cloud::VAULT_FILE.into(),
+                            api: "https://graph.microsoft.com/v1.0".into(),
+                            account: "lea@example-studio.com".into(),
+                        },
+                    )
+                } else {
+                    (
+                        crate::sync::Provider::GoogleDrive,
+                        crate::remote::RemotePlace::GoogleDrive {
+                            name: crate::screens::cloud::VAULT_FILE.into(),
+                            api: "https://www.googleapis.com".into(),
+                            account: "lea@example-studio.com".into(),
+                        },
+                    )
+                };
+                s.sync.provider = provider;
+                s.sync.place = Some(path);
+                s.sync.last_sync = Some(cleis_core::now() - 120);
+                s.sync.remote = Some(place);
+                s.sync.auto = false;
+            }
+        }
+        // D-104: Microsoft (or Google) chosen in Account, then its sign-in waiting for the browser.
+        "pick-microsoft" | "pick-google" => {
+            if let Some(s) = app.session() {
+                s.account_pick = Some(if m == "pick-microsoft" {
+                    crate::sync::Provider::OneDrive
+                } else {
+                    crate::sync::Provider::GoogleDrive
+                });
+            }
+        }
+        "cloud-microsoft" | "cloud-google" => {
+            let c = if m == "cloud-microsoft" {
+                crate::cloud::Cloud::Microsoft
+            } else {
+                crate::cloud::Cloud::Google
+            };
+            if let Some(s) = app.session() {
+                s.account_pick = Some(c.provider());
+            }
+            app.cloud = Some(super::cloud::CloudSignIn {
+                cloud: c,
+                url: Some("https://login.example-studio.com/authorize".into()),
+                cancel: None,
+                error: None,
+                finishing: false,
+                round: 1,
+            });
+        }
         // Mockup 46f: Spaces, Design unfolded.
         "space-members" => {
             if let Some(o) = org_mut(app) {

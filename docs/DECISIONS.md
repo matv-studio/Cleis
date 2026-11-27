@@ -907,19 +907,53 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   (`domains` n'est pas fiable en multi-locataire). Reste : un locataire qui interdit le consentement
   des utilisateurs demande qu'un de ses administrateurs accepte Cleis-Sync une fois.
 
+- **D-104 Coffre synchronisé dans OneDrive ou Google Drive** (27/11/2026, demande de l'utilisateur).
+  Les connexions Microsoft, Google et GitHub de Cleis servent à synchroniser le coffre (mots de passe,
+  contacts…) dans le stockage du compte ; elles ne servent ni à rejoindre ni à créer une organisation
+  (la preuve d'identité Google / Microsoft exigée par un serveur d'organisation, D-63, est une autre
+  fonction). Compte et e-mail restent facultatifs (coffre local sans compte).
+  - Connexion par le navigateur : code d'autorisation + PKCE (RFC 7636), retour sur
+    `http://127.0.0.1:<port>` (RFC 8252), comme `oidc.rs` (attente partagée `oidc::wait_code`,
+    annulable). Microsoft : `/common`, client public Cleis-Sync (D-103), portées `openid profile email
+    offline_access User.Read Files.ReadWrite.AppFolder`. Google : client « Desktop »
+    (`1020018847728-…`), portées `openid email drive.appdata`, `access_type=offline` + `prompt=consent
+    select_account` (sans quoi pas de jeton de renouvellement). Le secret du client Google (non
+    confidentiel pour une appli installée, selon Google) est injecté à la compilation
+    (`CLEIS_GOOGLE_CLIENT_SECRET`, secret de CI `GOOGLE_CLIENT_SECRET`), jamais dans git ; sans lui, le
+    bouton Google affiche « Not available in this build ».
+  - Places `RemotePlace::OneDrive { path, api, account }` (dossier d'application
+    `/me/drive/special/approot:/vault.cleis`, accessible à Cleis seul ; écriture conditionnelle
+    `If-Match` / `If-None-Match: *` sur l'eTag ; lecture par l'adresse signée
+    `@microsoft.graph.downloadUrl`, sans jeton) et `RemotePlace::GoogleDrive { name, api, account }`
+    (dossier caché `appDataFolder` ; fichier trouvé par son nom ; Drive n'ayant pas d'envoi
+    conditionnel, la version `id:version` est comparée juste avant l'envoi ; création en
+    `multipart/related`, mise à jour par `PATCH uploadType=media`). Conflit → lecture, fusion, nouvel
+    envoi, comme GitHub. Le jeton (1 h) est renouvelé par le jeton de renouvellement (`Secret.refresh`,
+    `expires`), scellé dans le coffre comme les autres secrets de place.
+  - Parcours : Paramètres › Account : un clic sur Microsoft, Google ou GitHub le choisit, **Sign in**
+    ouvre la page du fournisseur (dialogue « Waiting for … », Open … pour la rouvrir, Cancel) ; le
+    coffre ouvert part dans le compte. Premier écran : Sign in › Microsoft / Google retrouve le coffre
+    du compte (mot de passe, ou clé du compte D-96 sans mot de passe) ou, s'il n'y en a pas, le crée ici
+    puis l'envoie une fois la clé de récupération rangée (`cloud_after`, comme `github_after`).
+    **Revoke access** : Google révoque le jeton (`oauth2.googleapis.com/revoke`) ; Microsoft n'a pas de
+    révocation par l'appli : Cleis oublie l'accès ici et ouvre la page des applications du compte
+    (Remove à côté de Cleis-Sync).
+  - Essais : `tests/cloud.rs`, faux Microsoft / Google (jetons, renouvellement, révocation, Graph
+    approot, Drive appDataFolder) : connexion depuis Account puis nouvel ordinateur (OneDrive), compte
+    Google sans coffre → création puis envoi, jeton expiré renouvelé, révocation, conflits des deux
+    côtés.
+  - Profil (même jour) : l'e-mail est facultatif même avec une organisation ; sans e-mail dans le
+    profil, chaque organisation garde celui qu'elle a (l'appli le renvoie tel quel, pour les serveurs
+    d'avant ; le serveur accepte aussi un e-mail vide comme « inchangé »).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
-4. Enregistrement des applications OAuth (Microsoft, Google) pour la connexion par compte et les places
-   OneDrive / Google Drive (D-50, D-58, D-80) : Microsoft créé (D-103, ID connu ; permissions
-   `Files.ReadWrite.AppFolder` et `offline_access` ajoutées le 27/11) ; Google : client « Desktop »
-   créé le 27/11 (ID `1020018847728-29t0jep2co6uge1bdsjau15jdmfp5k1o.apps.googleusercontent.com`,
-   secret à mettre par l'utilisateur dans un secret de CI, jamais dans git), encore en « Test » :
-   la publication demande une page d'accueil et une politique de confidentialité sur un domaine à
-   soi : pages `https://matv.app/cleis/` et `https://matv.app/cleis/privacy/` (en anglais et en
-   français) construites le 27/11 dans le site portfolio par Revel (outils MCP), sans lien depuis
-   l'accueil ; captures dans `media/cleis/` du site ; GitHub fait (D-84).
+4. ~~Enregistrement des applications OAuth (Microsoft, Google)~~ (D-103, D-104 : Microsoft
+   Cleis-Sync et client Google « Desktop » publiés, pages `https://matv.app/cleis/` et
+   `https://matv.app/cleis/privacy/` construites par Revel). Reste : essai réel sur Windows d'un compte
+   Microsoft personnel, d'un compte pro (alunites.com) et d'un compte Google.
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 8. ~~Essai de Windows Hello et Touch ID~~ (retirés, D-71).

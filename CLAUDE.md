@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-103,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-104,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -16,9 +16,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
-   [--quick-access] [--restore] [--unlock-with hello|nothing|pin]
+   [--quick-access] [--restore] [--welcome-local|--welcome-signin] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
    --org NOM` puis `run --data DIR --listen 127.0.0.1:8443` (code du premier admin affiché) ;
    `install [--print]`, `backup`, `restore`, `invite`, `status` ; configuration `cleis-server.toml`,
@@ -85,7 +85,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   partagé : opérations signées, copie locale rejouée par `cleis_server::local`, D-78),
   `screens/wheel.rs` (roue chromatique), `opening.rs` (ouverture par
   Windows Hello, PIN ou sans rien, fichier `<coffre>.unlock`, D-76, D-83), `screens/pin.rs` (cases du
-  PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84 ; GitHub App, D-101), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
+  PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84 ; GitHub App, D-101),
+  `cloud.rs` + `screens/cloud.rs` (coffre dans OneDrive / Google Drive : connexion PKCE par le
+  navigateur, jetons renouvelés, D-104), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
   (Paramètres › Shortcuts, D-85), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
@@ -161,6 +163,9 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   ailleurs », `on_mouse_down_out` (dossier nommé sur place).
 - Les champs `Input` gardent le clic droit pour le menu du système : un menu à nous se pose par
   `capture_any_mouse_down` sur leur conteneur (champ mot de passe, D-82).
+- Essais OneDrive / Google Drive (D-104) : `app.cloud_hosts = CloudHosts::stand_in(adresse)` vers le faux
+  de `tests/cloud.rs` ; le navigateur doit répondre avant `run_until_parked` (l'exécuteur d'essai
+  déroulerait l'attente jusqu'à son terme : `sign_in_with`).
 - Essais de la connexion GitHub : `app.github_hosts` vers `fake_github()` (device flow, `/user`, dépôt) ;
   jamais github.com depuis un essai.
 - `appshots.sh` lance `cargo build` sans les variables du disque : les exporter avant (sinon tout se

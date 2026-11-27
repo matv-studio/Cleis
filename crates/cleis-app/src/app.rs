@@ -82,6 +82,8 @@ pub enum ConfirmAction {
     /// Settings › Account › Revoke access (mockup 39c): Cleis forgets GitHub, then GitHub's page
     /// for Cleis opens to remove the authorization everywhere.
     RevokeGitHub,
+    /// D-104: the same for a Microsoft or Google account (Google revoked at once).
+    RevokeCloud,
     /// D-76: no more master password.
     RemovePassword,
     /// Mockup 37l: every dated copy on this computer.
@@ -224,6 +226,8 @@ pub struct Session {
     pub folder: Option<FolderDialog>,
     /// Sync & backups: GitHub / SFTP place being set up (D-65).
     pub place: Option<crate::screens::places::PlaceDialog>,
+    /// Settings › Account: the account chosen before "Sign in" (36b; none: Local).
+    pub account_pick: Option<crate::sync::Provider>,
     pub folder_menu: Option<cleis_core::SpaceId>,
     /// Customize mode (mockup 35f): handles to reorder, crosses to delete, shortcuts shown or hidden.
     pub customize: bool,
@@ -514,6 +518,13 @@ pub struct CleisApp {
     pub github_after: Option<crate::screens::github::Signed>,
     /// Where GitHub is: github.com, or the tests' stand-in.
     pub github_hosts: crate::github_login::Hosts,
+    /// Sign in with Microsoft or Google under way (D-104), whatever the phase.
+    pub cloud: Option<crate::screens::cloud::CloudSignIn>,
+    /// Signed in on the first launch with no vault in the account: the vault made next goes
+    /// there (the place and its secret).
+    pub cloud_after: Option<(crate::remote::RemotePlace, crate::remote::Secret)>,
+    /// Where Microsoft and Google are: their own addresses, or the tests' stand-in.
+    pub cloud_hosts: crate::cloud::CloudHosts,
     /// Theme forced on the command line (screenshots); otherwise preferences decide.
     pub forced_mode: Option<Mode>,
     /// The colour wheel's field to rewrite at the next render (it needs the window).
@@ -627,6 +638,9 @@ impl CleisApp {
             github: None,
             github_after: None,
             github_hosts: Default::default(),
+            cloud: None,
+            cloud_after: None,
+            cloud_hosts: Default::default(),
             _ticker: ticker,
             _subs: vec![],
         };
@@ -1237,6 +1251,7 @@ impl CleisApp {
             org: None,
             folder: None,
             place: None,
+            account_pick: None,
             folder_menu: None,
             customize: false,
             resize: None,
@@ -1512,7 +1527,8 @@ impl Render for CleisApp {
             }
             Phase::Main(_) => {
                 let t = self.tokens(cx).clone();
-                let gh = crate::screens::github::dialog(self, &t, cx);
+                let gh = crate::screens::github::dialog(self, &t, cx)
+                    .or_else(|| crate::screens::cloud::dialog(self, &t, cx));
                 let main = crate::screens::main::render(self, window, cx).into_any_element();
                 return match gh {
                     None => main,
@@ -1528,6 +1544,7 @@ impl Render for CleisApp {
         let gh = {
             let t = self.tokens(cx).clone();
             crate::screens::github::dialog(self, &t, cx)
+                .or_else(|| crate::screens::cloud::dialog(self, &t, cx))
         };
         // First launch and unlock: an empty title bar in the frame colour, so the window still
         // moves and keeps its system buttons.

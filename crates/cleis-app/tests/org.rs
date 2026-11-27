@@ -884,6 +884,35 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
         assert!(l.photo.is_some(), "the photo reached the organization");
     });
 
+    // The e-mail is optional (27/11/2026): emptied, the profile is saved and the organization
+    // keeps the address it has.
+    act(cx, lh, |w, cx| w.click("acc-avatar", cx));
+    act(cx, lh, |w, cx| w.click("acc-menu-profile", cx));
+    act(cx, lh, |w, cx| {
+        w.click("profile-me-name", cx);
+        w.press("ctrl-a", cx);
+        w.input("Léa M.", cx);
+        w.click("profile-me-email", cx);
+        w.press("ctrl-a", cx);
+        w.press("backspace", cx);
+        w.click("profile-me-save", cx);
+    });
+    cx.run_until_parked();
+    session(cx, &lea, |s| {
+        if let Some(e) = s.profile_edit.as_ref() {
+            panic!("not saved without an e-mail: {:?}", e.error);
+        }
+        assert_eq!(s.prefs.profile.email, "");
+    });
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
+        let l = st.members.iter().find(|m| m.id == lea_id).unwrap();
+        assert_eq!(l.name, "Léa M.");
+        assert_eq!(l.email, "lea@example-studio.com");
+    });
+
     lea.update(cx, |a, cx| {
         a.org_member(
             cleis_core::org::MemberChange {

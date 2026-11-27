@@ -47,8 +47,16 @@ pub fn render(
         Tab::Contacts => super::contacts::page(s, &t, cx).into_any_element(),
         Tab::Health => super::health::page(s, &t, cx).into_any_element(),
         Tab::Activity => super::org::activity(s, &t, cx).into_any_element(),
-        Tab::Settings => super::settings::page(s, &app.autofill, &app.path, update_section, &t, cx)
-            .into_any_element(),
+        Tab::Settings => super::settings::page(
+            s,
+            &app.autofill,
+            &app.path,
+            &app.cloud_hosts,
+            update_section,
+            &t,
+            cx,
+        )
+        .into_any_element(),
     };
     let toast = s.toast.clone();
     div()

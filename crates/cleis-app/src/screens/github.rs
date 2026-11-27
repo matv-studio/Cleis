@@ -454,6 +454,10 @@ impl CleisApp {
         if !matches!(self.phase, Phase::Main(_)) {
             return;
         }
+        // D-104: the same for a Microsoft or Google account.
+        if self.resume_cloud(cx) {
+            return;
+        }
         let Some(n) = self.github_after.take() else {
             return;
         };

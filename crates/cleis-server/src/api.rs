@@ -2853,13 +2853,15 @@ async fn profile(
     if name.is_empty() {
         return Err(ApiErr::bad("Enter your name."));
     }
-    if !email.contains('@') {
+    // The e-mail is optional: none given, the member keeps the one the organization has.
+    if !email.is_empty() && !email.contains('@') {
         return Err(ApiErr::bad("Enter an e-mail address."));
     }
     let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
-    if members(&conn)?
-        .iter()
-        .any(|m| m.id != caller.id && m.email.eq_ignore_ascii_case(email))
+    if !email.is_empty()
+        && members(&conn)?
+            .iter()
+            .any(|m| m.id != caller.id && m.email.eq_ignore_ascii_case(email))
     {
         return Err(ApiErr::bad("Another member has this e-mail address."));
     }
@@ -2874,10 +2876,17 @@ async fn profile(
             db::meta_set_json(&conn, &key, photo)?;
         }
     }
-    conn.execute(
-        "UPDATE members SET name = ?2, email = ?3 WHERE id = ?1",
-        params![caller.id.to_string(), name, email],
-    )?;
+    if email.is_empty() {
+        conn.execute(
+            "UPDATE members SET name = ?2 WHERE id = ?1",
+            params![caller.id.to_string(), name],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE members SET name = ?2, email = ?3 WHERE id = ?1",
+            params![caller.id.to_string(), name, email],
+        )?;
+    }
     let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
     Ok(Json(view(&conn, &m)?))
 }

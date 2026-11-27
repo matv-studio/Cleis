@@ -123,9 +123,12 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
     assert!(!window_has(cx, h, "new-password"));
     // Up, "Sign in" takes the click on its whole card (beside its providers too); a provider's
     // button keeps its own click, even greyed.
+    // (A build without Google's client secret: its button only says so.)
+    app.update(cx, |a, _| a.cloud_hosts.google.secret = String::new());
     act(cx, h, |w, cx| w.click("local-only", cx));
-    act(cx, h, |w, cx| w.click("signin-microsoft", cx));
+    act(cx, h, |w, cx| w.click("signin-google", cx));
     assert!(window_has(cx, h, "new-password"));
+    app.read_with(cx, |a, _| assert!(a.cloud.is_none()));
     act(cx, h, |w, cx| {
         w.click_at("sign-in-card", gpui_kit::point(px(400.), px(66.)), cx)
     });
@@ -2712,7 +2715,7 @@ fn contact_photo(cx: &mut TestAppContext) {
 }
 
 /// Scenario (mockups 36b, 36d, D-80): Settings › Account, GitHub: the GitHub place opens to sign
-/// in; Microsoft and Google wait (not clickable). A new computer: "Sign in" › GitHub opens the
+/// in once chosen (Microsoft and Google: tests/cloud.rs). A new computer: "Sign in" › GitHub opens the
 /// restore with the GitHub place.
 #[gpui_kit::test]
 fn account_sign_in(cx: &mut TestAppContext) {
@@ -2734,8 +2737,10 @@ fn account_sign_in(cx: &mut TestAppContext) {
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Account", cx));
-    // Microsoft waits for its registration: nothing opens.
+    // Choosing an account does not sign in yet; "Sign in" goes to the one chosen (D-104).
     act(cx, h, |w, cx| w.click("acc-microsoft", cx));
+    app.read_with(cx, |a, _| assert!(a.github.is_none() && a.cloud.is_none()));
+    act(cx, h, |w, cx| w.click("acc-github", cx));
     app.read_with(cx, |a, _| assert!(a.github.is_none()));
     // GitHub (37n): the code to type on github.com.
     act(cx, h, |w, cx| w.click("acc-signin", cx));
@@ -2997,6 +3002,7 @@ fn sign_in_with_github(cx: &mut TestAppContext) {
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-github", cx));
     act(cx, h, |w, cx| w.click("acc-signin", cx));
     cx.run_until_parked();
     app.read_with(cx, |a, _| {
@@ -3306,6 +3312,7 @@ fn github_app_setup_then_token_renewed(cx: &mut TestAppContext) {
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-github", cx));
     act(cx, h, |w, cx| w.click("acc-signin", cx));
     let setup = |cx: &mut TestAppContext| {
         app.read_with(cx, |a, _| {
@@ -3421,6 +3428,20 @@ fn profile_menu_and_site_link(cx: &mut TestAppContext) {
         assert_eq!(s.prefs.profile.name, "Camille Example");
         assert_eq!(s.prefs.profile.email, "camille@example-studio.com");
         assert_eq!(cleis_app::screens::profile::effective(s).initials(), "CE");
+    });
+    // No e-mail: saved all the same (optional, 27/11/2026).
+    act(cx, h, |w, cx| w.click("acc-avatar", cx));
+    act(cx, h, |w, cx| w.click("acc-menu-profile", cx));
+    act(cx, h, |w, cx| {
+        w.click("profile-me-email", cx);
+        w.press("ctrl-a", cx);
+        w.press("backspace", cx);
+        w.click("profile-me-save", cx);
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.profile_edit.is_none(), "saved without an e-mail");
+        assert_eq!(s.prefs.profile.email, "");
     });
 
     // 46d: the Website column; the selected row's button opens its address.
@@ -3557,6 +3578,7 @@ fn account_page_holds_security(cx: &mut TestAppContext) {
     assert!(!window_has(cx, h, "vault-tabs"));
     // Signed in to GitHub: Revoke access appears; Sync & backups no longer offers GitHub.
     act(cx, h, |w, cx| w.click("set-Account", cx));
+    act(cx, h, |w, cx| w.click("acc-github", cx));
     act(cx, h, |w, cx| w.click("acc-signin", cx));
     for _ in 0..30 {
         cx.executor()

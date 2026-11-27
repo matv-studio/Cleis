@@ -470,10 +470,10 @@ impl CleisApp {
             email: e.email.read(cx).value().trim().to_owned(),
             photo: e.photo.clone(),
         };
-        let has_orgs = s.all_orgs().next().is_some();
+        // The e-mail is optional (27/11/2026), with or without an organization.
         let error = if p.name.is_empty() {
             Some(tr("Enter your name."))
-        } else if (has_orgs || !p.email.is_empty()) && !p.email.contains('@') {
+        } else if !p.email.is_empty() && !p.email.contains('@') {
             Some(tr("Enter an e-mail address."))
         } else {
             None
@@ -493,15 +493,21 @@ impl CleisApp {
     }
 
     /// Each organization gets the profile (its own name and e-mail for this member).
+    /// No e-mail in the profile: each organization keeps the one it has (sent back as it is, so a
+    /// server of an earlier version, which wants one, takes the change too).
     pub fn profile_to_orgs(&mut self, p: &Profile, cx: &mut Context<Self>) {
-        let req = ProfileChange {
-            name: p.name.clone(),
-            email: p.email.clone(),
-            photo: Some(p.photo.clone().unwrap_or_default()),
-        };
         for k in self.org_keys() {
-            let req = req.clone();
+            let mut req = ProfileChange {
+                name: p.name.clone(),
+                email: p.email.clone(),
+                photo: Some(p.photo.clone().unwrap_or_default()),
+            };
             self.in_org(&k, |app| {
+                if req.email.is_empty()
+                    && let Some(m) = app.session().and_then(|s| s.org.as_ref()?.me())
+                {
+                    req.email = m.email.clone();
+                }
                 app.org_request::<_, MemberView>(
                     "/v1/me",
                     req,

@@ -254,6 +254,18 @@ impl CleisApp {
                 ),
                 "Revoke on GitHub",
             ),
+            A::RevokeCloud => {
+                let r = s.sync.remote.as_ref();
+                let k = r.and_then(|r| r.cloud());
+                (
+                    crate::trf!("Revoke {} access?", k.map_or("", |k| k.name())),
+                    crate::trf!(
+                        "Every computer stops syncing with {}.",
+                        r.and_then(|r| r.account()).unwrap_or_default()
+                    ),
+                    "Revoke access",
+                )
+            }
             A::DeleteBackups => (
                 tr("Delete all backups?").to_owned(),
                 crate::trf!(
@@ -317,6 +329,7 @@ impl CleisApp {
             ConfirmAction::RotateKey => self.org_rotate(cx),
             ConfirmAction::DisconnectPlace => self.disconnect_sync(cx),
             ConfirmAction::RevokeGitHub => self.revoke_github(cx),
+            ConfirmAction::RevokeCloud => self.revoke_cloud(cx),
             ConfirmAction::RemovePassword => self.remove_password(cx),
             ConfirmAction::DeleteBackups => self.delete_backups(cx),
             ConfirmAction::EmptyTrash => {

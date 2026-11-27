@@ -57,6 +57,7 @@ pub fn page(
     s: &Session,
     af: &AutofillState,
     path: &std::path::Path,
+    hosts: &crate::cloud::CloudHosts,
     updates: Option<Div>,
     t: &Tokens,
     cx: &mut Context<CleisApp>,
@@ -172,7 +173,7 @@ pub fn page(
         "Shortcuts" => super::keys::page(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
         p if p == super::import::ORG_PAGE => super::import::page(s, t, cx),
-        "Security" | "Profile" => super::account::page(s, t, cx),
+        "Security" | "Profile" => super::account::page(s, s.account_pick, hosts, t, cx),
         "Sync & backups" if manage => {
             let org_view = s.org.as_ref().is_some_and(|o| o.ui.org_backups);
             let name = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
@@ -235,7 +236,7 @@ pub fn page(
                 .child(inner)
         }
         "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
-        "Account" => super::account::page(s, t, cx),
+        "Account" => super::account::page(s, s.account_pick, hosts, t, cx),
         "Members" => super::org::members(s, t, cx),
         "Spaces" => super::org::spaces(s, t, cx),
         "Devices" => super::org::devices(s, t, cx),

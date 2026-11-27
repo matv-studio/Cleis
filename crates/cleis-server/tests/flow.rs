@@ -686,6 +686,20 @@ fn organization_flow() {
         )
         .unwrap();
     assert!(me.photo.is_some());
+    // The e-mail is optional: none sent, the member keeps the one the organization has.
+    let me: MemberView = lea
+        .client
+        .call(
+            "/v1/me",
+            &ProfileChange {
+                name: "Léa M.".into(),
+                email: String::new(),
+                photo: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(me.name, "Léa M.");
+    assert_eq!(me.email, "lea@example-studio.com");
     for bad in [
         "https://example-studio.com/a.png".to_owned(),
         format!("data:image/png;base64,{}", "A".repeat(PHOTO_MAX)),

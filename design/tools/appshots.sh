@@ -52,6 +52,14 @@ for theme in ${THEMES:-dark}; do
   shot "website-column-$theme" --demo --unlocked --menu website --theme $theme
   shot "space-members-$theme" --demo --unlocked --tab settings --page spaces --menu space-members --theme $theme
   shot "account-page-$theme" --demo --unlocked --tab settings --page account --theme $theme
+  # 27/11/2026 (D-104): Microsoft and Google sync.
+  shot "account-pick-microsoft-$theme" --demo --unlocked --tab settings --page account --menu pick-microsoft --theme $theme
+  shot "cloud-microsoft-$theme" --demo --unlocked --tab settings --page account --menu cloud-microsoft --theme $theme
+  shot "cloud-google-$theme" --demo --unlocked --tab settings --page account --menu cloud-google --theme $theme
+  shot "account-onedrive-$theme" --demo --unlocked --tab settings --page account --menu onedrive --theme $theme
+  shot "account-gdrive-$theme" --demo --unlocked --tab settings --page account --menu gdrive --theme $theme
+  shot "welcome-signin-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --welcome-signin --theme $theme
+  shot "profile-edit-$theme" --demo --unlocked --menu profile-edit --theme $theme
   shot "welcome-local-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --welcome-local --theme $theme
   shot "org-pin-setup-$theme" --demo --unlocked --tab settings --page policy --menu org-pin-setup --theme $theme
   # 27/11/2026 (mockups 42, D-98): organization access, logo, deleting the server.

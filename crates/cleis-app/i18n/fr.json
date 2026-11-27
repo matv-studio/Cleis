@@ -1351,5 +1351,18 @@
   "Any Linux machine you reach over SSH: a VPS, a mini PC…": "Toute machine Linux joignable par SSH : un VPS, un mini PC…",
   "The server runs here; members reach it only while this computer is on": "Le serveur tourne ici ; les membres ne l'atteignent que tant que cet ordinateur est allumé",
   "Reachable by the other members only while this computer is on": "Joignable par les autres membres seulement tant que cet ordinateur est allumé",
-  "A folder on an SSH server": "Un dossier sur un serveur SSH"
+  "A folder on an SSH server": "Un dossier sur un serveur SSH",
+  "Waiting for {}…": "En attente de {}…",
+  "Sign in with {}": "Se connecter avec {}",
+  "Your vault goes to {}, in a folder only Cleis uses": "Votre coffre va dans {}, dans un dossier réservé à Cleis",
+  "Opens the sign-in page again in your browser": "Rouvre la page de connexion dans votre navigateur",
+  "Not available in this build": "Indisponible dans cette version",
+  "Google access revoked": "Accès Google révoqué",
+  "Click Remove next to Cleis-Sync on the page Microsoft opened": "Cliquez sur Supprimer à côté de Cleis-Sync sur la page ouverte par Microsoft",
+  "Your browser opens Microsoft's sign-in page": "Votre navigateur ouvre la page de connexion de Microsoft",
+  "Your browser opens Google's sign-in page": "Votre navigateur ouvre la page de connexion de Google",
+  "Choose an account above": "Choisissez un compte ci-dessus",
+  "Every computer stops syncing with {}.": "Tous les ordinateurs cessent de se synchroniser avec {}.",
+  "Removes Cleis' access to your {}, on every computer": "Retire l'accès de Cleis à votre {}, sur tous les ordinateurs",
+  "Revoke {} access?": "Révoquer l'accès {} ?"
 }

@@ -1,5 +1,6 @@
 pub mod account;
 pub mod calendar;
+pub mod cloud;
 pub mod columns;
 pub mod contacts;
 pub mod ctx;

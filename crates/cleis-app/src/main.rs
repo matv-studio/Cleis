@@ -111,6 +111,7 @@ fn main() {
     };
     let restore = flag("--restore");
     let welcome_local = flag("--welcome-local");
+    let welcome_signin = flag("--welcome-signin");
     let no_org = flag("--no-org");
     // D-69 captures: a second organization, the vaults in their own tabs.
     let two_orgs = flag("--two-orgs");
@@ -269,6 +270,10 @@ fn main() {
                     // Mockups 40: the first screen with "Local account" chosen.
                     if welcome_local {
                         app.welcome_choose(cleis_app::screens::welcome::Start::Local, window, cx);
+                    }
+                    // D-104: "Sign in" chosen, its Microsoft, Google and GitHub buttons.
+                    if welcome_signin {
+                        app.welcome_choose(cleis_app::screens::welcome::Start::Account, window, cx);
                     }
                     if let Some(f) = import.as_deref() {
                         // Screen 14 for screenshots: `--import FILE [--review]`.

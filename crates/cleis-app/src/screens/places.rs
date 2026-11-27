@@ -217,9 +217,17 @@ impl CleisApp {
         let Some((place, secret)) = self.place_values(cx) else {
             return;
         };
+        self.connect_remote(place, secret, cx);
+    }
+
+    /// A first read checks the place before it is kept (sign-ins to Microsoft and Google give
+    /// the place and its secret directly, D-104).
+    pub fn connect_remote(&mut self, place: RemotePlace, secret: Secret, cx: &mut Context<Self>) {
         let kind = match &place {
             RemotePlace::GitHub { .. } => Provider::GitHub,
             RemotePlace::Sftp { .. } => Provider::Sftp,
+            RemotePlace::OneDrive { .. } => Provider::OneDrive,
+            RemotePlace::GoogleDrive { .. } => Provider::GoogleDrive,
         };
         let first_sftp =
             matches!(&place, RemotePlace::Sftp { host_key, .. } if host_key.is_empty());
@@ -288,6 +296,30 @@ impl CleisApp {
                         cx.notify();
                         return;
                     }
+                    // D-104: signed in to Microsoft or Google, no vault there yet: a vault is
+                    // made here and sent to the account once its recovery key is put away.
+                    if matches!(&r, Ok((None, _))) && place.cloud().is_some() && !cache.exists() {
+                        app.cloud = None;
+                        app.cloud_after = Some((place, secret));
+                        if let Phase::Welcome(w) = &mut app.phase {
+                            w.restore = None;
+                            w.choice = Some(crate::screens::welcome::Start::Account);
+                        }
+                        cx.notify();
+                        return;
+                    }
+                    if place.cloud().is_some() {
+                        // The sign-in's dialog says what went wrong; found, the vault's card shows.
+                        match &r {
+                            Ok(_) => app.cloud = None,
+                            Err(e) => {
+                                if let Some(c) = app.cloud.as_mut() {
+                                    c.finishing = false;
+                                    c.error = Some(crate::i18n::tr_dynamic(&e.to_string()).into());
+                                }
+                            }
+                        }
+                    }
                     let Phase::Welcome(w) = &mut app.phase else {
                         return;
                     };
@@ -323,6 +355,17 @@ impl CleisApp {
                     }
                     cx.notify();
                     return;
+                }
+                if place.cloud().is_some() {
+                    match &r {
+                        Ok(_) => app.cloud = None,
+                        Err(e) => {
+                            if let Some(c) = app.cloud.as_mut() {
+                                c.finishing = false;
+                                c.error = Some(crate::i18n::tr_dynamic(&e.to_string()).into());
+                            }
+                        }
+                    }
                 }
                 let Some(s) = app.session() else { return };
                 match r {

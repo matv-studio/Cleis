@@ -29,6 +29,34 @@ pub enum RemotePlace {
         #[serde(default)]
         host_key: String,
     },
+    /// The app folder of the Microsoft account's OneDrive (D-104).
+    OneDrive {
+        /// Path in the app folder.
+        path: String,
+        /// Microsoft Graph (a stand-in in the tests).
+        #[serde(default = "graph_api")]
+        api: String,
+        /// The account's address, shown in Settings › Account.
+        #[serde(default)]
+        account: String,
+    },
+    /// The hidden app data folder of the Google account's Drive (D-104).
+    GoogleDrive {
+        /// File name in the folder.
+        name: String,
+        #[serde(default = "google_api")]
+        api: String,
+        #[serde(default)]
+        account: String,
+    },
+}
+
+fn graph_api() -> String {
+    "https://graph.microsoft.com/v1.0".into()
+}
+
+fn google_api() -> String {
+    "https://www.googleapis.com".into()
 }
 
 fn github_api() -> String {
@@ -43,6 +71,31 @@ impl RemotePlace {
             RemotePlace::Sftp {
                 host, user, path, ..
             } => format!("{user}@{host}:{path}"),
+            RemotePlace::OneDrive { path, account, .. } => {
+                format!("{account} · OneDrive › Apps › {path}")
+            }
+            RemotePlace::GoogleDrive { name, account, .. } => {
+                format!("{account} · Google Drive › {name}")
+            }
+        }
+    }
+
+    /// Microsoft or Google, for a place kept in their storage.
+    pub fn cloud(&self) -> Option<crate::cloud::Cloud> {
+        match self {
+            RemotePlace::OneDrive { .. } => Some(crate::cloud::Cloud::Microsoft),
+            RemotePlace::GoogleDrive { .. } => Some(crate::cloud::Cloud::Google),
+            _ => None,
+        }
+    }
+
+    /// The account signed in to (Microsoft, Google), as shown.
+    pub fn account(&self) -> Option<&str> {
+        match self {
+            RemotePlace::OneDrive { account, .. } | RemotePlace::GoogleDrive { account, .. } => {
+                Some(account)
+            }
+            _ => None,
         }
     }
 }
@@ -80,6 +133,23 @@ impl Secret {
 /// D-101: a GitHub place's token renewed when it is about to end (device flow: no client secret
 /// needed). `None`: nothing to renew, or not a GitHub place.
 pub fn renewed(place: &RemotePlace, secret: &Secret) -> Option<Result<Secret, String>> {
+    // D-104: Microsoft and Google tokens last an hour; the refresh token gets the next.
+    if let (Some(c), RemotePlace::OneDrive { api, .. } | RemotePlace::GoogleDrive { api, .. }) =
+        (place.cloud(), place)
+    {
+        if !secret.renewable() {
+            return None;
+        }
+        let e = crate::cloud::Endpoints::of_api(c, api);
+        return Some(
+            crate::cloud::refresh(c, &e, &secret.refresh).map(|g| Secret {
+                token: g.token,
+                key: String::new(),
+                refresh: g.refresh,
+                expires: g.expires,
+            }),
+        );
+    }
     let RemotePlace::GitHub { api, .. } = place else {
         return None;
     };
@@ -150,6 +220,26 @@ pub fn download(place: &RemotePlace, secret: &Secret, to: &Path) -> Result<Versi
             }
         }
         RemotePlace::Sftp { .. } => crate::sftp::download(place, secret, to),
+        RemotePlace::OneDrive { path, api, .. } => {
+            stored(crate::cloud::onedrive_read(api, path, &secret.token)?, to)
+        }
+        RemotePlace::GoogleDrive { name, api, .. } => {
+            stored(crate::cloud::gdrive_read(api, name, &secret.token)?, to)
+        }
+    }
+}
+
+/// The file read (or none yet) written to `to`, its version given back.
+fn stored(read: Option<(String, Vec<u8>)>, to: &Path) -> Result<Version, RemoteError> {
+    match read {
+        Some((version, bytes)) => {
+            write_atomic(to, &bytes)?;
+            Ok(Some(version))
+        }
+        None => {
+            let _ = std::fs::remove_file(to);
+            Ok(None)
+        }
     }
 }
 
@@ -169,6 +259,12 @@ pub fn upload(
             api,
         } => GitHub::new(api, repo, path, branch, &secret.token)?.write(&bytes, version),
         RemotePlace::Sftp { .. } => crate::sftp::upload(place, secret, &bytes),
+        RemotePlace::OneDrive { path, api, .. } => {
+            crate::cloud::onedrive_write(api, path, &secret.token, &bytes, version)
+        }
+        RemotePlace::GoogleDrive { name, api, .. } => {
+            crate::cloud::gdrive_write(api, name, &secret.token, &bytes, version)
+        }
     }
 }
 
@@ -219,7 +315,10 @@ pub fn key_place(place: &RemotePlace) -> RemotePlace {
     };
     let mut k = place.clone();
     match &mut k {
-        RemotePlace::GitHub { path, .. } | RemotePlace::Sftp { path, .. } => *path = swap(path),
+        RemotePlace::GitHub { path, .. }
+        | RemotePlace::Sftp { path, .. }
+        | RemotePlace::OneDrive { path, .. }
+        | RemotePlace::GoogleDrive { name: path, .. } => *path = swap(path),
     }
     k
 }
@@ -272,6 +371,12 @@ pub fn remove(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
             api,
         } => GitHub::new(api, repo, path, branch, &secret.token)?.delete(),
         RemotePlace::Sftp { .. } => crate::sftp::remove(place, secret),
+        RemotePlace::OneDrive { path, api, .. } => {
+            crate::cloud::onedrive_delete(api, path, &secret.token)
+        }
+        RemotePlace::GoogleDrive { name, api, .. } => {
+            crate::cloud::gdrive_delete(api, name, &secret.token)
+        }
     }
 }
 
@@ -314,6 +419,21 @@ impl RemotePlace {
                 path: join(&path),
                 host_key,
             },
+            RemotePlace::OneDrive { path, api, account } => RemotePlace::OneDrive {
+                path: join(&path),
+                api,
+                account,
+            },
+            // The app data folder has no folders: the name carries the path.
+            RemotePlace::GoogleDrive {
+                name: dir,
+                api,
+                account,
+            } => RemotePlace::GoogleDrive {
+                name: join(&dir).replace('/', "-"),
+                api,
+                account,
+            },
         }
     }
 }
@@ -345,6 +465,8 @@ pub fn check(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
             }
         }
         RemotePlace::Sftp { .. } => crate::sftp::server_key(place, secret).map(|_| ()),
+        RemotePlace::OneDrive { api, .. } => crate::cloud::onedrive_check(api, &secret.token),
+        RemotePlace::GoogleDrive { api, .. } => crate::cloud::gdrive_check(api, &secret.token),
     }
 }
 
@@ -554,7 +676,8 @@ pub fn prune(place: &RemotePlace, secret: &Secret, keep: usize) -> Result<bool, 
             branch,
             api,
         } => prune_with(&GitHub::new(api, repo, path, branch, &secret.token)?, keep),
-        RemotePlace::Sftp { .. } => Ok(false),
+        // OneDrive and Google Drive keep their own versions of a file.
+        _ => Ok(false),
     }
 }
 
