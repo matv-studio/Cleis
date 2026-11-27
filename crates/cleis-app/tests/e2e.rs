@@ -2985,3 +2985,66 @@ fn github_without_vault_creates_one(cx: &mut TestAppContext) {
         assert!(s.sync.remote.is_some());
     });
 }
+
+/// Scenario (27/11/2026): the mouse's side buttons and Alt+← / Alt+→ go back and forward
+/// through the views: tabs, settings pages, the item open in the panel.
+#[gpui_kit::test]
+fn back_and_forward_through_views(cx: &mut TestAppContext) {
+    use cleis_app::app::Tab;
+    use gpui_kit::test::ClickOptions;
+    use gpui_kit::{MouseButton, NavigationDirection};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let view = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| match &a.phase {
+            Phase::Main(s) => (s.tab, s.settings_page, s.selected),
+            _ => panic!(),
+        })
+    };
+    let figma = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.entries.iter().find(|e| e.name == "Figma").unwrap().id,
+        _ => panic!(),
+    });
+    let start = view(cx);
+    // On its name (the middle of the row holds copy buttons).
+    act(cx, h, |w, cx| {
+        w.click_at(
+            format!("row-{figma}"),
+            gpui_kit::point(gpui_kit::px(40.), gpui_kit::px(12.)),
+            cx,
+        )
+    });
+    assert_eq!(view(cx).2, Some(figma));
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Autofill", cx));
+    assert_eq!(view(cx).1, "Autofill");
+    // Thumb button "back": the settings page before, then the vault with Figma open.
+    let back = ClickOptions::new().with_button(MouseButton::Navigate(NavigationDirection::Back));
+    act(cx, h, |w, cx| {
+        w.click_with_options("set-Autofill", back, cx)
+    });
+    let v = view(cx);
+    assert_eq!((v.0, v.1), (Tab::Settings, start.1));
+    act(cx, h, |w, cx| w.press("alt-left", cx));
+    assert_eq!(view(cx), (Tab::Vault, start.1, Some(figma)));
+    act(cx, h, |w, cx| w.press("alt-left", cx));
+    assert_eq!(view(cx), start);
+    // Forward again, by the other thumb button and Alt+→.
+    let fwd = ClickOptions::new().with_button(MouseButton::Navigate(NavigationDirection::Forward));
+    act(cx, h, |w, cx| w.click_with_options("tab-Vault", fwd, cx));
+    assert_eq!(view(cx).2, Some(figma));
+    act(cx, h, |w, cx| w.press("alt-right", cx));
+    act(cx, h, |w, cx| w.press("alt-right", cx));
+    assert_eq!(view(cx).1, "Autofill");
+    // Nothing ahead: Alt+→ changes nothing.
+    act(cx, h, |w, cx| w.press("alt-right", cx));
+    assert_eq!(view(cx).1, "Autofill");
+}

@@ -701,6 +701,12 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   dialogue nomme le compte et propose « Create my vault » (le coffre est créé ici puis, une fois la clé de
   récupération rangée, le dépôt privé est créé et le coffre envoyé), « Other account » ou « Cancel ».
   Après une erreur (code expiré, refus), le bouton devient « Try again » au lieu d'« Open GitHub ».
+- **D-91 Retour et avance entre les vues** (27/11/2026, demande de l'utilisateur). Les boutons latéraux de
+  la souris (`MouseButton::Navigate`, Windows, macOS, Linux), Alt+← / Alt+→ (⌘[ / ⌘] sur macOS)
+  reviennent à la vue d'avant ou repartent à celle d'après : onglet, page de réglages, filtre ou
+  portée du coffre, élément ou contact ouvert (`nav.rs`, 50 vues). Les sélections rapprochées (flèches
+  dans la liste, < 0,8 s) comptent pour un pas. Écouté pour toute la fenêtre (une barre ou un menu qui
+  occulte ne l'arrête pas).
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

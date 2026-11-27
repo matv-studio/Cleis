@@ -31,6 +31,9 @@ pub fn render(
     let update_dialog = super::update::dialog(app, &t, cx);
     let update_section = matches!(&app.phase, Phase::Main(s) if s.tab == Tab::Settings)
         .then(|| super::update::section_of(app, &t, cx));
+    if let Phase::Main(s) = &mut app.phase {
+        crate::nav::track(s);
+    }
     let Phase::Main(s) = &app.phase else {
         unreachable!()
     };
@@ -60,6 +63,7 @@ pub fn render(
         .text_size(TEXT_MD)
         .text_color(t.text)
         .track_focus(&s.main_focus)
+        .child(nav_buttons(cx))
         .on_key_down(
             cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
@@ -80,6 +84,33 @@ pub fn render(
                     .session()
                     .is_some_and(|s| s.main_focus.is_focused(window) && s.confirm.is_none())
                     && this.item_key(k, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
+                // Back and forward, as in a browser: Alt+← / Alt+→, ⌘[ / ⌘] on macOS.
+                let m = &k.modifiers;
+                let nav = if cfg!(target_os = "macos") {
+                    match (
+                        m.platform && !m.alt && !m.shift && !m.control,
+                        k.key.as_str(),
+                    ) {
+                        (true, "[") => Some(gpui_kit::NavigationDirection::Back),
+                        (true, "]") => Some(gpui_kit::NavigationDirection::Forward),
+                        _ => None,
+                    }
+                } else {
+                    match (
+                        m.alt && !m.control && !m.shift && !m.platform,
+                        k.key.as_str(),
+                    ) {
+                        (true, "left") => Some(gpui_kit::NavigationDirection::Back),
+                        (true, "right") => Some(gpui_kit::NavigationDirection::Forward),
+                        _ => None,
+                    }
+                };
+                if let Some(dir) = nav
+                    && this.navigate(dir, cx)
                 {
                     cx.stop_propagation();
                     return;
@@ -751,6 +782,28 @@ fn view_toggle(cards: bool, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .test_support()
             }),
         )
+}
+
+/// The mouse's side buttons go to the view before or after (27/11/2026), wherever the pointer
+/// is: listened to for the whole window, not through an element's hitbox (the top bar and the
+/// menus occlude what is under them).
+fn nav_buttons(cx: &mut Context<CleisApp>) -> impl IntoElement {
+    let app = cx.entity().downgrade();
+    gpui_kit::canvas(
+        |_, _, _| {},
+        move |_, _, window, _| {
+            window.on_mouse_event(move |ev: &gpui_kit::MouseDownEvent, phase, _, cx| {
+                if phase != gpui_kit::DispatchPhase::Bubble {
+                    return;
+                }
+                if let gpui_kit::MouseButton::Navigate(dir) = ev.button {
+                    let _ = app.update(cx, |this, cx| this.navigate(dir, cx));
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_0()
 }
 
 /// Cards view of the vault: one card per listed item.

@@ -238,6 +238,8 @@ pub struct Session {
     pub erase: Option<crate::screens::erase::EraseAccount>,
     /// Security › Opening Cleis › PIN: the new PIN typed twice (mockup 37f).
     pub pin_setup: Option<crate::screens::pin::PinSetup>,
+    /// Views behind and ahead: the mouse's side buttons, Alt+← / Alt+→ (27/11/2026).
+    pub history: crate::nav::History,
 }
 
 /// Vaults shown by the Vault tab: everything (one tab), the personal vault, or one organization
@@ -1246,6 +1248,7 @@ impl CleisApp {
             join_subs: vec![],
             erase: None,
             pin_setup: None,
+            history: Default::default(),
         };
         match s.prefs.start_in.as_str() {
             "favorites" => s.filter = Filter::Favorites,
