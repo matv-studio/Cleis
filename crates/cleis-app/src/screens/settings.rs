@@ -246,25 +246,34 @@ pub fn page(
         "Add an organization" => super::org::join_page(s, t, cx),
         _ => preferences(s, &s.prefs, s.pref_menu, t, cx).children(updates),
     };
-    div().flex_1().min_h_0().flex().child(nav).child(
-        div()
-            .id("settings-body")
-            .flex_1()
-            .overflow_y_scroll()
-            .px(px(32.))
-            .pt(px(24.))
-            .pb(px(40.))
-            .child(crate::ui::page_in(
-                format!("settings-{}", s.settings_page),
-                div()
-                    .max_w(px(960.))
-                    .mx_auto()
-                    .flex()
-                    .flex_col()
-                    .gap(px(16.))
-                    .child(body),
-            )),
-    )
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .child(nav)
+        .child(crate::scroll::area(
+            "settings-body",
+            &s.scrolls,
+            div()
+                .id("settings-body")
+                .flex_1()
+                .overflow_y_scroll()
+                .px(px(32.))
+                .pt(px(24.))
+                .pb(px(40.))
+                .child(crate::ui::page_in(
+                    format!("settings-{}", s.settings_page),
+                    div()
+                        .max_w(px(960.))
+                        .mx_auto()
+                        .flex()
+                        .flex_col()
+                        .gap(px(16.))
+                        .child(body),
+                )),
+            t,
+            cx,
+        ))
 }
 
 fn toggle(
@@ -595,6 +604,28 @@ fn preferences(
                 .child(tr("Preferences")),
         )
         .child(vaults_section(s, p, t, cx))
+        // Mockup 48l: the folder lines of the lists can be turned off.
+        .child(
+            section(t).child(section_title(t, tr("Lists"))).child(
+                row(t, true)
+                    .child(
+                        div()
+                            .id("folder-lines-label")
+                            .flex_1()
+                            .child(tr("Folder lines"))
+                            .tooltip(crate::ui::tip(tr(
+                                "In All items, a vault, All contacts: a line with each folder's name before its items",
+                            ))),
+                    )
+                    .child(toggle(
+                        "folder-lines",
+                        t,
+                        p.folder_lines,
+                        |p| p.folder_lines = !p.folder_lines,
+                        cx,
+                    )),
+            ),
+        )
         .child(
             section(t)
                 .child(section_title(t, tr("Appearance")))
@@ -1357,6 +1388,8 @@ impl CleisApp {
     pub fn update_prefs(&mut self, f: impl FnOnce(&mut Preferences), cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         f(&mut s.prefs);
+        // The folder lines, the sort: the list follows at once.
+        s.refilter();
         // D-69: the vault tabs come and go with their setting.
         let scope = match (s.vault_tabs(), &s.scope) {
             (false, _) => crate::app::Scope::All,

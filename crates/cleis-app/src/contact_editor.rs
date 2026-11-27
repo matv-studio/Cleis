@@ -23,6 +23,9 @@ pub struct ContactEditor {
     pub custom_errors: HashMap<cleis_core::ColumnId, SharedString>,
     /// Boxes typed in since their last save (saved when left, Enter, or the editing ends).
     pub dirty: std::collections::HashSet<Field>,
+    /// Boxes whose saved text differs from what was typed (a phone number put in its country's
+    /// format): written back at the next render, which has the window.
+    pub refresh: Vec<Field>,
     _subs: Vec<Subscription>,
 }
 
@@ -99,11 +102,17 @@ impl CleisApp {
             s.contacts_ui.editor = None;
             return;
         };
-        if s.contacts_ui
-            .editor
-            .as_ref()
-            .is_some_and(|e| e.contact == id)
-        {
+        if let Some(ed) = s.contacts_ui.editor.as_mut().filter(|e| e.contact == id) {
+            let refresh = std::mem::take(&mut ed.refresh);
+            if let Some(c) = s.contacts.iter().find(|c| c.id == id) {
+                for f in refresh {
+                    if let Some(st) = ed.inputs.get(&f) {
+                        let text = contact_edit::text(c, f);
+                        st.update(cx, |st, cx| st.set_value(text, window, cx));
+                    }
+                    ed.dirty.remove(&f);
+                }
+            }
             return;
         }
         let Some(c) = s.contacts.iter().find(|c| c.id == id) else {
@@ -205,6 +214,7 @@ impl CleisApp {
                 custom,
                 custom_errors: HashMap::new(),
                 dirty: Default::default(),
+                refresh: vec![],
                 _subs: subs,
             });
         }
@@ -250,6 +260,9 @@ impl CleisApp {
             }
             Ok(r) => {
                 ed.errors.remove(&f);
+                if r != Applied::Removed && contact_edit::text(c, f) != value.trim() {
+                    ed.refresh.push(f);
+                }
                 let saved = s.vault.put_contact(c);
                 s.toast = Some(match saved {
                     Ok(()) => tr("Saved").into(),

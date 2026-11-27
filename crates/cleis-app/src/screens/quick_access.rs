@@ -272,18 +272,31 @@ impl Render for QuickAccess {
                 .text_color(t.text_muted)
                 .child(crate::i18n::tr_owned(label))
         };
-        let mut last_section: Option<Option<Reason>> = None;
+        // Mockup 48k: the same site, the site's name and the window title share "Most likely",
+        // each row saying why in a chip.
+        let section = |r: Option<Reason>| match r {
+            Some(Reason::Linked) => "Linked to this app",
+            Some(Reason::Website) => "Saved for this site",
+            Some(Reason::SameSite | Reason::SiteName | Reason::Name) => "Most likely",
+            None => "Other",
+        };
+        let mut last_section: Option<&str> = None;
         for (i, it) in list.iter().enumerate().take(9) {
-            if last_section != Some(it.matched) {
-                let label = match it.matched {
-                    Some(Reason::Linked) => "Linked to this app",
-                    Some(Reason::Website) => "Saved for this site",
-                    Some(Reason::Name) => "Suggested",
-                    None => "Other",
-                };
+            let label = section(it.matched);
+            if last_section != Some(label) {
                 rows = rows.child(head(label));
-                last_section = Some(it.matched);
+                last_section = Some(label);
             }
+            let why = match it.matched {
+                Some(Reason::SameSite) => {
+                    Some(("Same site", "Saved for another address of this site"))
+                }
+                Some(Reason::SiteName) => {
+                    Some(("Name", "The site's name is in its name; no website saved"))
+                }
+                Some(Reason::Name) => Some(("Title", "Named in the window's title")),
+                _ => None,
+            };
             let sel = i == self.selected;
             let letter = it.name.chars().next().unwrap_or('?');
             rows = rows.child(
@@ -323,6 +336,17 @@ impl Render for QuickAccess {
                                     .child(it.sub.clone()),
                             ),
                     )
+                    .when_some(why, |d, (label, tip)| {
+                        d.child(
+                            div()
+                                .id(SharedString::from(format!("qa-why-{i}")))
+                                .child(chip(&t, Tone::Neutral, crate::i18n::tr(label), false))
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr(tip))
+                                        .build(window, cx)
+                                }),
+                        )
+                    })
                     .when(sel, |d| d.child(hint(&t, &["↵"], "Fill")))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.selected = i;

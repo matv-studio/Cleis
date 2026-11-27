@@ -149,7 +149,11 @@ pub fn apply(c: &mut Contact, f: Field, value: &str) -> Result<Applied, EditErro
             if !v.is_empty() && (digits < 3 || !allowed) {
                 return Err(EditError::Phone);
             }
-            set_row(&mut c.phones, i, (!v.is_empty()).then(|| v.to_owned()))
+            set_row(
+                &mut c.phones,
+                i,
+                (!v.is_empty()).then(|| crate::phone::format(v)),
+            )
         }
         Field::Address(i) => {
             let a = (!v.is_empty()).then(|| Address::parse_line(v));
@@ -217,6 +221,32 @@ pub fn cycle_label(c: &mut Contact, list: List, i: usize) {
     };
     if let Some(l) = cur {
         *l = next_label(list, l).to_owned();
+        c.updated = crate::now();
+    }
+}
+
+/// The type label of row `i` of `list`.
+pub fn label_of(c: &Contact, list: List, i: usize) -> Option<String> {
+    match list {
+        List::Email => c.emails.get(i).map(|x| x.label.clone()),
+        List::Phone => c.phones.get(i).map(|x| x.label.clone()),
+        List::Address => c.addresses.get(i).map(|x| x.label.clone()),
+        List::Url => c.urls.get(i).map(|x| x.label.clone()),
+    }
+}
+
+/// Sets the type label of row `i` of `list` (the type menu, mockup 48e).
+pub fn set_label(c: &mut Contact, list: List, i: usize, label: &str) {
+    let cur = match list {
+        List::Email => c.emails.get_mut(i).map(|x| &mut x.label),
+        List::Phone => c.phones.get_mut(i).map(|x| &mut x.label),
+        List::Address => c.addresses.get_mut(i).map(|x| &mut x.label),
+        List::Url => c.urls.get_mut(i).map(|x| &mut x.label),
+    };
+    if let Some(l) = cur
+        && *l != label
+    {
+        *l = label.to_owned();
         c.updated = crate::now();
     }
 }

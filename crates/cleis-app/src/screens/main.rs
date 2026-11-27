@@ -517,6 +517,83 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
         })
 }
 
+/// A row of a list with folder lines (mockups 48a, 48d): a folder's line, with its item count,
+/// or one of its items.
+pub enum ListRow<T> {
+    Folder(cleis_core::SpaceId, usize),
+    Entry(T),
+}
+
+/// The vault list's rows: `s.visible`, with a line before each folder when the list shows them
+/// (the items are already grouped by `refilter`).
+pub fn vault_rows(s: &Session) -> Vec<ListRow<usize>> {
+    if !s.folder_lines() {
+        return (0..s.visible.len()).map(ListRow::Entry).collect();
+    }
+    let mut out = Vec::with_capacity(s.visible.len() + 8);
+    let mut current = None;
+    for (ix, i) in s.visible.iter().enumerate() {
+        let sp = s.entries[*i].space;
+        if current != Some(sp) {
+            let n = s.visible[ix..]
+                .iter()
+                .take_while(|j| s.entries[**j].space == sp)
+                .count();
+            out.push(ListRow::Folder(sp, n));
+            current = Some(sp);
+        }
+        out.push(ListRow::Entry(ix));
+    }
+    out
+}
+
+/// A folder's line (mockup 48a): the vault's name before the folder's when the list holds
+/// several vaults, the count on the right, on a lighter background than the items. Right-click:
+/// the folder's menu.
+pub fn folder_line(
+    space: cleis_core::SpaceId,
+    vault: &str,
+    name: &str,
+    n: usize,
+    menu: bool,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> gpui_kit::AnyElement {
+    div()
+        .id(SharedString::from(format!("fline-{space}")))
+        .w_full()
+        .h(ROW_H)
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .px(px(12.))
+        .bg(t.surface_raised)
+        .border_b_1()
+        .border_color(t.line)
+        .text_size(TEXT_XS)
+        .font_weight(W_MEDIUM)
+        .when(!vault.is_empty(), |d| {
+            d.child(div().text_color(t.text_muted).child(vault.to_owned()))
+                .child(
+                    gpui_kit::svg()
+                        .path("icons/chevronR.svg")
+                        .size(px(12.))
+                        .text_color(t.text_faint),
+                )
+        })
+        .child(div().text_color(t.text).child(name.to_owned()))
+        .child(div().flex_1())
+        .child(div().text_color(t.text_faint).child(n.to_string()))
+        .when(menu, |d| {
+            d.on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                super::ctx::on_right(super::ctx::CtxTarget::Space(space), cx),
+            )
+        })
+        .test_support()
+        .into_any_element()
+}
+
 /// Width of each built-in column, as in mockup 01.
 fn col_width(c: &ColumnDef) -> Option<f32> {
     match c.id.0.as_str() {
@@ -628,6 +705,17 @@ fn row_cell(
                         d.tooltip(tip(e.name.clone()))
                     }),
             )
+            // Favorites: a full star after the name, as in Contacts (0.2.4).
+            .when(e.favorite, |d| {
+                d.child(
+                    div()
+                        .id(SharedString::from(format!("rfav-{id}")))
+                        .flex_none()
+                        .child(icon("starFill", 12., t.warning_text))
+                        .tooltip(tip(tr("Favorite")))
+                        .test_support(),
+                )
+            })
             .into_any_element(),
         "username" => {
             let u = e.username.clone();
@@ -839,6 +927,7 @@ fn view_toggle(cards: bool, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(s) = this.session() {
                             s.vault_cards = c;
+                            s.refilter();
                         }
                         cx.notify();
                     }))
@@ -922,7 +1011,9 @@ fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
                                 .text_ellipsis()
                                 .child(e.name.clone()),
                         )
-                        .when(e.favorite, |d| d.child(icon("star", 12., t.warning_text))),
+                        .when(e.favorite, |d| {
+                            d.child(icon("starFill", 12., t.warning_text))
+                        }),
                 )
                 .child(
                     div()
@@ -944,20 +1035,28 @@ fn vault_cards(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
                 .test_support(),
         );
     }
-    div().flex_1().min_h_0().flex().flex_col().child(
-        div()
-            .id("vault-cards")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
-            .on_mouse_down(
-                gpui_kit::MouseButton::Right,
-                super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
-            )
-            .child(grid)
-            .test_support(),
-    )
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(crate::scroll::area(
+            "vault-cards",
+            &s.scrolls,
+            div()
+                .id("vault-cards")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
+                )
+                .child(grid),
+            t,
+            cx,
+        ))
 }
 
 /// Filter menu of the vault toolbar (screen 01b): subscription states and 2FA, with counts.
@@ -1142,6 +1241,8 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
         );
     }
     let count = s.visible.len();
+    let lines = vault_rows(s);
+    let nrows = lines.len();
     let total: i64 = s
         .visible
         .iter()
@@ -1156,7 +1257,7 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
         .sum();
     let list = uniform_list(
         "entries",
-        count,
+        nrows,
         cx.processor(
             move |this: &mut CleisApp, range: std::ops::Range<usize>, _window, cx| {
                 let t = this.tokens(cx).clone();
@@ -1173,11 +1274,14 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
                 .cloned()
                 .collect();
                 let all_cols = s.columns.clone();
-                let rows: Vec<(usize, EntryId, Entry)> = range
-                    .filter_map(|ix| {
-                        s.visible
-                            .get(ix)
-                            .map(|i| (ix, s.entries[*i].id, s.entries[*i].clone()))
+                let lines = vault_rows(s);
+                let with_vault = s.filter == crate::app::Filter::All;
+                let rows: Vec<ListRow<(usize, EntryId, Entry)>> = range
+                    .filter_map(|r| match lines.get(r)? {
+                        ListRow::Folder(sp, n) => Some(ListRow::Folder(*sp, *n)),
+                        ListRow::Entry(ix) => s.visible.get(*ix).map(|i| {
+                            ListRow::Entry((*ix, s.entries[*i].id, s.entries[*i].clone()))
+                        }),
                     })
                     .collect();
                 let sel = s.selected;
@@ -1190,7 +1294,14 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
                 // Items take each other's place in "My order", or while customizing.
                 let reorder = editing || s.prefs.sort_by == cleis_core::settings::SortBy::Manual;
                 rows.into_iter()
-                    .map(|(ix, id, e)| {
+                    .map(|row| {
+                        let (ix, id, e) = match row {
+                            ListRow::Folder(sp, n) => {
+                                let (vault, name) = s.folder_label(sp, with_vault);
+                                return folder_line(sp, &vault, &name, n, true, &t, cx);
+                            }
+                            ListRow::Entry(x) => x,
+                        };
                         let selected = sel == Some(id);
                         let dragged = super::dnd::DraggedEntry {
                             id,
@@ -1243,12 +1354,13 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
                         if aimed_at == Some(id) {
                             row = row.relative().child(super::ctx::aim_ring(&t, RADIUS_SM));
                         }
-                        row.test_support()
+                        row.test_support().into_any_element()
                     })
                     .collect()
             },
         ),
     )
+    .track_scroll(&s.scrolls.list)
     .flex_1();
     let center = div()
         .flex_1()
@@ -1268,13 +1380,11 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
                     .px(px(12.))
                     .border_b_1()
                     .border_color(t.line)
-                    .child(div().w(px(280.)).child(
-                        Input::new(&s.search).id("search").prefix(icon(
-                            "search",
-                            16.,
-                            t.text_muted,
-                        )),
-                    ))
+                    .child(
+                        div()
+                            .w(px(280.))
+                            .child(search_box(&s.search, "search", t, cx)),
+                    )
                     .child(
                         div()
                             .relative()
@@ -1347,7 +1457,7 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
                     // Another folder or section: its items come in (26/11/2026).
                     .child(crate::ui::page_in(
                         format!("rows-{:?}-{:?}", s.filter, s.scope),
-                        div().flex_1().min_h_0().flex().flex_col().child(list),
+                        crate::scroll::list_area(&s.scrolls, list, t, cx),
                     ))
                     .test_support(),
             )

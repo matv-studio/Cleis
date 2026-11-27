@@ -24,6 +24,7 @@ pub mod opening;
 pub mod org;
 pub mod remote;
 pub mod screens;
+pub mod scroll;
 pub mod sftp;
 pub mod sync;
 pub mod theme;

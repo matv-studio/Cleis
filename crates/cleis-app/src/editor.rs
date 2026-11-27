@@ -79,7 +79,7 @@ fn placeholder(f: Field) -> &'static str {
         Field::Password => "Password",
         Field::Totp => "Key or otpauth:// link",
         Field::Notes => "Notes",
-        Field::Price => "€15 / month",
+        Field::Price => "€15",
         Field::Licenses => "1",
         Field::Renewal => "2026-12-03",
     }

@@ -268,14 +268,29 @@ pub fn run<D: Driver>(
                 }
             }
             Action::Press(k) => driver.press(*k)?,
-            Action::ExpectPassword { submit } => match driver.focus() {
+            Action::ExpectPassword => match driver.focus() {
                 Focus::Password | Focus::Unknown => {}
                 other => {
-                    log(&format!("run: expected a password field, found {other:?}"));
-                    if *submit {
-                        driver.press(Key::Enter)?;
+                    log(&format!(
+                        "run: two-page sign-in? found {other:?} after the username"
+                    ));
+                    let rest = actions[i + 1..].to_vec();
+                    // Back to the username field: Enter there sends the username page, never
+                    // the link or button that Tab reached ("Forgot email?").
+                    driver.press(Key::BackTab)?;
+                    driver.pause(Duration::from_millis(60));
+                    if !matches!(driver.focus(), Focus::Text | Focus::Unknown) {
+                        log("run: the username field did not take the focus back");
+                        return Ok(Outcome::Waiting(rest));
                     }
-                    return Ok(Outcome::Waiting(actions[i + 1..].to_vec()));
+                    driver.press(Key::Enter)?;
+                    if !wait_password(driver)? {
+                        log("run: no password field came, the rest waits");
+                        return Ok(Outcome::Waiting(rest));
+                    }
+                    log("run: password page, going on");
+                    // The rest runs on the password page (it may stop again: 2FA in a third).
+                    return run(driver, &rest, values, method, speed);
                 }
             },
             Action::IfEmptyText { then, otherwise } => {
@@ -295,6 +310,24 @@ pub fn run<D: Driver>(
         driver.pause(Duration::from_millis(60));
     }
     Ok(Outcome::Done)
+}
+
+/// Waits for the password page of a two-page sign-in: the keyboard in a password field of the
+/// same window. `false` after [`TWO_PAGE_WAIT_MS`]; an error when another window comes in front.
+fn wait_password<D: Driver>(driver: &mut D) -> Result<bool, FillError> {
+    const STEP: u64 = 200;
+    for _ in 0..(cleis_core::autofill::TWO_PAGE_WAIT_MS / STEP) {
+        driver.pause(Duration::from_millis(STEP));
+        if !driver.still_target()? {
+            return Err(FillError::WindowChanged);
+        }
+        if driver.focus() == Focus::Password {
+            // Let the page finish showing it before typing.
+            driver.pause(Duration::from_millis(150));
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Fills `window`: brings it back in front, waits for the shortcut keys to be released, reads
@@ -351,6 +384,11 @@ mod tests {
         at: usize,
         front: bool,
         accept_set: bool,
+        /// Enter on a text field brings this page (its fields and the focused one) after the
+        /// given number of pauses; `None` after Enter: nothing happens.
+        next_page: Option<(usize, Vec<Focus>, usize)>,
+        /// Counting down to the next page while it loads.
+        loading: Option<usize>,
     }
 
     impl Driver for Form {
@@ -378,7 +416,13 @@ mod tests {
             match k {
                 Key::Tab => self.at += 1,
                 Key::BackTab => self.at = self.at.saturating_sub(1),
-                Key::Enter => {}
+                Key::Enter => {
+                    if matches!(self.focus(), Focus::Text | Focus::EmptyText)
+                        && let Some((after, _, _)) = &self.next_page
+                    {
+                        self.loading = Some(*after);
+                    }
+                }
             }
             Ok(())
         }
@@ -386,7 +430,32 @@ mod tests {
             self.log.push(format!("paste:{v}"));
             Ok(())
         }
-        fn pause(&mut self, _: Duration) {}
+        fn pause(&mut self, _: Duration) {
+            match self.loading {
+                Some(0) => {
+                    if let Some((_, fields, at)) = self.next_page.take() {
+                        self.log.push("page".into());
+                        self.fields = fields;
+                        self.at = at;
+                    }
+                    self.loading = None;
+                }
+                Some(n) => self.loading = Some(n - 1),
+                None => {}
+            }
+        }
+    }
+
+    fn form(fields: Vec<Focus>, at: usize) -> Form {
+        Form {
+            log: vec![],
+            fields,
+            at,
+            front: true,
+            accept_set: false,
+            next_page: None,
+            loading: None,
+        }
     }
 
     fn values() -> Values {
@@ -410,6 +479,8 @@ mod tests {
             at: 0,
             front: true,
             accept_set: false,
+            next_page: None,
+            loading: None,
         };
         let p = plan(true, true, f.focus(), O);
         let r = run(
@@ -440,6 +511,8 @@ mod tests {
             at: 1,
             front: true,
             accept_set: true,
+            next_page: None,
+            loading: None,
         };
         let p = plan(true, false, f.focus(), O);
         run(
@@ -471,6 +544,8 @@ mod tests {
             at: 1,
             front: true,
             accept_set: false,
+            next_page: None,
+            loading: None,
         };
         let p = plan(true, false, f.focus(), O);
         run(
@@ -493,6 +568,8 @@ mod tests {
             at: 0,
             front: true,
             accept_set: false,
+            next_page: None,
+            loading: None,
         };
         let r = run(
             &mut f,
@@ -505,17 +582,13 @@ mod tests {
         assert!(f.log.is_empty());
     }
 
-    /// Two-step sign-in (email page, then password page): the password is not typed into
-    /// the "Next" button; it waits for the next shortcut.
+    /// Two-page sign-in (0.2.4): the email page, then the password page. Tab reaches a link
+    /// ("Forgot email?"): back to the email field, Enter there, the password page comes and its
+    /// password field gets the keys; the password is filled and sent, the 2FA code waits.
     #[test]
-    fn two_step_sign_in_waits() {
-        let mut f = Form {
-            log: vec![],
-            fields: vec![Focus::EmptyText, Focus::Other],
-            at: 0,
-            front: true,
-            accept_set: false,
-        };
+    fn two_page_sign_in_goes_on() {
+        let mut f = form(vec![Focus::EmptyText, Focus::Other], 0);
+        f.next_page = Some((4, vec![Focus::Password, Focus::Other], 0));
         let p = plan(true, true, f.focus(), O);
         let r = run(
             &mut f,
@@ -525,12 +598,90 @@ mod tests {
             TypingSpeed::Fast,
         )
         .unwrap();
-        assert_eq!(f.log, ["type:ines@example-studio.com", "Tab", "Enter"]);
+        assert_eq!(r, Outcome::Done);
+        assert_eq!(
+            f.log,
+            [
+                "type:ines@example-studio.com",
+                "Tab",
+                "BackTab",
+                "Enter",
+                "page",
+                "type:Bk-2026!",
+                "Enter"
+            ]
+        );
+        assert_eq!(
+            p.later,
+            vec![Action::Fill(Field::Totp), Action::Press(Key::Enter)]
+        );
+    }
+
+    /// No password page in time (an unknown account, a captcha): nothing more is typed; the
+    /// password waits for the next shortcut on this window.
+    #[test]
+    fn two_page_sign_in_without_password_page_waits() {
+        let mut f = form(vec![Focus::EmptyText, Focus::Other], 0);
+        let p = plan(true, false, f.focus(), O);
+        let r = run(
+            &mut f,
+            &p.now,
+            &values(),
+            FillMethod::Automatic,
+            TypingSpeed::Fast,
+        )
+        .unwrap();
+        assert_eq!(
+            f.log,
+            ["type:ines@example-studio.com", "Tab", "BackTab", "Enter"]
+        );
         let Outcome::Waiting(rest) = r else { panic!() };
         assert_eq!(
             rest,
             vec![Action::Fill(Field::Password), Action::Press(Key::Enter)]
         );
+    }
+
+    /// Another window comes in front while the password page loads: stop, type nothing.
+    #[test]
+    fn two_page_sign_in_stops_when_the_window_changes() {
+        struct Leaves(Form);
+        impl Driver for Leaves {
+            fn still_target(&mut self) -> Result<bool, FillError> {
+                Ok(!self.0.log.iter().any(|l| l == "Enter"))
+            }
+            fn focus(&mut self) -> Focus {
+                self.0.focus()
+            }
+            fn set_value(&mut self, v: &str) -> bool {
+                self.0.set_value(v)
+            }
+            fn type_text(&mut self, v: &str, s: TypingSpeed) -> Result<(), FillError> {
+                self.0.type_text(v, s)
+            }
+            fn press(&mut self, k: Key) -> Result<(), FillError> {
+                self.0.press(k)
+            }
+            fn paste(&mut self, v: &str) -> Result<(), FillError> {
+                self.0.paste(v)
+            }
+            fn pause(&mut self, d: Duration) {
+                self.0.pause(d)
+            }
+        }
+        let mut f = form(vec![Focus::EmptyText, Focus::Other], 0);
+        f.next_page = Some((2, vec![Focus::Password], 0));
+        let mut d = Leaves(f);
+        let p = plan(true, false, Focus::EmptyText, O);
+        let r = run(
+            &mut d,
+            &p.now,
+            &values(),
+            FillMethod::Type,
+            TypingSpeed::Fast,
+        );
+        assert_eq!(r, Err(FillError::WindowChanged));
+        assert!(!d.0.log.iter().any(|l| l.contains("Bk-2026!")));
     }
 
     #[test]
@@ -541,6 +692,8 @@ mod tests {
             at: 0,
             front: false,
             accept_set: false,
+            next_page: None,
+            loading: None,
         };
         let p = plan(true, false, Focus::Unknown, O);
         assert_eq!(
@@ -564,6 +717,8 @@ mod tests {
             at: 0,
             front: true,
             accept_set: true,
+            next_page: None,
+            loading: None,
         };
         let p = plan(false, false, Focus::Unknown, O);
         run(

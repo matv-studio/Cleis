@@ -2239,9 +2239,8 @@ const ICON48 = { Banking: 'bank', Shopping: 'cart', General: 'folder', Design: '
 // A folder's line in the list: its icon and name, the vault before it when the list holds several
 // vaults (All items), its count on the right. Not clickable (the sidebar opens the folder).
 const sepRow48 = (cols, vault, folder, n, { path = true } = {}) => {
-  const ico = folder ? (ICON48[folder] || 'folder') : (vault === 'My vault' ? 'user' : 'users');
-  const name = folder ? (path ? `<span style="color:var(--text-faint)">${vault}</span><span style="color:var(--text-faint);display:inline-grid;transform:rotate(-90deg)">${i('chevron')}</span>${folder}` : folder) : vault;
-  return `<tr class="grp"><td colspan="${cols}"><span class="grp-in">${i(ico)}<span class="grp-name">${name}</span><span class="grp-n">${n}</span></span></td></tr>`;
+  const name = folder ? (path ? `<span style="color:var(--text-muted)">${vault}</span><span style="color:var(--text-faint);display:inline-grid;transform:rotate(-90deg)">${i('chevron')}</span>${folder}` : folder) : vault;
+  return `<tr class="grp"><td colspan="${cols}"><span class="grp-in"><span class="grp-name">${name}</span><span class="grp-n">${n}</span></span></td></tr>`;
 };
 // The name cell: the star sits in a slot before the name, kept empty for the others (names line up).
 const name48 = (r) => `<span class="site"><span class="site-ico">${r.c}</span><span class="star-slot">${FAV48.includes(r.n) ? `<span class="fav" title="Favorite">${i('star')}</span>` : ''}</span><span class="site-name">${r.n}</span></span>`;
@@ -2369,7 +2368,7 @@ function contactsFrame48(extra, overlay) {
 }
 function typeMenu() {
   const ck = (label, on, hover = false) => `<div class="menu-item ${hover ? 'is-hover' : ''}">${on ? i('check') : '<span style="width:16px"></span>'}<span>${label}</span></div>`;
-  const m = `<div class="menu" style="left:1176px;top:432px;width:148px">${ck('Work', false)}${ck('Mobile', true)}${ck('Home', false, true)}${ck('Other', false)}</div>`;
+  const m = `<div class="menu" style="left:1166px;top:376px;width:112px;min-width:0">${ck('Work', false)}${ck('Mobile', true)}${ck('Home', false, true)}${ck('Other', false)}</div>`;
   return contactsFrame48('menu', m);
 }
 // 48f. Birthday: the calendar of the vault's dates, opened from the box; a birthday may be kept
@@ -2406,7 +2405,7 @@ function periodePrix(year = false) {
   const per = year ? 'year' : 'month';
   const insp = inspector().replace(/<div class="section" style="padding:var\(--s-3\);gap:var\(--s-2\);background:var\(--surface-raised\)">[\s\S]*?<\/dl>\s*<\/div>/, `<div class="section" style="padding:var(--s-3);gap:var(--s-2);background:var(--surface-raised)">
         <div style="display:flex;align-items:center;justify-content:space-between"><h3>Subscription</h3>${statusChip('Active')}</div>
-        <div class="kvi"><span>Price</span><div class="input input--sm"><span class="grow num" style="text-align:left">€15.00</span><span class="per48 is-hover" title="Billed per ${per} · click for ${year ? 'month' : 'year'}">/ ${per}</span></div></div>
+        <div class="kvi"><span>Price</span><div class="input input--sm"><span class="grow num" style="text-align:left">€15.00</span><span class="per48" title="Billed per ${per} · click for ${year ? 'month' : 'year'}">/ ${per}</span></div></div>
         <div class="kvi"><span>Licenses</span><div class="input input--sm"><span class="grow">4</span></div></div>
         <div class="kvi"><span>Yearly cost</span><b style="margin-left:auto;font-weight:var(--weight-medium)">${year ? '€60.00' : '€720.00'}</b></div>
         <div class="kvi"><span>Renewal</span><div class="input input--sm"><span class="grow">Dec 3, 2026</span><span class="act" title="Pick a date">${i('calendar')}</span></div></div>
@@ -2453,6 +2452,15 @@ function remplissageSite() {
       <div class="qa-foot"><span class="qa-hint">${keys('Shift', '↵')}Type</span><span class="qa-hint">${keys('Ctrl', 'C')}Password</span><span style="flex:1"></span></div>
     </div>
   </div>`;
+}
+
+// 48l. Preferences › Lists: the folder lines can be turned off (on by default).
+function preferencesLignesDossiers() {
+  return settings('Preferences', `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Lists')}
+      <div class="row"><span class="row-label" title="In All items, a vault, All contacts: a line with each folder's name before its items">Folder lines</span><span class="switch on"></span></div>
+    </div>`);
 }
 
 export const SCREENS = {
@@ -2607,4 +2615,5 @@ export const SCREENS = {
   '48i-periode-prix-an': ['Subscription — billing period, per year', periodePrixAn],
   '48j-defilement-molette': ['Middle click — scroll', defilementMolette],
   '48k-remplissage-site': ['Fill best match — most likely logins by the site', remplissageSite],
+  '48l-preferences-lignes-dossiers': ['Preferences — folder lines in lists', preferencesLignesDossiers],
 };

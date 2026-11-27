@@ -20,6 +20,7 @@ pub mod journal;
 pub mod money;
 pub mod open_code;
 pub mod org;
+pub mod phone;
 pub mod settings;
 pub mod text;
 pub mod totp;

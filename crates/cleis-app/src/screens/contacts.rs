@@ -47,6 +47,8 @@ pub enum ContactMenu {
     Photo,
     AddLabel,
     Link,
+    /// The type of an email, phone, address or website row (mockup 48e).
+    Kind(List, usize),
 }
 
 #[derive(Default)]
@@ -127,7 +129,28 @@ pub fn listed(s: &Session) -> Vec<&Contact> {
     } else {
         v.sort_by_key(|c| fold(&c.display_name()));
     }
+    // Mockup 48d: grouped by folder, by name within each.
+    if folder_lines(s) {
+        let ranks = s.space_ranks(true);
+        v.sort_by_key(|c| {
+            ranks
+                .get(&c.space)
+                .copied()
+                .unwrap_or((usize::MAX, usize::MAX))
+        });
+    }
     v
+}
+
+/// The contacts list shows its folder lines: All contacts, My contacts, an organization's
+/// section, as a table, when Preferences › Lists › Folder lines is on.
+pub fn folder_lines(s: &Session) -> bool {
+    s.prefs.folder_lines
+        && !s.contacts_ui.cards
+        && matches!(
+            s.contacts_ui.filter,
+            ContactFilter::All | ContactFilter::Mine | ContactFilter::Org(_)
+        )
 }
 
 /// A personal contacts space.
@@ -376,9 +399,20 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
                n: usize,
                filter: ContactFilter,
                cx: &mut Context<CleisApp>| {
+        let folder = match &filter {
+            ContactFilter::Folder(sp) => Some(*sp),
+            _ => None,
+        };
         side_item(id, t, Some(ico), label, Some(n), *f == filter)
             .pl(px(24.))
             .on_click(cx.listener(set(filter)))
+            // Mockup 48g: a folder's menu (its icon).
+            .when_some(folder, |d, sp| {
+                d.on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::Space(sp), cx),
+                )
+            })
             .test_support()
     };
     // My contacts: every personal contact; its other folders below.
@@ -404,7 +438,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
     {
         side = side.child(sub(
             format!("cf-folder-{}", sp.id),
-            "folder",
+            crate::ui::folder_icon(sp.icon.as_deref()),
             crate::i18n::space(&sp.name).into(),
             count(sp.id),
             ContactFilter::Folder(sp.id),
@@ -437,7 +471,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
         {
             side = side.child(sub(
                 format!("cf-folder-{}", sp.id),
-                "folder",
+                crate::ui::folder_icon(sp.icon.as_deref()),
                 crate::i18n::space(&sp.name).into(),
                 count(sp.id),
                 ContactFilter::Folder(sp.id),
@@ -459,7 +493,7 @@ fn sidebar(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> gpui_kit::Sta
         for sp in orphans {
             side = side.child(sub(
                 format!("cf-folder-{}", sp.id),
-                "folder",
+                crate::ui::folder_icon(sp.icon.as_deref()),
                 crate::i18n::space(&sp.name).into(),
                 count(sp.id),
                 ContactFilter::Folder(sp.id),
@@ -620,7 +654,9 @@ fn contact_cell(
                     .text_ellipsis()
                     .child(c.display_name()),
             )
-            .when(c.favorite, |d| d.child(icon("star", 12., t.warning_text)))
+            .when(c.favorite, |d| {
+                d.child(icon("starFill", 12., t.warning_text))
+            })
             .into_any_element(),
         "email" => {
             let email = c.primary_email().unwrap_or_default();
@@ -786,7 +822,18 @@ fn table(
             gpui_kit::MouseButton::Right,
             super::ctx::on_right(super::ctx::CtxTarget::ContactsVoid, cx),
         );
-    for c in list {
+    let lines = folder_lines(s);
+    let with_vault = s.contacts_ui.filter == ContactFilter::All;
+    let mut current = None;
+    for (k, c) in list.iter().enumerate() {
+        if lines && current != Some(c.space) {
+            current = Some(c.space);
+            let n = list[k..].iter().take_while(|x| x.space == c.space).count();
+            let (vault, name) = s.folder_label(c.space, with_vault);
+            rows = rows.child(super::main::folder_line(
+                c.space, &vault, &name, n, false, t, cx,
+            ));
+        }
         let id = c.id;
         let selected = sel == Some(id);
         let mut row = div()
@@ -823,11 +870,17 @@ fn table(
         // Another folder or section: its contacts come in, as the vault's items (27/11/2026).
         .child(crate::ui::page_in(
             format!("crows-{:?}", s.contacts_ui.filter),
-            div().flex_1().min_h_0().flex().flex_col().child(rows),
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(crate::scroll::area("contacts", &s.scrolls, rows, t, cx)),
         ))
 }
 
 fn cards(
+    scrolls: &crate::scroll::Scrolls,
     list: &[&Contact],
     sel: Option<ContactId>,
     aimed: Option<ContactId>,
@@ -895,7 +948,9 @@ fn cards(
                                         .child(sub),
                                 ),
                         )
-                        .when(c.favorite, |d| d.child(icon("star", 12., t.warning_text))),
+                        .when(c.favorite, |d| {
+                            d.child(icon("starFill", 12., t.warning_text))
+                        }),
                 )
                 .child(
                     div()
@@ -915,20 +970,28 @@ fn cards(
                 .test_support(),
         );
     }
-    div().flex_1().min_h_0().flex().flex_col().child(
-        div()
-            .id("contact-cards")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)))
-            .on_mouse_down(
-                gpui_kit::MouseButton::Right,
-                super::ctx::on_right(super::ctx::CtxTarget::ContactsVoid, cx),
-            )
-            .child(grid)
-            .test_support(),
-    )
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(crate::scroll::area(
+            "contact-cards",
+            scrolls,
+            div()
+                .id("contact-cards")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .on_click(cx.listener(|this, _, _, cx| this.deselect_contact(cx)))
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Right,
+                    super::ctx::on_right(super::ctx::CtxTarget::ContactsVoid, cx),
+                )
+                .child(grid),
+            t,
+            cx,
+        ))
 }
 
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
@@ -938,83 +1001,80 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let center: AnyElement = if ui.filter == ContactFilter::Merge {
         merge_page(s, t, cx).into_any_element()
     } else {
-        let toolbar =
-            div()
-                .h(px(44.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .px(px(12.))
-                .border_b_1()
-                .border_color(t.line)
-                .when_some(ui.search.as_ref(), |d, st| {
-                    d.child(div().w(px(280.)).child(
-                        Input::new(st).id("contact-search").prefix(icon(
-                            "search",
-                            16.,
-                            t.text_muted,
-                        )),
-                    ))
-                })
-                .child(
+        let toolbar = div()
+            .h(px(44.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(12.))
+            .border_b_1()
+            .border_color(t.line)
+            .when_some(ui.search.as_ref(), |d, st| {
+                d.child(
                     div()
-                        .relative()
-                        .child(
-                            button("contact-columns", t, BtnKind::Ghost, false)
-                                .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
-                                .child(icon("columns", 16., t.text_muted))
-                                .child(tr("Columns"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_columns_menu(Table::Contacts, cx)
-                                }))
-                                .test_support(),
-                        )
-                        .when_some(
-                            s.columns_menu
-                                .as_ref()
-                                .filter(|m| m.table == Table::Contacts),
-                            |d, m| d.child(deferred(super::columns::menu(s, m, t, cx))),
-                        ),
+                        .w(px(280.))
+                        .child(search_box(st, "contact-search", t, cx)),
                 )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .flex()
-                        .p(px(2.))
-                        .gap(px(2.))
-                        .bg(t.bg)
-                        .border_1()
-                        .border_color(t.line_strong)
-                        .rounded(RADIUS_MD)
-                        .children([(false, "list", "Table"), (true, "columns", "Cards")].map(
-                            |(cards_view, ico, name)| {
-                                let on = ui.cards == cards_view;
-                                div()
-                                    .id(SharedString::from(format!("view-{name}")))
-                                    .h(px(22.))
-                                    .px(px(8.))
-                                    .flex()
-                                    .items_center()
-                                    .rounded(RADIUS_SM)
-                                    .cursor_pointer()
-                                    .when(on, |d| d.bg(t.accent_soft))
-                                    .child(icon(
-                                        ico,
-                                        14.,
-                                        if on { t.accent_text } else { t.text_muted },
-                                    ))
-                                    .tooltip(tip(name))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        if let Some(s) = this.session() {
-                                            s.contacts_ui.cards = cards_view;
-                                        }
-                                        cx.notify();
-                                    }))
-                                    .test_support()
-                            },
-                        )),
-                );
+            })
+            .child(
+                div()
+                    .relative()
+                    .child(
+                        button("contact-columns", t, BtnKind::Ghost, false)
+                            .when(s.columns_menu.is_some(), |d| d.bg(t.surface_hover))
+                            .child(icon("columns", 16., t.text_muted))
+                            .child(tr("Columns"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_columns_menu(Table::Contacts, cx)
+                            }))
+                            .test_support(),
+                    )
+                    .when_some(
+                        s.columns_menu
+                            .as_ref()
+                            .filter(|m| m.table == Table::Contacts),
+                        |d, m| d.child(deferred(super::columns::menu(s, m, t, cx))),
+                    ),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex()
+                    .p(px(2.))
+                    .gap(px(2.))
+                    .bg(t.bg)
+                    .border_1()
+                    .border_color(t.line_strong)
+                    .rounded(RADIUS_MD)
+                    .children([(false, "list", "Table"), (true, "columns", "Cards")].map(
+                        |(cards_view, ico, name)| {
+                            let on = ui.cards == cards_view;
+                            div()
+                                .id(SharedString::from(format!("view-{name}")))
+                                .h(px(22.))
+                                .px(px(8.))
+                                .flex()
+                                .items_center()
+                                .rounded(RADIUS_SM)
+                                .cursor_pointer()
+                                .when(on, |d| d.bg(t.accent_soft))
+                                .child(icon(
+                                    ico,
+                                    14.,
+                                    if on { t.accent_text } else { t.text_muted },
+                                ))
+                                .tooltip(tip(name))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(s) = this.session() {
+                                        s.contacts_ui.cards = cards_view;
+                                    }
+                                    cx.notify();
+                                }))
+                                .test_support()
+                        },
+                    )),
+            );
         let body = if ui.cards {
             let aimed = s.ctx.as_ref().and_then(|m| match m.target {
                 super::ctx::CtxTarget::Contact(id) => Some(id),
@@ -1027,7 +1087,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .child(cards(&list, sel, aimed, t, cx)),
+                    .child(cards(&s.scrolls, &list, sel, aimed, t, cx)),
             )
             .into_any_element()
         } else {
@@ -1284,20 +1344,25 @@ fn inspector(
                 }),
         )
         .child(
-            icon_button("contact-fav", t, "star", false)
-                .when(c.favorite, |d| d.child(div()).text_color(t.warning_text))
-                .tooltip(tip(tr("Favorite")))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.update_contact(
-                        id,
-                        |c| {
-                            c.favorite = !c.favorite;
-                            None
-                        },
-                        cx,
-                    )
-                }))
-                .test_support(),
+            icon_button(
+                "contact-fav",
+                t,
+                if c.favorite { "starFill" } else { "star" },
+                false,
+            )
+            .when(c.favorite, |d| d.child(div()).text_color(t.warning_text))
+            .tooltip(tip(tr("Favorite")))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.update_contact(
+                    id,
+                    |c| {
+                        c.favorite = !c.favorite;
+                        None
+                    },
+                    cx,
+                )
+            }))
+            .test_support(),
         )
         .child(
             div()
@@ -1351,7 +1416,8 @@ fn inspector(
                             .chars()
                             .filter(|c| c.is_ascii_digit() || *c == '+')
                             .collect();
-                        cx.open_url(&format!("tel:{n}"));
+                        // RFC 3966: no spaces in a tel: address (dots and dashes are allowed).
+                        cx.open_url(&format!("tel:{}", n.replace(' ', "")));
                     }
                 }))
                 .test_support(),
@@ -1416,19 +1482,24 @@ fn inspector(
         .child(head)
         .child(acts)
         .child(tabs)
-        .child(
+        .child(crate::scroll::area(
+            "contact-body",
+            &s.scrolls,
             div()
                 .id("contact-body")
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
                 .child(body),
-        )
+            t,
+            cx,
+        ))
 }
 
 fn multi(
     c: &Contact,
     ed: &ContactEditor,
+    menu: Option<ContactMenu>,
     list: List,
     t: &Tokens,
     cx: &mut Context<CleisApp>,
@@ -1524,34 +1595,7 @@ fn multi(
                 .flex()
                 .items_start()
                 .gap(px(4.))
-                .child(
-                    div()
-                        .id(SharedString::from(format!("kind-{key}-{i}")))
-                        .w(px(64.))
-                        .flex_none()
-                        .h(CONTROL_MD)
-                        .flex()
-                        .items_center()
-                        .px(px(4.))
-                        .rounded(RADIUS_SM)
-                        .cursor_pointer()
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .hover(|s| s.bg(t.surface_hover))
-                        .tooltip(tip(tr("Change type")))
-                        .child(kind)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.update_contact(
-                                id,
-                                |c| {
-                                    cleis_core::contact_edit::cycle_label(c, list, i);
-                                    None
-                                },
-                                cx,
-                            )
-                        }))
-                        .test_support(),
-                )
+                .child(kind_button(c, list, i, &key, &kind, menu, t, cx))
                 .child(boxed(
                     t,
                     ed,
@@ -1563,6 +1607,101 @@ fn multi(
         );
     }
     d
+}
+
+/// The type of a row (mockup 48e): a click opens every type of the list, the current one
+/// checked, under the button and aligned with it.
+#[allow(clippy::too_many_arguments)]
+fn kind_button(
+    c: &Contact,
+    list: List,
+    i: usize,
+    key: &str,
+    kind: &str,
+    menu: Option<ContactMenu>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> impl IntoElement {
+    let id = c.id;
+    let open = menu == Some(ContactMenu::Kind(list, i));
+    let current = cleis_core::contact_edit::label_of(c, list, i).unwrap_or_default();
+    let popup = open.then(|| {
+        let mut m = menu_box(t).relative().min_w(px(0.)).w(px(112.));
+        for (k, l) in cleis_core::contact_edit::labels(list).iter().enumerate() {
+            let on = l.eq_ignore_ascii_case(&current);
+            let label = *l;
+            m = m.child(
+                div()
+                    .id(SharedString::from(format!("kind-{key}-{i}-{k}")))
+                    .h(px(28.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded(RADIUS_SM)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.surface_hover))
+                    .child(
+                        div()
+                            .size(px(14.))
+                            .flex_none()
+                            .when(on, |d| d.child(icon("check", 14., t.text))),
+                    )
+                    .child(tr(label))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.contacts_ui.menu = None;
+                        }
+                        this.update_contact(
+                            id,
+                            |c| {
+                                cleis_core::contact_edit::set_label(c, list, i, label);
+                                None
+                            },
+                            cx,
+                        )
+                    }))
+                    .test_support(),
+            );
+        }
+        crate::ui::popup_below_left(m, CONTROL_MD)
+    });
+    div()
+        .relative()
+        .w(px(72.))
+        .flex_none()
+        .child(
+            div()
+                .id(SharedString::from(format!("kind-{key}-{i}")))
+                .w_full()
+                .h(CONTROL_MD)
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .px(px(4.))
+                .rounded(RADIUS_SM)
+                .cursor_pointer()
+                .text_size(TEXT_SM)
+                .text_color(if open { t.text } else { t.text_muted })
+                .when(open, |d| d.bg(t.surface_active))
+                .hover(|s| s.bg(t.surface_hover))
+                .tooltip(tip(tr("Change type")))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(kind.to_owned()),
+                )
+                .child(icon("chevron", 12., t.text_faint))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_contact_menu(ContactMenu::Kind(list, i), cx)
+                }))
+                .test_support(),
+        )
+        .children(popup)
 }
 
 fn details(
@@ -1646,16 +1785,37 @@ fn details(
         .flex()
         .flex_col()
         .gap(px(12.))
-        .child(multi(c, ed, List::Email, t, cx))
-        .child(multi(c, ed, List::Phone, t, cx))
-        .child(multi(c, ed, List::Address, t, cx))
-        .child(multi(c, ed, List::Url, t, cx))
+        .child(multi(c, ed, s.contacts_ui.menu, List::Email, t, cx))
+        .child(multi(c, ed, s.contacts_ui.menu, List::Phone, t, cx))
+        .child(multi(c, ed, s.contacts_ui.menu, List::Address, t, cx))
+        .child(multi(c, ed, s.contacts_ui.menu, List::Url, t, cx))
         .when_some(input(Field::Birthday), |d, st| {
-            d.child(field(
-                t,
-                "Birthday",
-                boxed(t, ed, Field::Birthday, Input::new(&st).id("edit-birthday")),
-            ))
+            d.child(field(t, "Birthday", {
+                // Mockup 48f: the vault's calendar, opened from the box.
+                let target = super::calendar::CalTarget::Birthday;
+                let open = s.calendar.as_ref().filter(|c| c.target == target);
+                div()
+                    .relative()
+                    .child(boxed(
+                        t,
+                        ed,
+                        Field::Birthday,
+                        Input::new(&st)
+                            .id("edit-birthday")
+                            .suffix(super::calendar::open_button(
+                                "cal-open-birthday",
+                                target,
+                                t,
+                                cx,
+                            )),
+                    ))
+                    .when_some(open, |d, c| {
+                        d.child(super::calendar::popup(
+                            super::calendar::render(s, c, t, cx),
+                            CONTROL_MD,
+                        ))
+                    })
+            }))
         })
         .children(ed.custom.iter().map(|(col, st)| {
             let err = ed.custom_errors.get(&col.id).cloned();
@@ -1670,9 +1830,31 @@ fn details(
                         div()
                             .rounded(RADIUS_MD)
                             .when(err.is_some(), |d| d.border_1().border_color(t.danger_text))
-                            .child(
-                                Input::new(st)
-                                    .id(SharedString::from(format!("ccustom-{}", col.id.0))),
+                            .relative()
+                            .child({
+                                let mut inp = Input::new(st)
+                                    .id(SharedString::from(format!("ccustom-{}", col.id.0)));
+                                if matches!(col.kind, cleis_core::column::ColumnKind::Date) {
+                                    inp = inp.suffix(super::calendar::open_button(
+                                        format!("cal-open-c-{}", col.id.0),
+                                        super::calendar::CalTarget::ContactCustom(col.id.clone()),
+                                        t,
+                                        cx,
+                                    ));
+                                }
+                                inp
+                            })
+                            .when_some(
+                                s.calendar.as_ref().filter(|x| {
+                                    x.target
+                                        == super::calendar::CalTarget::ContactCustom(col.id.clone())
+                                }),
+                                |d, x| {
+                                    d.child(super::calendar::popup(
+                                        super::calendar::render(s, x, t, cx),
+                                        CONTROL_MD,
+                                    ))
+                                },
                             ),
                     )
                     .when_some(err, |d, e| {
@@ -2103,7 +2285,9 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         }
         page = page.child(sec);
     }
-    div().flex_1().min_w_0().flex().child(
+    div().flex_1().min_w_0().flex().child(crate::scroll::area(
+        "merge-page",
+        &s.scrolls,
         div()
             .id("merge-page")
             .flex_1()
@@ -2113,7 +2297,9 @@ fn merge_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .pt(px(24.))
             .pb(px(40.))
             .child(page),
-    )
+        t,
+        cx,
+    ))
 }
 
 impl CleisApp {

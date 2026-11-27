@@ -3273,13 +3273,17 @@ pub fn activity(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex_col()
         .bg(t.bg)
         .child(toolbar)
-        .child(
+        .child(crate::scroll::area(
+            "log-table",
+            &s.scrolls,
             div()
                 .id("log-table")
                 .flex_1()
                 .overflow_y_scroll()
                 .child(table),
-        )
+            t,
+            cx,
+        ))
         .child(status)
 }
 
@@ -5144,8 +5148,8 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 _ => {}
             }
         }
-        "ctx-entry" | "ctx-space" | "ctx-contact" | "ctx-member" | "ctx-list" | "ctx-sidebar"
-        | "ctx-trash" | "confirm-transfer" | "confirm-remove" => {
+        "ctx-entry" | "ctx-space" | "ctx-space-icon" | "ctx-contact" | "ctx-member"
+        | "ctx-list" | "ctx-sidebar" | "ctx-trash" | "confirm-transfer" | "confirm-remove" => {
             use super::ctx::{CtxMenu, CtxTarget, Sub};
             use gpui_kit::point;
             let Some(s) = app.session() else { return };
@@ -5176,6 +5180,15 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                         .map(|x| CtxTarget::Space(x.id)),
                     point(px(120.), px(400.)),
                     None,
+                ),
+                // Mockup 48g: a personal folder's icon.
+                "ctx-space-icon" => (
+                    s.spaces
+                        .iter()
+                        .find(|x| x.name == "Banking")
+                        .map(|x| CtxTarget::Space(x.id)),
+                    point(px(120.), px(170.)),
+                    Some(Sub::Icon),
                 ),
                 "ctx-contact" => {
                     let id = super::contacts::listed(s).get(1).map(|c| c.id);
@@ -5318,6 +5331,57 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         "wheel" => {
             if let Some(s) = app.session() {
                 s.wheel = Some(super::wheel::Wheel::new(crate::theme::parse_hex("#e06b9a")));
+            }
+        }
+        // Mockups 48e, 48f: a contact's type menu, its birthday's calendar.
+        "kind-menu" | "birthday-cal" => {
+            if let Some(s) = app.session() {
+                s.tab = crate::app::Tab::Contacts;
+                let list = super::contacts::listed(s);
+                let pick = list
+                    .iter()
+                    .find(|c| !c.phones.is_empty() && c.birthday.is_some())
+                    .or_else(|| list.iter().find(|c| !c.phones.is_empty()))
+                    .map(|c| c.id);
+                s.selected_contact = pick;
+                if m == "kind-menu" {
+                    s.contacts_ui.menu = Some(super::contacts::ContactMenu::Kind(
+                        cleis_core::contact_edit::List::Phone,
+                        0,
+                    ));
+                } else {
+                    use chrono::Datelike;
+                    let now = chrono::Local::now().date_naive();
+                    let b = s
+                        .selected_contact
+                        .and_then(|id| s.contacts.iter().find(|c| c.id == id))
+                        .and_then(|c| c.birthday);
+                    s.calendar = Some(super::calendar::Calendar {
+                        target: super::calendar::CalTarget::Birthday,
+                        year: b.and_then(|b| b.year).unwrap_or(now.year()),
+                        month: b.map_or(now.month(), |b| u32::from(b.month)),
+                    });
+                }
+            }
+        }
+        // Mockup 48c: a search typed, its clear button.
+        "search-text" => {
+            if let Some(s) = app.session() {
+                let st = s.search.clone();
+                st.update(cx, |st, cx| {
+                    st.set_value("fl", window, cx);
+                    cx.emit(gpui_kit::component::input::InputEvent::Change);
+                });
+            }
+        }
+        // Mockup 48h: an item with a monthly price, its period button.
+        "price-period" => {
+            if let Some(s) = app.session() {
+                s.selected = s
+                    .entries
+                    .iter()
+                    .find(|e| e.price.as_ref().is_some_and(|p| p.period.is_some()))
+                    .map(|e| e.id);
             }
         }
         "calendar" => {

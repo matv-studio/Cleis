@@ -42,6 +42,8 @@ pub enum Sub {
     Role,
     Spaces,
     Sort,
+    /// A folder's icon (mockup 48g).
+    Icon,
 }
 
 pub struct CtxMenu {
@@ -269,7 +271,7 @@ pub fn render(
     let m = s.ctx.as_ref()?;
     let (main, sub) = match m.target {
         CtxTarget::Entry(id) => entry_menu(s, id, m.sub, t, cx)?,
-        CtxTarget::Space(id) => (space_menu(s, id, t, cx)?, None),
+        CtxTarget::Space(id) => space_menu(s, id, m.sub, t, cx)?,
         CtxTarget::Contact(id) => contact_menu(s, id, m.sub, t, cx)?,
         CtxTarget::Member(id) => member_menu(s, id, m.sub, t, cx)?,
         CtxTarget::ListVoid => list_void_menu(s, m.sub, t, cx),
@@ -466,6 +468,7 @@ fn list_void_menu(s: &Session, sub: Option<Sub>, t: &Tokens, cx: &mut Context<Cl
         move |this, _, cx| {
             if let Some(s) = this.session() {
                 s.vault_cards = !cards;
+                s.refilter();
             }
             cx.notify();
         },
@@ -907,9 +910,35 @@ fn entry_menu(
     Some((r.menu, subm))
 }
 
-fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div> {
+fn space_menu(
+    s: &Session,
+    id: SpaceId,
+    sub: Option<Sub>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Option<Built> {
     let sp = s.spaces.iter().find(|x| x.id == id)?;
     let mut r = Rows::new(t);
+    // Contacts' folders: their icon only.
+    if sp.for_contacts {
+        let personal = sp.kind != cleis_store::SpaceKind::Organization;
+        let manage = s.org_of(id).is_some_and(|o| o.can(Perm::Manage));
+        if !(personal || manage) {
+            return None;
+        }
+        r.sub_y = r.y;
+        r.row(parent(
+            "cx-icon",
+            t,
+            "palette",
+            "Icon",
+            Sub::Icon,
+            sub == Some(Sub::Icon),
+            cx,
+        ));
+        let subm = (sub == Some(Sub::Icon)).then(|| (r.sub_y, icon_grid(sp, t, cx)));
+        return Some((r.menu, subm));
+    }
     let new_here = item("cx-new-here", t, "plus", tr("New item here"), None, false);
     r.row(if s.may(id, Perm::Edit) {
         act(new_here, cx, move |this, window, cx| {
@@ -930,6 +959,16 @@ fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) 
                 item("cx-rename", t, "text", tr("Rename"), None, false),
                 cx,
                 move |this, window, cx| this.open_rename(id, window, cx),
+            ));
+            r.sub_y = r.y;
+            r.row(parent(
+                "cx-icon",
+                t,
+                "palette",
+                "Icon",
+                Sub::Icon,
+                sub == Some(Sub::Icon),
+                cx,
             ));
             let page = |label: &'static str| {
                 move |this: &mut CleisApp, _: &mut Window, cx: &mut Context<CleisApp>| {
@@ -975,6 +1014,16 @@ fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) 
             cx,
             move |this, window, cx| this.open_folder_rename(id, window, cx),
         ));
+        r.sub_y = r.y;
+        r.row(parent(
+            "cx-icon",
+            t,
+            "palette",
+            "Icon",
+            Sub::Icon,
+            sub == Some(Sub::Icon),
+            cx,
+        ));
         if s.vault.home_space() != id {
             r.sep();
             r.row(act(
@@ -989,7 +1038,61 @@ fn space_menu(s: &Session, id: SpaceId, t: &Tokens, cx: &mut Context<CleisApp>) 
             ));
         }
     }
-    Some(r.menu)
+    let subm = (sub == Some(Sub::Icon)).then(|| (r.sub_y, icon_grid(sp, t, cx)));
+    Some((r.menu, subm))
+}
+
+/// Mockup 48g: the icons a folder can take, the current one outlined; Default puts the folder
+/// icon back.
+fn icon_grid(sp: &cleis_store::SpaceInfo, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let id = sp.id;
+    let current = crate::ui::folder_icon(sp.icon.as_deref());
+    let mut grid = div()
+        .flex()
+        .flex_wrap()
+        .gap(px(4.))
+        .w(px(32. * 6. + 4. * 5.));
+    for name in crate::ui::FOLDER_ICONS {
+        let on = name == current;
+        let mut label = name.to_owned();
+        if let Some(f) = label.get_mut(0..1) {
+            f.make_ascii_uppercase();
+        }
+        grid = grid.child(
+            div()
+                .id(SharedString::from(format!("cx-icon-{name}")))
+                .size(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(RADIUS_MD)
+                .cursor_pointer()
+                .when(on, |d| d.border_2().border_color(t.primary))
+                .hover(|d| d.bg(t.surface_hover))
+                .child(icon(name, 16., if on { t.text } else { t.text_muted }))
+                .tooltip(crate::ui::tip(crate::i18n::tr_owned(&label)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.close_ctx(cx);
+                    this.set_space_icon(id, (name != "folder").then_some(name), cx);
+                }))
+                .test_support(),
+        );
+    }
+    menu_box(t)
+        .w(px(32. * 6. + 4. * 5. + 16.))
+        .min_w(px(0.))
+        .p(px(8.))
+        .gap(px(4.))
+        .child(grid)
+        .child(div().h(px(1.)).my(px(4.)).bg(t.line))
+        .child(
+            menu_item("cx-icon-default", t, Some("folder"), "Default", false)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.close_ctx(cx);
+                    this.set_space_icon(id, None, cx);
+                }))
+                .test_support(),
+        )
 }
 
 fn contact_menu(
@@ -1017,7 +1120,8 @@ fn contact_menu(
                 .chars()
                 .filter(|c| c.is_ascii_digit() || *c == '+')
                 .collect();
-            cx.open_url(&format!("tel:{n}"));
+            // RFC 3966: no spaces in a tel: address (dots and dashes are allowed).
+            cx.open_url(&format!("tel:{}", n.replace(' ', "")));
         }),
         None => off(call, "No phone number", cx),
     });
@@ -1503,6 +1607,10 @@ impl CleisApp {
 
     /// Closes the topmost menu or question (Escape, audit U-2). Returns whether one was open.
     pub fn close_top(&mut self, cx: &mut Context<Self>) -> bool {
+        // Mockup 48j: Esc stops the middle click's scrolling first.
+        if self.stop_autoscroll(cx) {
+            return true;
+        }
         let Some(s) = self.session() else {
             return false;
         };

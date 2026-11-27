@@ -319,6 +319,9 @@ pub struct Preferences {
     pub sort_by: SortBy,
     /// "My order" of the items (dragged).
     pub item_order: Vec<crate::EntryId>,
+    /// A line with each folder's name before its items in All items, a vault, All contacts and
+    /// My contacts (mockups 48a, 48d; Preferences › Lists, on by default).
+    pub folder_lines: bool,
 }
 
 impl Default for Preferences {
@@ -349,6 +352,7 @@ impl Default for Preferences {
             space_order: Vec::new(),
             sort_by: SortBy::Name,
             item_order: Vec::new(),
+            folder_lines: true,
         }
     }
 }

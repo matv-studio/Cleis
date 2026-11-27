@@ -101,6 +101,10 @@ pub struct SpaceInfo {
     /// An organization's contacts outside any folder ("Uncategorized", 27/11/2026).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unfiled: bool,
+    /// The folder's icon (mockup 48g, an icon name of the app); `None`: the folder icon. Sealed
+    /// with the rest, so an organization's spaces show theirs to every member.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
@@ -405,6 +409,7 @@ impl Vault {
             mode,
             for_contacts,
             unfiled: false,
+            icon: None,
         };
         let wrapped = wrap_key(&self.account.public(), &key, id.0.as_bytes())?;
         let sealed = seal(
@@ -421,12 +426,22 @@ impl Vault {
     }
 
     pub fn rename_space(&mut self, id: SpaceId, name: &str) -> Result<()> {
+        self.update_space(id, |info| info.name = name.to_owned())
+    }
+
+    /// Sets a folder's icon (mockup 48g); `None`: back to the folder icon.
+    pub fn set_space_icon(&mut self, id: SpaceId, icon: Option<&str>) -> Result<()> {
+        self.update_space(id, |info| info.icon = icon.map(str::to_owned))
+    }
+
+    /// Changes a space's sealed info and seals it again with its key.
+    fn update_space(&mut self, id: SpaceId, f: impl FnOnce(&mut SpaceInfo)) -> Result<()> {
         let mut info = self
             .spaces()?
             .into_iter()
             .find(|s| s.id == id)
             .ok_or(StoreError::UnknownSpace)?;
-        info.name = name.to_owned();
+        f(&mut info);
         let key = self.key(id)?;
         let sealed = seal(
             key,

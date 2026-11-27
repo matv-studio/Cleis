@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-104,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-105,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -16,7 +16,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive|kind-menu|birthday-cal|ctx-space-icon|search-text|price-period]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
    [--quick-access] [--restore] [--welcome-local|--welcome-signin] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
@@ -57,7 +57,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
 - `crates/cleis-crypto` — Argon2id, AES-256-GCM, X25519 (enveloppe de clés), Ed25519, empreintes,
   RS256 (jetons Google / Microsoft, `ring`).
 - `crates/cleis-core` — modèle sans E/S : `entry`, `contact`, `column`, `formula`, `money`, `totp`,
-  `import_csv`, `vcard`, `health`, `dedupe`, `journal`, `generator`, `settings`, `text`, `autofill`
+  `import_csv`, `vcard`, `phone` (format des numéros par pays, D-105), `health`, `dedupe`, `journal`, `generator`, `settings`, `text`, `autofill`
   (correspondance fenêtre ↔ éléments, séquences de remplissage), `edit` / `contact_edit` (saisie dans
   les inspecteurs), `open_code` (code à l'ouverture).
 - `crates/cleis-autofill` — système : raccourcis globaux (`hotkeys.rs`), fenêtre au premier plan, adresse
@@ -83,7 +83,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   `update.rs` + `screens/update.rs` (mises à jour depuis GitHub, D-74), `nas.rs` (serveur installé
   sur un NAS par SSH : QNAP .qpkg, systemd, D-78), `folder_org.rs` (organisation dans un dossier
   partagé : opérations signées, copie locale rejouée par `cleis_server::local`, D-78),
-  `screens/wheel.rs` (roue chromatique), `opening.rs` (ouverture par
+  `scroll.rs` (barres de défilement, clic molette, D-105), `screens/wheel.rs` (roue chromatique), `opening.rs` (ouverture par
   Windows Hello, PIN ou sans rien, fichier `<coffre>.unlock`, D-76, D-83), `screens/pin.rs` (cases du
   PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84 ; GitHub App, D-101),
   `cloud.rs` + `screens/cloud.rs` (coffre dans OneDrive / Google Drive : connexion PKCE par le
@@ -182,5 +182,10 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   (`GhApp` : création refusée, installation, jetons qui expirent) ; jamais github.com.
 - Un `div` porteur d'un `group` / d'un `id` change de type avec `.test_support()` : rendre
   `impl IntoElement` plutôt que `Stateful<Div>`.
+- Listes par dossier (D-105) : `refilter` groupe `visible` par dossier quand `folder_lines()` ; les
+  essais qui lisent la liste dans un seul tri appellent `no_folder_lines`. Un `set_value` fait par
+  l'appli n'émet pas `InputEvent::Change` : l'émettre (`cx.emit`) si la liste doit suivre.
+- Disque : ne pas effacer `target/debug/build/*/out` à la main (compilation cassée : `rm -rf
+  target/debug` puis tout refaire).
 - Dossier partagé supprimé (D-98) : seule `deleted.json` reste ; le registre `folder_org` a pour clé le
   chemin de la copie (`replica_dir(...).display()`), pas la clé de l'organisation.

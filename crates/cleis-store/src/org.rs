@@ -375,6 +375,7 @@ mod tests {
             mode: EncryptionMode::Standard,
             for_contacts: false,
             unfiled: false,
+            icon: None,
         };
         let (sealed, _, key) = a.create_org_space("org1", info.clone()).unwrap();
         assert!(a.is_org_space(info.id).unwrap());

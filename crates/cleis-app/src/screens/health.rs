@@ -364,121 +364,129 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
             )
             .when(ui.vault_menu, |d| d.child(deferred(vmenu)))
     });
-    div()
-        .id("health")
-        .flex_1()
-        .overflow_y_scroll()
-        .px(px(32.))
-        .py(px(24.))
-        .child(
-            div()
-                .max_w(px(1100.))
-                .mx_auto()
-                .flex()
-                .flex_col()
-                .gap(px(16.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(12.))
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_size(TEXT_XL)
-                                .line_height(px(26.))
-                                .font_weight(W_STRONG)
-                                .child(tr("Health report")),
-                        )
-                        .children(vault_select)
-                        .child(
-                            div()
-                                .relative()
-                                .child(
-                                    div()
-                                        .id("health-space")
-                                        .child(
-                                            value_box(t)
-                                                .w(px(170.))
-                                                .cursor_pointer()
-                                                .child(
-                                                    div()
-                                                        .flex_1()
-                                                        .overflow_hidden()
-                                                        .text_ellipsis()
-                                                        .child(crate::i18n::tr_owned(&label)),
-                                                )
-                                                .child(icon("chevron", 14., t.text_muted)),
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            if let Some(s) = this.session() {
-                                                s.health.space_menu = !s.health.space_menu;
-                                                s.health.vault_menu = false;
-                                            }
-                                            cx.notify();
-                                        }))
-                                        .test_support(),
-                                )
-                                .when(ui.space_menu, |d| d.child(deferred(menu))),
-                        )
-                        .child(
-                            button("health-scan", t, BtnKind::Default, false)
-                                .child(icon("refresh", 16., t.text))
-                                .child(tr("Scan"))
-                                .tooltip(tip(tr("Check again (the report also updates by itself)")))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toast(tr("Scanned"), cx);
-                                }))
-                                .test_support(),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(12.))
-                        .child(stat(
-                            "st-weak",
-                            sum.weak,
-                            "Weak",
-                            t.danger_text,
-                            IssueKind::Weak,
-                            cx,
-                        ))
-                        .child(stat(
-                            "st-reused",
-                            sum.reused,
-                            "Reused",
-                            t.warning_text,
-                            IssueKind::Reused,
-                            cx,
-                        ))
-                        .child(stat(
-                            "st-old",
-                            sum.old,
-                            "Over a year old",
-                            t.warning_text,
-                            IssueKind::Old,
-                            cx,
-                        ))
-                        .child(stat(
-                            "st-2fa",
-                            sum.no_two_factor,
-                            "No 2FA",
-                            t.text,
-                            IssueKind::NoTwoFactor,
-                            cx,
-                        ))
-                        .child(stat(
-                            "st-ok",
-                            sum.ok,
-                            "No issue",
-                            t.success_text,
-                            IssueKind::Any,
-                            cx,
-                        )),
-                )
-                .child(section(t).p_0().overflow_hidden().child(table)),
-        )
+    crate::scroll::area(
+        "health",
+        &s.scrolls,
+        div()
+            .id("health")
+            .flex_1()
+            .overflow_y_scroll()
+            .px(px(32.))
+            .py(px(24.))
+            .child(
+                div()
+                    .max_w(px(1100.))
+                    .mx_auto()
+                    .flex()
+                    .flex_col()
+                    .gap(px(16.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(12.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(TEXT_XL)
+                                    .line_height(px(26.))
+                                    .font_weight(W_STRONG)
+                                    .child(tr("Health report")),
+                            )
+                            .children(vault_select)
+                            .child(
+                                div()
+                                    .relative()
+                                    .child(
+                                        div()
+                                            .id("health-space")
+                                            .child(
+                                                value_box(t)
+                                                    .w(px(170.))
+                                                    .cursor_pointer()
+                                                    .child(
+                                                        div()
+                                                            .flex_1()
+                                                            .overflow_hidden()
+                                                            .text_ellipsis()
+                                                            .child(crate::i18n::tr_owned(&label)),
+                                                    )
+                                                    .child(icon("chevron", 14., t.text_muted)),
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                if let Some(s) = this.session() {
+                                                    s.health.space_menu = !s.health.space_menu;
+                                                    s.health.vault_menu = false;
+                                                }
+                                                cx.notify();
+                                            }))
+                                            .test_support(),
+                                    )
+                                    .when(ui.space_menu, |d| d.child(deferred(menu))),
+                            )
+                            .child(
+                                button("health-scan", t, BtnKind::Default, false)
+                                    .child(icon("refresh", 16., t.text))
+                                    .child(tr("Scan"))
+                                    .tooltip(tip(tr(
+                                        "Check again (the report also updates by itself)",
+                                    )))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toast(tr("Scanned"), cx);
+                                    }))
+                                    .test_support(),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(12.))
+                            .child(stat(
+                                "st-weak",
+                                sum.weak,
+                                "Weak",
+                                t.danger_text,
+                                IssueKind::Weak,
+                                cx,
+                            ))
+                            .child(stat(
+                                "st-reused",
+                                sum.reused,
+                                "Reused",
+                                t.warning_text,
+                                IssueKind::Reused,
+                                cx,
+                            ))
+                            .child(stat(
+                                "st-old",
+                                sum.old,
+                                "Over a year old",
+                                t.warning_text,
+                                IssueKind::Old,
+                                cx,
+                            ))
+                            .child(stat(
+                                "st-2fa",
+                                sum.no_two_factor,
+                                "No 2FA",
+                                t.text,
+                                IssueKind::NoTwoFactor,
+                                cx,
+                            ))
+                            .child(stat(
+                                "st-ok",
+                                sum.ok,
+                                "No issue",
+                                t.success_text,
+                                IssueKind::Any,
+                                cx,
+                            )),
+                    )
+                    .child(section(t).p_0().overflow_hidden().child(table)),
+            ),
+        t,
+        cx,
+    )
 }
 
 impl CleisApp {

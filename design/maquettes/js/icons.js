@@ -87,6 +87,7 @@ const P = {
   gift: '<rect x="2" y="6" width="12" height="3" rx=".8"/><path d="M3 9v4.5h10V9M8 6v7.5M8 6C6.6 6 5 5.3 5 4.1s1.6-1.6 3 1.9c1.4-3.5 3-3.1 3-1.9S9.4 6 8 6"/>',
   building: '<path d="M3 14V3.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1V14M10 6.5h2a1 1 0 0 1 1 1V14M2 14h12M5.5 5h2M5.5 7.5h2M5.5 10h2"/>',
   wallet: '<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H12v2"/><rect x="2" y="5" width="12" height="8.5" rx="1.5"/><path d="M14 8h-2.8a1.3 1.3 0 0 0 0 2.6H14"/>',
+  starFill: '<path fill="currentColor" d="m8 2 1.8 3.8 4.1.5-3 2.9.8 4.1L8 11.3l-3.7 2 .8-4.1-3-2.9 4.1-.5Z"/>',
   autoscroll: '<circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="8" r=".8" fill="currentColor"/><path d="m6 5.3 2-2 2 2M6 10.7l2 2 2-2"/>',
 };
 export const i = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[name] || ''}</svg>`;

@@ -1,5 +1,14 @@
 # Cleis — état
 
+## 28/11/2026 (version 0.2.4)
+- D-105 : maquettes 48a à 48l validées puis codées (lignes de dossier, recherche effaçable, menu de
+  type, téléphones au format du pays, calendrier des anniversaires, icônes de dossier, période du prix,
+  barre de défilement, clic molette, Fill best match par le site, connexion en deux pages) ; corrections
+  des colonnes partagées, du clic au bord des cases, des colonnes hors fenêtre. Brouillon v0.2.4 lancé
+  à la demande de l'utilisateur (« lance le build et fais le draft »), à publier par lui.
+- À essayer sur Windows : connexion en deux pages réelle (Google, Microsoft), clic molette, barre de
+  défilement, icônes de dossier d'organisation.
+
 ## 27/11/2026 (version 0.2.3, branche `feat/full-app`)
 - Retours sur la 0.2.2 (D-81 à D-87) : accent bronze, « New password », cadenas ouvert, survol des onglets,
   réglages sans phrases ; maquettes 37a à 37o et 38 validées et codées : dossier nommé sur place, traits

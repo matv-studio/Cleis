@@ -403,8 +403,9 @@ impl Contact {
     pub fn primary_email(&self) -> Option<String> {
         Self::preferred(&self.emails)
     }
+    /// The preferred phone number, in its country's format (0.2.4).
     pub fn primary_phone(&self) -> Option<String> {
-        Self::preferred(&self.phones)
+        Self::preferred(&self.phones).map(|p| crate::phone::format(&p))
     }
     pub fn city(&self) -> Option<String> {
         Self::preferred(&self.addresses)

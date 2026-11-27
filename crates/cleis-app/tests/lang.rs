@@ -49,10 +49,19 @@ fn switch_to_french(cx: &mut TestAppContext) {
         w.press("enter", cx);
     });
     assert!(!cleis_app::i18n::is_french());
-    // The first item (a subscription with a monthly price) opens in the panel.
+    // An item with a monthly price opens in the panel.
     let first = app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
-        s.entries[s.visible[0]].id
+        s.visible
+            .iter()
+            .map(|i| &s.entries[*i])
+            .find(|e| {
+                e.price
+                    .as_ref()
+                    .is_some_and(|p| p.period == Some(cleis_core::money::Period::Month))
+            })
+            .unwrap()
+            .id
     });
     act(cx, &|w, cx| {
         w.click_at(
@@ -68,13 +77,22 @@ fn switch_to_french(cx: &mut TestAppContext) {
             ed.inputs[&Field::Price].read(cx).value().to_string()
         })
     };
-    assert!(price(cx).ends_with(" / month"), "{}", price(cx));
+    // The box holds the amount; its period is the button beside it (mockup 48h).
+    assert!(
+        !price(cx).contains('/') && !price(cx).is_empty(),
+        "{}",
+        price(cx)
+    );
+    assert!(
+        cx.update_window(h.into(), |_, w, _| w.try_find("price-period").is_some())
+            .unwrap()
+    );
 
     act(cx, &|w, cx| w.click("tab-Settings", cx));
     // Language and region is under the shortcuts' grid (mockup 45a).
     act(cx, &|w, cx| {
         w.scroll(
-            "sc-all-0",
+            "settings-body",
             gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
             cx,
         )
@@ -89,7 +107,11 @@ fn switch_to_french(cx: &mut TestAppContext) {
     assert_eq!(cleis_app::i18n::tr("Settings"), "Réglages");
     // The inspector's boxes are made again in French; the price still reads back.
     act(cx, &|w, cx| w.click("tab-Vault", cx));
-    assert!(price(cx).ends_with(" / mois"), "{}", price(cx));
+    assert!(
+        !price(cx).contains('/') && !price(cx).is_empty(),
+        "{}",
+        price(cx)
+    );
     let (_, money) = app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
         let e = s.selected_entry().unwrap();
@@ -112,7 +134,7 @@ fn switch_to_french(cx: &mut TestAppContext) {
     // Language and region is under the shortcuts' grid (mockup 45a).
     act(cx, &|w, cx| {
         w.scroll(
-            "sc-all-0",
+            "settings-body",
             gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
             cx,
         )

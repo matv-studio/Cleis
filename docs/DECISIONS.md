@@ -946,6 +946,43 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     profil, chaque organisation garde celui qu'elle a (l'appli le renvoie tel quel, pour les serveurs
     d'avant ; le serveur accepte aussi un e-mail vide comme « inchangé »).
 
+- **D-105 Version 0.2.4 : listes par dossier, défilement, saisie** (28/11/2026, maquettes 48a à 48l
+  validées avec retouches : pas d'icône sur les lignes de dossier, fond plus clair ; menu de type aligné
+  et étroit ; bouton de période sans fond ; étoile pleine après le nom, comme Contacts).
+  - Corrections : les colonnes du coffre et des contacts partagent des identifiants (`name`,
+    `website`, `notes`) : toute recherche de colonne prend désormais la table (Website dans Contacts
+    allumait celle du coffre). Une case de saisie prend le clavier sur tout son cadre (`ui::Input`
+    enveloppe celle de gpui-component, dont le cadre gardait un focus à lui). Les colonnes rétrécissent
+    en proportion de leur largeur, sans minimum, au lieu de sortir de la fenêtre (le retour de D-102
+    n'avait pas été essayé dans une fenêtre étroite avec le panneau ouvert).
+  - Lignes de dossier (All items, un coffre, All contacts, My contacts, une section d'organisation) :
+    éléments groupés par dossier dans l'ordre de la barre latérale (`Session::space_ranks`), une ligne
+    au fond `surface-raised` avant chaque dossier (« Coffre › Dossier » quand la liste mêle plusieurs
+    coffres), clic droit : menu du dossier. Préférences › Lists › Folder lines, activé par défaut.
+  - Recherche : × à droite dès qu'il y a du texte, Échap vide la case (`ui::search_box`).
+  - Type d'un e-mail, d'un téléphone… : menu de tous les types, le courant coché, aligné sous le
+    bouton (`ContactMenu::Kind`). Téléphones au format officiel de chaque pays (port Rust de
+    libphonenumber, choix de l'utilisateur) ; un numéro sans indicatif est lu comme français et gardé
+    national (`cleis_core::phone`). Mise en forme à l'enregistrement et à l'affichage ; `tel:` sans
+    espaces (RFC 3966).
+  - Calendrier du coffre sur l'anniversaire et les colonnes date des contacts ; « No year » garde le
+    jour et le mois.
+  - Icône de dossier : clic droit › Icon, 30 icônes dessinées pour Cleis, Default. Gardée dans les
+    informations scellées de l'espace : un dossier personnel l'a dans le coffre, l'icône d'un espace
+    d'organisation (admins) est envoyée comme un renommage et vue par tous les membres.
+  - Prix : la case garde le montant, la période est un bouton texte à sa droite (mois ↔ an ; trimestre
+    et paiement unique repassent au mois ; sans période : compté une fois l'an, affiché « / year »).
+  - Barre de défilement sur toutes les zones longues (charte § 4 : pilule `text-faint`, survol
+    `text-muted`) ; clic molette : ancre, défilement d'autant plus rapide que le pointeur s'en éloigne,
+    arrêt au clic ou Échap, ou au relâchement s'il a été tiré (`scroll.rs`).
+  - Fill best match : nouveaux motifs « Same site » (même domaine enregistrable, liste publique des
+    suffixes, crate `psl`) et « Name » (le nom du site dans le nom de l'élément) ; Quick Access les
+    présente en tête (« Most likely ») avec leur motif ; ils ne remplissent jamais seuls.
+  - Connexion en deux pages : après l'identifiant, si Tab n'atteint pas un champ mot de passe, retour à
+    l'identifiant (Shift+Tab : Entrée n'est jamais pressée sur le lien atteint), Entrée, puis attente
+    (10 s) que la page suivante mette le clavier dans son champ mot de passe ; sinon le reste attend le
+    raccourci suivant comme avant.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

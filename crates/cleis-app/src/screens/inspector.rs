@@ -162,13 +162,18 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                 ),
         )
         .child(
-            icon_button("fav", t, "star", false)
-                .tooltip(tip(tr("Favorite")))
-                .when(e.favorite, |d| d.text_color(t.warning_text))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.update_entry(id, |e| e.favorite = !e.favorite, cx)
-                }))
-                .test_support(),
+            icon_button(
+                "fav",
+                t,
+                if e.favorite { "starFill" } else { "star" },
+                false,
+            )
+            .tooltip(tip(tr("Favorite")))
+            .when(e.favorite, |d| d.text_color(t.warning_text))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.update_entry(id, |e| e.favorite = !e.favorite, cx)
+            }))
+            .test_support(),
         )
         .child(
             div()
@@ -238,7 +243,9 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
         .flex_col()
         .child(head)
         .child(tabs)
-        .child(
+        .child(crate::scroll::area(
+            "inspector-body",
+            &s.scrolls,
             div()
                 .id("inspector-body")
                 .flex_1()
@@ -248,7 +255,9 @@ pub fn render(s: &Session, e: &Entry, t: &Tokens, cx: &mut Context<CleisApp>) ->
                 .flex_col()
                 .gap(px(12.))
                 .child(body),
-        )
+            t,
+            cx,
+        ))
 }
 
 type CopyBtn<'a> =
@@ -435,6 +444,42 @@ fn details(
                             t,
                             cx,
                         ));
+                    }
+                    // Mockup 48h: the billing period, a text button at the right end of the
+                    // box (no background), month and year in turn.
+                    if f == Field::Price
+                        && let Some(p) = e.price.as_ref()
+                    {
+                        let (per, next) = cleis_core::edit::period_label(p.period);
+                        let other = if next == cleis_core::money::Period::Year {
+                            "Billed per month · click for yearly"
+                        } else {
+                            "Billed per year · click for monthly"
+                        };
+                        inp = inp.suffix(
+                            div()
+                                .id("price-period")
+                                .flex_none()
+                                .cursor_pointer()
+                                .text_size(TEXT_SM)
+                                .text_color(t.text_muted)
+                                .hover(|d| d.text_color(t.text))
+                                .child(tr(per))
+                                .tooltip(tip(tr(other)))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.update_entry(
+                                        id,
+                                        |e| {
+                                            if let Some(p) = e.price.as_mut() {
+                                                p.period = Some(next);
+                                            }
+                                        },
+                                        cx,
+                                    )
+                                }))
+                                .test_support(),
+                        );
                     }
                     div()
                         .flex_1()

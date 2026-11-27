@@ -2276,6 +2276,34 @@ impl CleisApp {
         );
     }
 
+    /// A folder's icon (mockup 48g): a personal folder's is kept in the vault; an organization
+    /// space's is sealed again with its key and sent, so every member sees it.
+    pub fn set_space_icon(&mut self, id: SpaceId, icon: Option<&str>, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        if let Err(e) = s.vault.set_space_icon(id, icon) {
+            s.toast = Some(crate::trf!("Not done: {}", e).into());
+            cx.notify();
+            return;
+        }
+        let _ = crate::sync::reload(s);
+        let org = s.org_of(id).map(|o| o.m.key());
+        let info = s.spaces.iter().find(|x| x.id == id).cloned();
+        let key = s.vault.space_key(id).cloned();
+        if let (Some(org), Some(info), Some(key)) = (org, info, key)
+            && let Ok(sealed) = cleis_store::seal_space_info(&key, &info)
+        {
+            self.in_org(&org, |app| {
+                app.org_request::<_, PushReply>(
+                    "/v1/spaces/update",
+                    SpaceUpdate { id, sealed },
+                    |_, _, _| {},
+                    cx,
+                )
+            });
+        }
+        cx.notify();
+    }
+
     /// Deletes an organization space for every member (its items with it).
     pub fn org_delete_space(&mut self, id: SpaceId, cx: &mut Context<Self>) {
         self.org_request::<_, PushReply>(
@@ -2567,6 +2595,7 @@ impl CleisApp {
             },
             for_contacts,
             unfiled,
+            icon: None,
         };
         // "Uncategorized" is everyone's: its key wrapped for each member right away.
         let everyone: Vec<(MemberId, [u8; 32])> = if unfiled {
@@ -3437,13 +3466,13 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
                 o.again = true;
             }
         } else {
-            // Renamed elsewhere: same key, new sealed info.
+            // Renamed (or its icon changed, 0.2.4) elsewhere: same key, new sealed info.
             let renamed = s.vault.space_key(sv.id).is_some_and(|k| {
                 cleis_store::open_space_info(k, sv.id, &sv.sealed).is_ok_and(|i| {
                     s.spaces
                         .iter()
                         .find(|x| x.id == sv.id)
-                        .is_none_or(|x| x.name != i.name)
+                        .is_none_or(|x| x.name != i.name || x.icon != i.icon)
                 })
             });
             if renamed

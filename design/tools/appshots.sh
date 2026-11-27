@@ -60,6 +60,16 @@ for theme in ${THEMES:-dark}; do
   shot "account-gdrive-$theme" --demo --unlocked --tab settings --page account --menu gdrive --theme $theme
   shot "welcome-signin-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --welcome-signin --theme $theme
   shot "profile-edit-$theme" --demo --unlocked --menu profile-edit --theme $theme
+  # 28/11/2026 (0.2.4, mockups 48): folder lines, search clear, type menu, birthday calendar,
+  # folder icons, billing period, folder lines in Preferences, the window narrower than its columns.
+  shot "vault-lines-$theme" --demo --unlocked --theme $theme
+  shot "search-clear-$theme" --demo --unlocked --menu search-text --theme $theme
+  shot "contacts-lines-$theme" --demo --unlocked --tab contacts --theme $theme
+  shot "contact-kind-menu-$theme" --demo --unlocked --menu kind-menu --theme $theme
+  shot "contact-birthday-$theme" --demo --unlocked --menu birthday-cal --theme $theme
+  shot "folder-icon-$theme" --demo --unlocked --menu ctx-space-icon --theme $theme
+  shot "price-period-$theme" --demo --unlocked --menu price-period --theme $theme
+  shot "prefs-lines-$theme" --demo --unlocked --tab settings --page preferences --theme $theme
   shot "welcome-local-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --welcome-local --theme $theme
   shot "org-pin-setup-$theme" --demo --unlocked --tab settings --page policy --menu org-pin-setup --theme $theme
   # 27/11/2026 (mockups 42, D-98): organization access, logo, deleting the server.

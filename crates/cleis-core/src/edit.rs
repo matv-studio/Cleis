@@ -44,7 +44,8 @@ pub fn text(e: &Entry, f: Field) -> String {
         Field::Password => e.password.clone(),
         Field::Totp => e.totp.as_ref().map(totp_text).unwrap_or_default(),
         Field::Notes => e.notes.clone(),
-        Field::Price => e.price.as_ref().map(price_text).unwrap_or_default(),
+        // The amount alone: its period is the button beside the box (mockup 48h).
+        Field::Price => e.price.as_ref().map(amount_text).unwrap_or_default(),
         Field::Licenses => e.licenses.map(|l| l.to_string()).unwrap_or_default(),
         Field::Renewal => e.renewal.clone().unwrap_or_default(),
     }
@@ -62,6 +63,26 @@ pub fn totp_text(t: &Totp) -> String {
 }
 
 /// `€15.00 / month` (`15.00 CHF / month` without a symbol): read back by [`apply`] unchanged.
+/// `€15.00`: the amount and its currency, without the period.
+pub fn amount_text(m: &Money) -> String {
+    price_text(&Money {
+        period: None,
+        ..m.clone()
+    })
+}
+
+/// The period of a price, as its button says it (mockup 48h), and the one a click gives:
+/// month and year in turn; a quarter or a single payment goes to month. No period counts as
+/// once a year in the yearly cost, so it reads "/ year".
+pub fn period_label(p: Option<Period>) -> (&'static str, Period) {
+    match p {
+        Some(Period::Month) => ("/ month", Period::Year),
+        Some(Period::Year) | None => ("/ year", Period::Month),
+        Some(Period::Quarter) => ("/ quarter", Period::Month),
+        Some(Period::OneTime) => ("once", Period::Month),
+    }
+}
+
 pub fn price_text(m: &Money) -> String {
     let c = m.cents.abs();
     let sign = if m.cents < 0 { "-" } else { "" };
@@ -181,7 +202,7 @@ mod tests {
             (Field::Password, " pass with spaces "),
             (Field::Totp, "JBSWY3DPEHPK3PXP"),
             (Field::Notes, "Team plan"),
-            (Field::Price, "€15.00 / month"),
+            (Field::Price, "€15.00"),
             (Field::Licenses, "4"),
             (Field::Renewal, "2026-12-03"),
         ] {
@@ -189,19 +210,34 @@ mod tests {
             assert_eq!(text(&x, f), v, "{f:?}");
             assert_eq!(apply(&mut x, f, v, "EUR"), Ok(false), "{f:?} twice");
         }
+        // No period: once a year; the period button (mockup 48h) goes to month, then back.
+        assert_eq!(x.price.as_ref().unwrap().yearly_cents(), 1_500);
+        let (label, next) = period_label(x.price.as_ref().unwrap().period);
+        assert_eq!(label, "/ year");
+        x.price.as_mut().unwrap().period = Some(next);
         assert_eq!(x.price.as_ref().unwrap().yearly_cents(), 18_000);
+        assert_eq!(period_label(Some(next)), ("/ month", Period::Year));
+        assert_eq!(
+            text(&x, Field::Price),
+            "€15.00",
+            "the box keeps the amount alone"
+        );
     }
 
     #[test]
     fn typed_forms_are_read() {
         let mut x = e();
+        let per = |x: &Entry| x.price.as_ref().and_then(|p| p.period);
         apply(&mut x, Field::Price, "€9,99/mo", "EUR").unwrap();
-        assert_eq!(text(&x, Field::Price), "€9.99 / month");
+        assert_eq!(text(&x, Field::Price), "€9.99");
+        assert_eq!(per(&x), Some(Period::Month));
         // A new amount keeps the period already set.
         apply(&mut x, Field::Price, "12", "EUR").unwrap();
-        assert_eq!(text(&x, Field::Price), "€12.00 / month");
+        assert_eq!(text(&x, Field::Price), "€12.00");
+        assert_eq!(per(&x), Some(Period::Month));
         apply(&mut x, Field::Price, "30 CHF / year", "EUR").unwrap();
-        assert_eq!(text(&x, Field::Price), "30.00 CHF / year");
+        assert_eq!(text(&x, Field::Price), "30.00 CHF");
+        assert_eq!(per(&x), Some(Period::Year));
         apply(&mut x, Field::Renewal, "3 décembre 2026", "EUR").unwrap();
         assert_eq!(x.renewal.as_deref(), Some("2026-12-03"));
         apply(

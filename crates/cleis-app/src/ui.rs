@@ -1,6 +1,7 @@
 //! Charter components (design/maquettes/css/ui.css) built from GPUI primitives.
 
 use crate::theme::*;
+use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, Div, ElementId, FontWeight, Hsla, MouseButton, MouseMoveEvent, SharedString,
@@ -589,6 +590,27 @@ pub fn popup_below(el: impl IntoElement, box_h: gpui_kit::Pixels) -> impl IntoEl
     )
 }
 
+/// `el` under a control `box_h` high, their left edges aligned (mockup 48e), above when the
+/// window has no room below.
+pub fn popup_below_left(el: impl IntoElement, box_h: gpui_kit::Pixels) -> impl IntoElement {
+    let target = gpui_kit::Bounds::new(
+        gpui_kit::point(px(0.), px(0.)),
+        gpui_kit::size(px(0.), box_h),
+    );
+    div().absolute().top_0().left_0().w(px(0.)).h(box_h).child(
+        gpui_kit::deferred(
+            gpui_kit::anchored()
+                .position_mode(gpui_kit::AnchoredPositionMode::Local)
+                .anchor(gpui_kit::Anchor::TopLeft)
+                .attach(target, gpui_kit::Anchor::BottomLeft)
+                .offset(gpui_kit::point(px(0.), px(4.)))
+                .snap_to_window_with_margin(px(8.))
+                .child(el),
+        )
+        .with_priority(2),
+    )
+}
+
 /// A tab shown (26/11/2026): slides in sideways from the side of the tab left, `dir` = -1 when the
 /// tab clicked is left of the one shown (the page moves right to left), +1 when it is right of it.
 pub fn tab_in(key: impl Into<SharedString>, dir: f32, el: Div) -> gpui_kit::AnimationElement<Div> {
@@ -889,4 +911,90 @@ pub fn col_sized(d: Div, w: Option<f32>) -> Div {
         Some(w) => d.flex_basis(px(w)).flex_grow(0.),
         None => d.flex_basis(px(COL_FLEX_BASIS)).flex_grow(1.),
     }
+}
+
+/// A search box (mockup 48c): the magnifier before the text, a × after it while there is text,
+/// which empties it (Esc too, before Esc closes anything else).
+pub fn search_box(
+    state: &gpui_kit::Entity<gpui_kit::component::input::InputState>,
+    id: &'static str,
+    t: &Tokens,
+    cx: &gpui_kit::App,
+) -> impl IntoElement {
+    let has_text = !state.read(cx).value().is_empty();
+    let clear = {
+        let st = state.clone();
+        move |window: &mut Window, cx: &mut gpui_kit::App| {
+            st.update(cx, |st, cx| {
+                st.set_value("", window, cx);
+                // A value set by the app is not a change typed: the list must hear of it.
+                cx.emit(gpui_kit::component::input::InputEvent::Change);
+                st.focus(window, cx);
+            });
+        }
+    };
+    let on_key = {
+        let st = state.clone();
+        let clear = clear.clone();
+        move |ev: &gpui_kit::KeyDownEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+            if ev.keystroke.key == "escape" && !st.read(cx).value().is_empty() {
+                cx.stop_propagation();
+                clear(window, cx);
+            }
+        }
+    };
+    let input = Input::new(state)
+        .id(id)
+        .prefix(icon("search", 16., t.text_muted))
+        .when(has_text, |i| {
+            i.suffix(
+                icon_button(SharedString::from(format!("{id}-clear")), t, "x", true)
+                    .tooltip(tip(crate::i18n::tr("Clear (Esc)")))
+                    .on_click(move |_, window, cx| clear(window, cx))
+                    .test_support(),
+            )
+        });
+    div().w_full().on_key_down(on_key).child(input)
+}
+
+/// The icons a folder can take (mockup 48g), in the grid's order.
+pub const FOLDER_ICONS: [&str; 30] = [
+    "folder",
+    "star",
+    "heart",
+    "user",
+    "users",
+    "briefcase",
+    "building",
+    "bank",
+    "wallet",
+    "receipt",
+    "cart",
+    "gift",
+    "home",
+    "car",
+    "luggage",
+    "cap",
+    "book",
+    "medical",
+    "code",
+    "palette",
+    "camera",
+    "music",
+    "gamepad",
+    "wrench",
+    "mail",
+    "globe",
+    "cloud",
+    "key",
+    "shield",
+    "leaf",
+];
+
+/// A folder's icon: the one chosen if this version knows it, else the folder.
+pub fn folder_icon(chosen: Option<&str>) -> &'static str {
+    chosen
+        .and_then(|c| FOLDER_ICONS.iter().find(|n| **n == c))
+        .copied()
+        .unwrap_or("folder")
 }

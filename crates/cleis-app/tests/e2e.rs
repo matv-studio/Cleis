@@ -46,6 +46,12 @@ fn open_sized(
     })
 }
 
+/// The lists without their folder lines (Preferences › Lists, 0.2.4).
+fn no_folder_lines(cx: &mut TestAppContext, app: &Entity<CleisApp>) {
+    app.update(cx, |a, cx| a.update_prefs(|p| p.folder_lines = false, cx));
+    cx.run_until_parked();
+}
+
 fn act(
     cx: &mut TestAppContext,
     h: WindowHandle<Root>,
@@ -776,7 +782,36 @@ fn contacts_edit_merge_delete(cx: &mut TestAppContext) {
         w.input("+33 6 99 00 77 88", cx);
         w.press("enter", cx);
     });
+    // Mockup 48e: the type opens the list of the types, the current one checked.
     act(cx, h, |w, cx| w.click("kind-phone-1", cx));
+    assert!(window_has(cx, h, "kind-phone-1-2"));
+    act(cx, h, |w, cx| w.click("kind-phone-1-2", cx));
+    assert!(!window_has(cx, h, "kind-phone-1-2"), "the list closes");
+    // 0.2.4: typed as it comes, kept in the country's format (France: pairs).
+    act(cx, h, |w, cx| {
+        w.click("edit-phone-1", cx);
+        w.press("ctrl-a", cx);
+        w.input("0699007788", cx);
+        w.press("enter", cx);
+    });
+    app.read_with(cx, |a, cx| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s.contacts.iter().find(|c| c.id == camille).unwrap();
+        assert_eq!(c.phones[1].value, "06 99 00 77 88");
+        // The box shows it so too.
+        let ed = s.contacts_ui.editor.as_ref().unwrap();
+        let shown = ed
+            .inputs
+            .get(&cleis_core::contact_edit::Field::Phone(1))
+            .map(|i| i.read(cx).value().to_string());
+        assert_eq!(shown.as_deref(), Some("06 99 00 77 88"));
+    });
+    act(cx, h, |w, cx| {
+        w.click("edit-phone-1", cx);
+        w.press("ctrl-a", cx);
+        w.input("+41791234567", cx);
+        w.press("enter", cx);
+    });
     act(cx, h, |w, cx| w.click("add-label", cx));
     act(cx, h, |w, cx| {
         w.input("VIP", cx);
@@ -786,8 +821,11 @@ fn contacts_edit_merge_delete(cx: &mut TestAppContext) {
         let Phase::Main(s) = &a.phase else { panic!() };
         let c = s.contacts.iter().find(|c| c.id == camille).unwrap();
         assert_eq!(c.phones.len(), 2);
-        assert_eq!(c.phones[1].value, "+33 6 99 00 77 88");
-        assert_eq!(c.phones[1].label, "Home", "Mobile → Home");
+        assert_eq!(
+            c.phones[1].value, "+41 79 123 45 67",
+            "Switzerland: its own groups"
+        );
+        assert_eq!(c.phones[1].label, "Home", "chosen in the list");
         assert!(c.labels.contains("VIP"));
     });
 
@@ -1874,6 +1912,8 @@ fn vault_tabs_and_two_organizations(cx: &mut TestAppContext) {
         w.input(cleis_app::demo::PASSWORD, cx);
         w.press("enter", cx);
     });
+    // These scenarios read the list in one sort: no folder lines (0.2.4).
+    no_folder_lines(cx, &app);
     let read = |cx: &mut TestAppContext, f: &dyn Fn(&cleis_app::app::Session)| {
         app.read_with(cx, |a, _| {
             let Phase::Main(s) = &a.phase else { panic!() };
@@ -2188,6 +2228,8 @@ fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
         w.input(cleis_app::demo::PASSWORD, cx);
         w.press("enter", cx);
     });
+    // These scenarios read the list in one sort: no folder lines (0.2.4).
+    no_folder_lines(cx, &app);
     app.update(cx, |a, _| {
         let Phase::Main(s) = &mut a.phase else {
             panic!()
@@ -2259,6 +2301,8 @@ fn void_menus_and_sort(cx: &mut TestAppContext) {
         w.input(cleis_app::demo::PASSWORD, cx);
         w.press("enter", cx);
     });
+    // These scenarios read the list in one sort: no folder lines (0.2.4).
+    no_folder_lines(cx, &app);
     let names = |cx: &mut TestAppContext| {
         app.read_with(cx, |a, _| {
             let Phase::Main(s) = &a.phase else { panic!() };
@@ -2346,6 +2390,8 @@ fn drag_drop_resize_customize(cx: &mut TestAppContext) {
         w.input(cleis_app::demo::PASSWORD, cx);
         w.press("enter", cx);
     });
+    // These scenarios read the list in one sort: no folder lines (0.2.4).
+    no_folder_lines(cx, &app);
     let (item, space) = app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
         let item = |n: &str| s.entries.iter().find(|e| e.name == n).unwrap().id;
@@ -4008,4 +4054,311 @@ fn columns_fit_a_narrow_window(cx: &mut TestAppContext) {
     check(&edges(cx, Table::Vault), panel, "vault with the panel");
     act(cx, h, |w, cx| w.click("tab-Contacts", cx));
     check(&edges(cx, Table::Contacts), 1000., "contacts");
+}
+
+/// Mockups 48a, 48l (0.2.4): All items and a vault list their items folder by folder, a line
+/// before each folder (the vault's name before it in All items); Favorites does not; the line
+/// goes with Preferences › Lists › Folder lines.
+#[gpui_kit::test]
+fn folder_lines_in_the_lists(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let spaces_in_order = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            let mut seen: Vec<cleis_core::SpaceId> = vec![];
+            for i in &s.visible {
+                let sp = s.entries[*i].space;
+                if seen.last() != Some(&sp) {
+                    assert!(!seen.contains(&sp), "a folder's items together");
+                    seen.push(sp);
+                }
+            }
+            seen
+        })
+    };
+    let all = spaces_in_order(cx);
+    let lines = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.folder_lines());
+        cleis_app::screens::main::vault_rows(s)
+            .iter()
+            .filter(|r| matches!(r, cleis_app::screens::main::ListRow::Folder(..)))
+            .count()
+    });
+    assert_eq!(lines, all.len());
+    // The personal vault first.
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.is_org_space(all[0]));
+    });
+    let first = all[0];
+    assert!(window_has(cx, h, &format!("fline-{first}")));
+    // Favorites: no lines.
+    act(cx, h, |w, cx| w.click("f-fav", cx));
+    assert!(!window_has(cx, h, &format!("fline-{first}")));
+    act(cx, h, |w, cx| w.click("f-all", cx));
+    assert!(window_has(cx, h, &format!("fline-{first}")));
+    // Turned off in Preferences: the list goes back to one sort.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("folder-lines", cx));
+    act(cx, h, |w, cx| w.click("tab-Vault", cx));
+    assert!(!window_has(cx, h, &format!("fline-{first}")));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.prefs.folder_lines && !s.folder_lines());
+    });
+    // Contacts: the same, by folder.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    act(cx, h, |w, cx| w.click("folder-lines", cx));
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(cleis_app::screens::contacts::folder_lines(s));
+        let list = cleis_app::screens::contacts::listed(s);
+        let mut seen: Vec<cleis_core::SpaceId> = vec![];
+        for c in list {
+            if seen.last() != Some(&c.space) {
+                assert!(!seen.contains(&c.space), "a folder's contacts together");
+                seen.push(c.space);
+            }
+        }
+    });
+}
+
+/// 0.2.4: the search box's clear button (mockup 48c), Esc in the box; the full star of a
+/// favorite after its name; the price's period button (mockup 48h); the birthday's calendar
+/// (mockup 48f); a folder's icon (mockup 48g).
+#[gpui_kit::test]
+fn search_star_period_birthday_icon(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let total = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.visible.len()
+    });
+    assert!(
+        !window_has(cx, h, "search-clear"),
+        "no × while the box is empty"
+    );
+    act(cx, h, |w, cx| {
+        w.click("search", cx);
+        w.input("figm", cx);
+    });
+    let shown = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.visible.len()
+        })
+    };
+    assert_eq!(shown(cx), 1);
+    act(cx, h, |w, cx| w.click("search-clear", cx));
+    assert_eq!(shown(cx), total, "× empties the search");
+    act(cx, h, |w, cx| {
+        w.click("search", cx);
+        w.input("figm", cx);
+        w.press("escape", cx);
+    });
+    assert_eq!(shown(cx), total, "Esc too");
+
+    // A favorite: the full star after its name.
+    let fav = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries.iter().find(|e| e.favorite).unwrap().id
+    });
+    assert!(window_has(cx, h, &format!("rfav-{fav}")));
+
+    // The period of a price: month and year in turn, the yearly cost follows.
+    let (id, cents) = app.update(cx, |a, cx| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        let e = s
+            .entries
+            .iter()
+            .find(|e| {
+                e.price
+                    .as_ref()
+                    .is_some_and(|p| p.period == Some(cleis_core::money::Period::Month))
+            })
+            .unwrap();
+        let r = (e.id, e.price.as_ref().unwrap().cents);
+        s.selected = Some(r.0);
+        cx.notify();
+        r
+    });
+    cx.run_until_parked();
+    let period = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            let p = s
+                .entries
+                .iter()
+                .find(|e| e.id == id)
+                .unwrap()
+                .price
+                .clone()
+                .unwrap();
+            (p.period, p.yearly_cents(), p.cents)
+        })
+    };
+    act(cx, h, |w, cx| w.click("price-period", cx));
+    assert_eq!(
+        period(cx),
+        (Some(cleis_core::money::Period::Year), cents, cents)
+    );
+    act(cx, h, |w, cx| w.click("price-period", cx));
+    assert_eq!(
+        period(cx),
+        (Some(cleis_core::money::Period::Month), cents * 12, cents)
+    );
+
+    // A folder's icon, from its menu; Default puts the folder back.
+    let banking = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.spaces.iter().find(|x| x.name == "Banking").unwrap().id
+    });
+    act(cx, h, |w, cx| w.right_click(format!("sp-{banking}"), cx));
+    act(cx, h, |w, cx| w.click("cx-icon", cx));
+    act(cx, h, |w, cx| w.click("cx-icon-bank", cx));
+    let icon = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.spaces
+                .iter()
+                .find(|x| x.id == banking)
+                .unwrap()
+                .icon
+                .clone()
+        })
+    };
+    assert_eq!(icon(cx).as_deref(), Some("bank"));
+    // Kept in the vault: there after a reload.
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let kept = s.vault.spaces().unwrap();
+        assert_eq!(
+            kept.iter()
+                .find(|x| x.id == banking)
+                .unwrap()
+                .icon
+                .as_deref(),
+            Some("bank")
+        );
+    });
+    act(cx, h, |w, cx| w.right_click(format!("sp-{banking}"), cx));
+    act(cx, h, |w, cx| w.click("cx-icon", cx));
+    act(cx, h, |w, cx| w.click("cx-icon-default", cx));
+    assert_eq!(icon(cx), None);
+
+    // A contact's birthday from the calendar; then without its year.
+    act(cx, h, |w, cx| w.click("tab-Contacts", cx));
+    let camille = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.contacts.iter().find(|c| c.given == "Camille").unwrap().id
+    });
+    act(cx, h, |w, cx| w.click(format!("c-{camille}"), cx));
+    act(cx, h, |w, cx| w.click("cal-open-birthday", cx));
+    let month = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let c = s.calendar.as_ref().expect("the calendar opens");
+        (c.year, c.month)
+    });
+    act(cx, h, |w, cx| {
+        w.click(format!("cal-{:04}-{:02}-14", month.0, month.1), cx)
+    });
+    let born = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.contacts
+                .iter()
+                .find(|c| c.id == camille)
+                .unwrap()
+                .birthday
+        })
+    };
+    let b = born(cx).unwrap();
+    assert_eq!(
+        (b.year, u32::from(b.month), b.day),
+        (Some(month.0), month.1, 14)
+    );
+    act(cx, h, |w, cx| w.click("cal-open-birthday", cx));
+    act(cx, h, |w, cx| w.click("cal-no-year", cx));
+    let b = born(cx).unwrap();
+    assert_eq!((b.year, u32::from(b.month), b.day), (None, month.1, 14));
+}
+
+/// Mockup 48j: the wheel pressed in a long list leaves an anchor; the pointer below it scrolls
+/// the list down; any click (or Esc) stops it.
+#[gpui_kit::test]
+fn middle_click_scrolls(cx: &mut TestAppContext) {
+    use gpui_kit::test::ClickOptions;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open_sized(cx, &path, 1200., 360.);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let offset = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            f32::from(s.scrolls.list.0.borrow().base_handle.offset().y)
+        })
+    };
+    assert_eq!(offset(cx), 0.);
+    let first = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries[s.visible[0]].id
+    });
+    act(cx, h, |w, cx| {
+        w.click_with_options(
+            format!("row-{first}"),
+            ClickOptions::new().with_button(gpui_kit::MouseButton::Middle),
+            cx,
+        )
+    });
+    app.read_with(cx, |a, _| assert!(a.autoscroll.is_some(), "the anchor"));
+    // The pointer further down: the list scrolls down, frame after frame.
+    app.update(cx, |a, _| {
+        let at = a.autoscroll.as_ref().unwrap().origin;
+        a.autoscroll_move(gpui_kit::point(at.x, at.y + gpui_kit::px(150.)));
+    });
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(16));
+        cx.run_until_parked();
+    }
+    let down = offset(cx);
+    assert!(down < -20., "scrolled down: {down}");
+    // Esc stops it.
+    act(cx, h, |w, cx| w.press("escape", cx));
+    app.read_with(cx, |a, _| assert!(a.autoscroll.is_none()));
+    for _ in 0..5 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(16));
+        cx.run_until_parked();
+    }
+    assert_eq!(offset(cx), down, "no more scrolling");
 }

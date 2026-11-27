@@ -913,6 +913,27 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
         assert_eq!(l.email, "lea@example-studio.com");
     });
 
+    // Mockup 48g: an admin gives a space an icon; every member sees it.
+    let space = session(cx, &hugo, |s| {
+        s.spaces
+            .iter()
+            .find(|x| s.is_org_space(x.id) && !x.for_contacts)
+            .map(|x| x.id)
+            .expect("a space of the organization")
+    });
+    lea.update(cx, |a, cx| a.set_space_icon(space, Some("palette"), cx));
+    cx.run_until_parked();
+    sync(cx, &lea);
+    sync(cx, &hugo);
+    session(cx, &hugo, |s| {
+        let sp = s.spaces.iter().find(|x| x.id == space).unwrap();
+        assert_eq!(
+            sp.icon.as_deref(),
+            Some("palette"),
+            "the icon reached the member"
+        );
+    });
+
     lea.update(cx, |a, cx| {
         a.org_member(
             cleis_core::org::MemberChange {

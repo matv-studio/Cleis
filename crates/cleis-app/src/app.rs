@@ -191,6 +191,8 @@ pub struct Session {
     pub import: crate::screens::import::ImportState,
     /// Contacts tab: filter, search, inspector boxes, menus (screens 20, 21).
     pub contacts_ui: crate::screens::contacts::ContactsUi,
+    /// Positions of the scrolled areas (their bars, the middle click).
+    pub scrolls: crate::scroll::Scrolls,
     /// The language the boxes were made in; a change remakes their placeholders (U-9).
     pub lang_fr: bool,
     /// Settings › Security dialogs and menus.
@@ -311,6 +313,113 @@ impl Session {
         }
     }
 
+    /// Whether the vault list shows its folder lines (mockup 48a): All items, My vault, an
+    /// organization's section, as a table, when Preferences › Lists › Folder lines is on.
+    pub fn folder_lines(&self) -> bool {
+        self.prefs.folder_lines
+            && !self.vault_cards
+            && matches!(self.filter, Filter::All | Filter::Personal | Filter::Org(_))
+    }
+
+    /// Where each space's items come in a list with folder lines: the personal vault first (its
+    /// root, then its folders as in the sidebar), then each organization as its tabs, its
+    /// spaces as in the sidebar. `contacts`: the contacts' folders instead of the vault's.
+    pub fn space_ranks(
+        &self,
+        contacts: bool,
+    ) -> std::collections::HashMap<cleis_core::SpaceId, (usize, usize)> {
+        use cleis_store::SpaceKind;
+        let mut out = std::collections::HashMap::new();
+        let mine = crate::screens::sidebar::ordered(
+            self,
+            self.spaces
+                .iter()
+                .filter(|sp| sp.for_contacts == contacts && sp.kind == SpaceKind::Personal),
+        );
+        let home = if contacts {
+            mine.first().map(|sp| sp.id)
+        } else {
+            Some(self.vault.home_space())
+        };
+        if let Some(h) = home {
+            out.insert(h, (0, 0));
+        }
+        for (i, sp) in mine.iter().filter(|sp| Some(sp.id) != home).enumerate() {
+            out.insert(sp.id, (0, i + 1));
+        }
+        let tabs = self.org_tabs();
+        for (j, (key, _)) in tabs.iter().enumerate() {
+            let Some(o) = self.all_orgs().find(|o| &o.m.key() == key) else {
+                continue;
+            };
+            // As the sidebar: the spaces the organization names (contacts: its folders).
+            let mut theirs = crate::screens::sidebar::ordered(
+                self,
+                self.spaces.iter().filter(|sp| {
+                    sp.for_contacts == contacts
+                        && sp.kind == SpaceKind::Organization
+                        && (o.names.contains_key(&sp.id)
+                            || self.org_of(sp.id).is_some_and(|x| &x.m.key() == key))
+                }),
+            );
+            // An organization's contacts outside any folder come first, as in the sidebar.
+            theirs.sort_by_key(|sp| !sp.unfiled);
+            for (i, sp) in theirs.iter().enumerate() {
+                out.insert(sp.id, (j + 1, i));
+            }
+        }
+        // Spaces no membership claims (an organization left, the demo without its server):
+        // last, together, as in the sidebar.
+        let orphans = crate::screens::sidebar::ordered(
+            self,
+            self.spaces.iter().filter(|sp| {
+                sp.for_contacts == contacts
+                    && sp.kind == SpaceKind::Organization
+                    && !out.contains_key(&sp.id)
+            }),
+        );
+        for (i, sp) in orphans.iter().enumerate() {
+            out.insert(sp.id, (tabs.len() + 1, i));
+        }
+        out
+    }
+
+    /// The name on a folder line: the folder, after its vault's name when the list holds
+    /// several vaults (`with_vault`); a vault's root (or an organization's contacts outside any
+    /// folder) is named after the vault.
+    pub fn folder_label(&self, space: cleis_core::SpaceId, with_vault: bool) -> (String, String) {
+        let sp = self.spaces.iter().find(|x| x.id == space);
+        let vault = match self.org_of(space) {
+            Some(o) => o.m.name.clone(),
+            None if sp.is_some_and(|x| x.for_contacts) => crate::i18n::tr("My contacts").to_owned(),
+            None => self.personal_name(),
+        };
+        let root = space == self.vault.home_space()
+            || sp.is_some_and(|x| {
+                x.unfiled
+                    || (x.for_contacts
+                        && x.kind == cleis_store::SpaceKind::Personal
+                        && self
+                            .spaces
+                            .iter()
+                            .find(|y| y.for_contacts && y.kind == cleis_store::SpaceKind::Personal)
+                            .is_some_and(|y| y.id == x.id))
+            });
+        let name = sp.map(|x| crate::i18n::space(&x.name)).unwrap_or_default();
+        match (root, with_vault) {
+            (true, _) => (
+                String::new(),
+                if sp.is_some_and(|x| x.unfiled) {
+                    format!("{vault} · {}", crate::i18n::tr("Uncategorized"))
+                } else {
+                    vault
+                },
+            ),
+            (false, true) => (vault, name),
+            (false, false) => (String::new(), name),
+        }
+    }
+
     /// Whether a space belongs to vault `h` (`0`: personal, else `org_hash` of the key).
     pub fn in_vault(&self, h: u64, space: cleis_core::SpaceId) -> bool {
         if h == 0 {
@@ -353,6 +462,16 @@ impl Session {
             .map(|(i, _)| i)
             .collect();
         self.sort(&mut v);
+        // Mockup 48a: grouped by folder, each folder keeping the sort within it.
+        if self.folder_lines() {
+            let ranks = self.space_ranks(false);
+            v.sort_by_key(|i| {
+                ranks
+                    .get(&self.entries[*i].space)
+                    .copied()
+                    .unwrap_or((usize::MAX, usize::MAX))
+            });
+        }
         self.visible = v;
         // The trash view has its own list: the vault selection waits for the return.
         if self.filter == Filter::Trash {
@@ -540,6 +659,8 @@ pub struct CleisApp {
     pub main_hwnd: Option<u64>,
     /// Demo vault (`--demo`, `--try-autofill`): nothing is registered on the computer.
     pub demo: bool,
+    /// Middle-click scrolling under way (mockup 48j).
+    pub autoscroll: Option<crate::scroll::Auto>,
     /// Pages opened from the vault (a site's address), kept instead of opened in screenshots
     /// and tests (`no_shortcuts`).
     pub opened: Vec<String>,
@@ -630,6 +751,7 @@ impl CleisApp {
             tray: None,
             main_hwnd: crate::tray::hwnd_of(window),
             demo: false,
+            autoscroll: None,
             update: crate::screens::update::UpdateState {
                 pre: true,
                 ..Default::default()
@@ -1235,6 +1357,7 @@ impl CleisApp {
             columns_menu: None,
             import: Default::default(),
             contacts_ui: Default::default(),
+            scrolls: Default::default(),
             lang_fr: crate::i18n::is_french(),
             security: Default::default(),
             gate: None,
@@ -1530,15 +1653,31 @@ impl Render for CleisApp {
                 let gh = crate::screens::github::dialog(self, &t, cx)
                     .or_else(|| crate::screens::cloud::dialog(self, &t, cx));
                 let main = crate::screens::main::render(self, window, cx).into_any_element();
-                return match gh {
-                    None => main,
-                    Some(dlg) => gpui_kit::div()
-                        .size_full()
-                        .relative()
-                        .child(main)
-                        .child(dlg)
-                        .into_any_element(),
-                };
+                // Mockup 48j: the middle click's anchor; the pointer's moves set its speed; any
+                // press stops it (and does nothing else), releasing the held wheel too.
+                let anchor = self
+                    .autoscroll
+                    .as_ref()
+                    .map(|a| crate::scroll::anchor(a, &t));
+                return gpui_kit::div()
+                    .size_full()
+                    .relative()
+                    .on_mouse_move(cx.listener(|this, e: &gpui_kit::MouseMoveEvent, _, _| {
+                        this.autoscroll_move(e.position)
+                    }))
+                    .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+                        if this.stop_autoscroll(cx) {
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .on_mouse_up(
+                        gpui_kit::MouseButton::Middle,
+                        cx.listener(|this, _, _, cx| this.autoscroll_release(cx)),
+                    )
+                    .child(main)
+                    .children(gh)
+                    .children(anchor)
+                    .into_any_element();
             }
         };
         let gh = {

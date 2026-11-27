@@ -181,4 +181,65 @@ pub const ICONS: &[(&str, &[u8])] = &[
     ),
     ("icons/qr.svg", include_bytes!("../assets/icons/qr.svg")),
     ("icons/sync.svg", include_bytes!("../assets/icons/sync.svg")),
+    (
+        "icons/briefcase.svg",
+        include_bytes!("../assets/icons/briefcase.svg"),
+    ),
+    ("icons/bank.svg", include_bytes!("../assets/icons/bank.svg")),
+    ("icons/code.svg", include_bytes!("../assets/icons/code.svg")),
+    (
+        "icons/palette.svg",
+        include_bytes!("../assets/icons/palette.svg"),
+    ),
+    ("icons/home.svg", include_bytes!("../assets/icons/home.svg")),
+    ("icons/cart.svg", include_bytes!("../assets/icons/cart.svg")),
+    (
+        "icons/luggage.svg",
+        include_bytes!("../assets/icons/luggage.svg"),
+    ),
+    ("icons/cap.svg", include_bytes!("../assets/icons/cap.svg")),
+    (
+        "icons/receipt.svg",
+        include_bytes!("../assets/icons/receipt.svg"),
+    ),
+    (
+        "icons/wrench.svg",
+        include_bytes!("../assets/icons/wrench.svg"),
+    ),
+    (
+        "icons/gamepad.svg",
+        include_bytes!("../assets/icons/gamepad.svg"),
+    ),
+    (
+        "icons/camera.svg",
+        include_bytes!("../assets/icons/camera.svg"),
+    ),
+    (
+        "icons/music.svg",
+        include_bytes!("../assets/icons/music.svg"),
+    ),
+    ("icons/book.svg", include_bytes!("../assets/icons/book.svg")),
+    ("icons/car.svg", include_bytes!("../assets/icons/car.svg")),
+    (
+        "icons/medical.svg",
+        include_bytes!("../assets/icons/medical.svg"),
+    ),
+    ("icons/leaf.svg", include_bytes!("../assets/icons/leaf.svg")),
+    ("icons/gift.svg", include_bytes!("../assets/icons/gift.svg")),
+    (
+        "icons/building.svg",
+        include_bytes!("../assets/icons/building.svg"),
+    ),
+    (
+        "icons/wallet.svg",
+        include_bytes!("../assets/icons/wallet.svg"),
+    ),
+    (
+        "icons/starFill.svg",
+        include_bytes!("../assets/icons/starFill.svg"),
+    ),
+    (
+        "icons/autoscroll.svg",
+        include_bytes!("../assets/icons/autoscroll.svg"),
+    ),
 ];

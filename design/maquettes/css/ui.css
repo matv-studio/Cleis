@@ -423,7 +423,7 @@ textarea.input { height: auto; padding: 6px var(--s-2); resize: none; }
 
 /* 48 (0.2.4): folder lines in lists, star slot, scroll bar, type menu, icon grid, period button,
    middle-click anchor. */
-.table tr.grp td { height: 28px; background: var(--bg); color: var(--text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); border-bottom: var(--border) solid var(--line); padding-top: 6px; }
+.table tr.grp td { height: 28px; background: var(--surface-raised); color: var(--text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); border-bottom: var(--border) solid var(--line); padding-top: 6px; }
 .table tr.grp + tr td { border-top: 0; }
 .grp-in { display: flex; align-items: center; gap: 6px; }
 .grp-in svg.i { width: 14px; height: 14px; color: var(--text-muted); }
@@ -444,8 +444,8 @@ textarea.input { height: auto; padding: 6px var(--s-2); resize: none; }
 .kvi { display: flex; align-items: center; gap: var(--s-2); }
 .kvi > span:first-child { width: 84px; flex: none; color: var(--text-muted); font-size: var(--text-sm); }
 .kvi .input { flex: 1; }
-.per48 { height: 20px; display: inline-flex; align-items: center; padding: 0 6px; margin-right: -4px; border-radius: var(--radius-sm); color: var(--text-muted); font-size: var(--text-sm); }
-.per48.is-hover { background: var(--surface-hover); color: var(--text); }
+.per48 { height: 20px; display: inline-flex; align-items: center; padding: 0; margin-left: 6px; border-radius: var(--radius-sm); color: var(--text-muted); font-size: var(--text-sm); }
+.per48:hover { color: var(--text); }
 .anchor48 { position: absolute; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 99px; background: var(--surface-raised); box-shadow: 0 0 0 1px var(--line-strong), 0 4px 12px rgb(0 0 0 / .35); color: var(--text); }
 .anchor48 svg.i { width: 20px; height: 20px; }
 .cursor48 { position: absolute; width: 20px; height: 20px; fill: var(--text); stroke: var(--bg); stroke-width: 1.5; }

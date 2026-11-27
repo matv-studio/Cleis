@@ -97,7 +97,9 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     )
                 }),
         )
-        .child(
+        .child(crate::scroll::area(
+            "trash-list",
+            &s.scrolls,
             div()
                 .id("trash-list")
                 .flex_1()
@@ -111,7 +113,9 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                             .child(tr("The trash is empty")),
                     )
                 }),
-        )
+            t,
+            cx,
+        ))
 }
 
 /// Confirmation over the window (charter: the destructive button only appears here).

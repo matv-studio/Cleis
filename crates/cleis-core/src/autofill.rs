@@ -80,8 +80,35 @@ pub enum Reason {
     Linked,
     /// The tab address matches one of the item's websites.
     Website,
-    /// The window title or app name contains the item's name or site.
+    /// One of the item's websites is on the same site as the tab, another sub-domain
+    /// (`billing.example-books.com` for `app.example-books.com`).
+    SameSite,
+    /// The tab's site name is in the item's name (`example-books.com` → "Example Books"), the
+    /// item having no website for it.
+    SiteName,
+    /// The window title or app name contains the item's name or site (outside browsers, or
+    /// in a browser whose address is unknown).
     Name,
+}
+
+/// The site of a host: its registrable domain (`app.example-books.co.uk` →
+/// `example-books.co.uk`), by the public suffix list.
+pub fn site_of(host: &str) -> Option<String> {
+    psl::domain_str(host).map(str::to_owned)
+}
+
+/// The name part of a site, letters and digits only (`example-books.com` → `examplebooks`).
+fn site_word(site: &str) -> String {
+    let suffix = psl::suffix_str(site).unwrap_or("");
+    let label = site
+        .strip_suffix(suffix)
+        .map(|s| s.trim_end_matches('.'))
+        .unwrap_or(site);
+    let label = label.rsplit('.').next().unwrap_or(label);
+    fold(label)
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,12 +128,24 @@ pub fn rank(entries: &[Entry], ctx: &Context) -> Vec<Candidate> {
             && e.linked_apps
                 .iter()
                 .any(|l| l.program.eq_ignore_ascii_case(&ctx.program));
-        let site = host.as_deref().is_some_and(|h| {
-            e.urls
-                .iter()
-                .filter_map(|u| host_of(u))
-                .any(|s| host_matches(h, &s))
-        });
+        let saved: Vec<String> = e.urls.iter().filter_map(|u| host_of(u)).collect();
+        let site = host
+            .as_deref()
+            .is_some_and(|h| saved.iter().any(|s| host_matches(h, s)));
+        let page_site = host.as_deref().and_then(site_of);
+        let same_site = page_site
+            .as_deref()
+            .is_some_and(|ps| saved.iter().any(|s| site_of(s).as_deref() == Some(ps)));
+        // The site's name in the item's name, for an item with no website elsewhere.
+        let site_name = saved.is_empty()
+            && page_site.as_deref().is_some_and(|ps| {
+                let w = site_word(ps);
+                let n: String = fold(&e.name)
+                    .chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect();
+                w.chars().count() >= 3 && n.contains(&w)
+            });
         let name = {
             let n = fold(&e.name);
             let by_name = n.chars().count() >= 3 && contains_word(&title, &n);
@@ -120,6 +159,10 @@ pub fn rank(entries: &[Entry], ctx: &Context) -> Vec<Candidate> {
             Reason::Linked
         } else if site {
             Reason::Website
+        } else if same_site {
+            Reason::SameSite
+        } else if site_name {
+            Reason::SiteName
         } else if name && host.is_none() {
             // In a browser whose address is known, the title alone is not trusted: a page can
             // name any brand in its title.
@@ -146,10 +189,13 @@ fn contains_word(hay: &str, needle: &str) -> bool {
 }
 
 /// The item "Fill best match" may fill without asking: exactly one item linked to the app or
-/// saved for the site. A match by name alone fills only when `ask_unlinked` is off.
+/// saved for the site. A match by the window's title fills only when `ask_unlinked` is off;
+/// one by the same site or the site's name never does (Quick Access lists them first, 0.2.4).
 pub fn best(candidates: &[Candidate], ask_unlinked: bool) -> Option<EntryId> {
     let top = candidates.first()?;
-    if top.reason == Reason::Name && ask_unlinked {
+    if matches!(top.reason, Reason::SameSite | Reason::SiteName)
+        || (top.reason == Reason::Name && ask_unlinked)
+    {
         return None;
     }
     let tied = candidates.iter().filter(|c| c.reason == top.reason).count();
@@ -213,20 +259,24 @@ pub enum Focus {
 pub enum Action {
     Fill(Field),
     Press(Key),
-    /// Go on only if the focused field is a password field. When the system says it is not
-    /// (a sign-in that asks for the password on a next page), stop: the rest waits for the
-    /// next press of "Fill best match" on the same window. Unknown focus goes on, like the
-    /// classic auto-type sequence. `submit`: press Enter before stopping, so the username page
-    /// moves on to the password page ("Press Enter after filling").
-    ExpectPassword {
-        submit: bool,
-    },
+    /// Go on if the focused field (after Tab from the username) is a password field, or when
+    /// the system cannot tell (the classic auto-type sequence). Otherwise the sign-in asks for
+    /// the password on a next page (0.2.4): back to the username field (Shift+Tab, so Enter is
+    /// never pressed on the link or button Tab reached), Enter to send it, then wait up to
+    /// [`TWO_PAGE_WAIT_MS`] for the password page to put the keyboard in its password field,
+    /// and go on there. No password field in time, or another window in front: the rest waits
+    /// for the next press of "Fill best match" on the same window.
+    ExpectPassword,
     /// Branch on whether the focused field is an empty text field (unknown counts as no).
     IfEmptyText {
         then: Vec<Action>,
         otherwise: Vec<Action>,
     },
 }
+
+/// How long a two-page sign-in may take to show its password page (see
+/// [`Action::ExpectPassword`]).
+pub const TWO_PAGE_WAIT_MS: u64 = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlanOptions {
@@ -264,9 +314,7 @@ pub fn plan(has_username: bool, has_totp: bool, focus: Focus, o: PlanOptions) ->
         (_, true) => {
             now.push(Fill(Field::Username));
             now.push(Press(Key::Tab));
-            now.push(ExpectPassword {
-                submit: o.press_enter,
-            });
+            now.push(ExpectPassword);
             now.push(Fill(Field::Password));
         }
         (_, false) => now.push(Fill(Field::Password)),
@@ -384,6 +432,46 @@ mod tests {
         assert!(rank(&all, &ctx("x.exe", "Figmatic", None)).is_empty());
     }
 
+    /// 0.2.4 (mockup 48k): a page no item is saved for exactly. Same site first, then the
+    /// site's name in an item's name; titles are not trusted in a browser; nothing fills alone.
+    #[test]
+    fn most_likely_by_the_site() {
+        let billing = entry("Example Books — billing", "billing.example-books.com");
+        let named = entry("Example Books", "");
+        let test = entry("Example Books — test", "");
+        let other = entry("Microsoft 365", "microsoft.com");
+        let lookalike = entry("Example Bookshelf", "example-bookshelf.com");
+        let all = vec![
+            other.clone(),
+            test.clone(),
+            lookalike.clone(),
+            named.clone(),
+            billing.clone(),
+        ];
+        let c = ctx(
+            "chrome.exe",
+            "Sign in to Microsoft 365 — Example Books",
+            Some("https://app.example-books.com/login"),
+        );
+        let r = rank(&all, &c);
+        let got: Vec<(EntryId, Reason)> = r.iter().map(|x| (x.entry, x.reason)).collect();
+        assert_eq!(
+            got,
+            vec![
+                (billing.id, Reason::SameSite),
+                (named.id, Reason::SiteName),
+                (test.id, Reason::SiteName),
+            ]
+        );
+        assert_eq!(best(&r, false), None, "Quick Access opens");
+        // Two-level suffixes: the site is the registrable domain.
+        assert_eq!(
+            site_of("app.example-books.co.uk").as_deref(),
+            Some("example-books.co.uk")
+        );
+        assert_eq!(site_word("example-books.co.uk"), "examplebooks");
+    }
+
     #[test]
     fn best_needs_a_single_top_match() {
         let a = entry("GitHub", "https://github.com");
@@ -418,7 +506,7 @@ mod tests {
             vec![
                 Fill(Field::Username),
                 Press(Key::Tab),
-                ExpectPassword { submit: true },
+                ExpectPassword,
                 Fill(Field::Password),
                 Press(Key::Enter)
             ]

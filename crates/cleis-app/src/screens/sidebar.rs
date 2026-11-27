@@ -486,7 +486,11 @@ fn folder_row(
         s,
         t,
         &format!("sp-{id}"),
-        if reserved { "lock" } else { "folder" },
+        if reserved {
+            "lock"
+        } else {
+            crate::ui::folder_icon(sp.icon.as_deref())
+        },
         label,
         (!editing && !personal).then_some(n),
         Filter::Space(id),
