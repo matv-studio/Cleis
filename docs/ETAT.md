@@ -32,7 +32,8 @@
   e-mail du profil facultatif même avec une organisation. Applications Microsoft et Google publiées,
   pages matv.app/cleis faites. À essayer sur Windows : compte Microsoft perso, compte alunites.com,
   compte Google (création, nouvel ordinateur, révocation). Rien ne part en brouillon de version avant
-  la validation de l'utilisateur. Preuve d'identité Google / Microsoft d'un serveur d'organisation
+  la validation de l'utilisateur (validée le 27/11 : brouillon v0.2.3 préparé sur d8a229f, étiquette
+  posée par `tag.yml`, à publier par l'utilisateur). Preuve d'identité Google / Microsoft d'un serveur d'organisation
   (D-63) : gardée, essai réel plus tard (demande du 27/11).
 - Retours du 27/11 après la 911cfc3 : « Unlock Cleis with » (D-98), choix de l'ouverture passant sous
   le libellé quand la ligne est trop courte (débordait en français), carte « Sign in » cliquable et

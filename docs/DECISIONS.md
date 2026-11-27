@@ -952,8 +952,7 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. ~~Enregistrement des applications OAuth (Microsoft, Google)~~ (D-103, D-104 : Microsoft
    Cleis-Sync et client Google « Desktop » publiés, pages `https://matv.app/cleis/` et
-   `https://matv.app/cleis/privacy/` construites par Revel). Reste : essai réel sur Windows d'un compte
-   Microsoft personnel, d'un compte pro (alunites.com) et d'un compte Google.
+   `https://matv.app/cleis/privacy/` construites par Revel) ; essais réels sur Windows validés le 27/11.
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 8. ~~Essai de Windows Hello et Touch ID~~ (retirés, D-71).
