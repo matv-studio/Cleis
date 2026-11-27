@@ -864,6 +864,36 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     Microsoft / Google : voir la réponse du 27/11 (annuaire personnel Azure gratuit, projet Google Cloud
     sur un compte Gmail personnel, ou dossiers synchronisés OneDrive / Google Drive sans OAuth).
 
+- **D-102 Onglet actif au-dessus, création d'organisation en deux choix, codes de récupération, import
+  par département** (27/11/2026, maquettes 47a à 47g validées, retours de l'utilisateur).
+  - Onglets : l'onglet actif est redessiné dans une couche au-dessus des autres ; le survol d'un voisin
+    couvre toute sa zone cliquable et passe sous la courbe de l'onglet actif (au lieu de s'arrêter à
+    8 px de lui).
+  - Retour en arrière sur le défilement horizontal de la table (D-101) : l'utilisateur préfère voir
+    toutes les colonnes, quitte à les élargir à la main ou à en retirer ; une colonne cachée hors de
+    vue est pire pour l'ergonomie. Les colonnes libres n'ont plus de largeur minimale.
+  - Contacts : apparition animée de la liste au changement de dossier ou de section, comme le coffre.
+  - Clic droit sur la corbeille : Open, Empty trash… (même confirmation que la page Trash).
+  - Création d'organisation : deux choix, aucun coché au départ (bouton grisé, info-bulle) : Server
+    (Where : NAS, Linux server par SSH, This computer) ou Shared folder (SharePoint, Drive partagé
+    Google, partage du NAS, SFTP). Aucune phrase sous un choix : tout en info-bulle. `OrgPlace::None`
+    et `OrgPlace::Linux` (installé comme sur un NAS).
+  - Codes de récupération (`Entry.recovery`, `RecoveryCode { code, used }`, champ absent des anciens
+    coffres) : section du panneau sous la 2FA (masqués jusqu'à l'œil, case « utilisé » qui barre,
+    copie et retrait au survol, « + » pour coller les codes d'un site : un par ligne ou séparés par des
+    espaces, virgules, points-virgules ; numérotation et doublons écartés), colonne « Recovery keys »
+    (restants / total, orange à 2 ou moins), cachée par défaut (Columns) pour ne pas serrer la table ;
+    les colonnes intégrées ajoutées par une version plus récente rejoignent celles d'un coffre
+    (`with_new_builtins`). L'import CSV reconnaît « recovery codes », « backup codes »…
+  - Import CSV : « Department / category » (department, category, folder, team, groupe, pôle…) range
+    chaque élément dans le dossier de ce nom (coffre personnel) ou l'espace de l'organisation (pour qui
+    a le droit de gérer ; sinon « Folder: X » dans Notes), créé s'il manque ; les colonnes inconnues vont
+    dans Notes sous leur nom, après les notes (colonnes techniques d'autres gestionnaires ignorées :
+    type, reprompt, favorite…) ; plusieurs identifiants dans une case (« , », « ; », retour à la
+    ligne) donnent un élément par identifiant, même nom, mots de passe associés dans l'ordre. Une case
+    de mot de passe n'est coupée par « , » ou « ; » que si elle donne autant de mots de passe que
+    d'identifiants (un mot de passe peut contenir ces signes) ; un retour à la ligne sépare toujours.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

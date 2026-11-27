@@ -635,9 +635,13 @@ impl Vault {
     }
 
     pub fn vault_columns(&self) -> Result<Vec<ColumnDef>> {
-        Ok(self
-            .setting("vault_columns")?
-            .unwrap_or_else(|| default_vault_columns("EUR")))
+        Ok(match self.setting::<Vec<ColumnDef>>("vault_columns")? {
+            // Built-in columns added by a newer version join the saved ones (D-102).
+            Some(saved) => {
+                cleis_core::column::with_new_builtins(saved, default_vault_columns("EUR"))
+            }
+            None => default_vault_columns("EUR"),
+        })
     }
     pub fn set_vault_columns(&self, c: &[ColumnDef]) -> Result<()> {
         self.set_setting("vault_columns", &c)
@@ -882,7 +886,14 @@ mod tests {
             Some("camille@example-print.com")
         );
         assert_eq!(v.spaces().unwrap().len(), 2);
-        assert_eq!(v.vault_columns().unwrap().len(), 12);
+        assert_eq!(v.vault_columns().unwrap().len(), 13);
+        // D-102: columns saved by an older version gain the new built-in one, hidden.
+        let mut old = default_vault_columns("EUR");
+        old.retain(|c| c.id.0 != "recovery");
+        v.set_vault_columns(&old).unwrap();
+        let cols = v.vault_columns().unwrap();
+        let r = cols.iter().find(|c| c.id.0 == "recovery").unwrap();
+        assert!(!r.visible && r.order > old.iter().map(|c| c.order).max().unwrap());
         assert!(v.preferences().unwrap().tabs.contacts);
     }
 

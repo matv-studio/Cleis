@@ -69,6 +69,7 @@ fn col_icon(c: &ColumnDef) -> &'static str {
         "renewal" => "calendar",
         "notes" => "note",
         "space" => "folder",
+        "recovery" => "shield",
         _ => kind_icon(&c.kind),
     }
 }

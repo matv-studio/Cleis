@@ -21,6 +21,11 @@ pub enum Target {
     Price,
     Licenses,
     Renewal,
+    /// Department, category, team… (D-102): a folder (personal vault) or a space (organization)
+    /// of that name, made if missing.
+    Folder,
+    /// Recovery keys (D-102): the codes, one per line or separated by spaces.
+    Recovery,
     /// Into an existing or new custom column.
     Custom(ColumnId),
     Skip,
@@ -54,6 +59,38 @@ pub struct Preview {
 /// Header synonyms (folded). Order matters: the first rule that matches wins.
 type Rule = (&'static [&'static str], fn() -> Target);
 const RULES: &[Rule] = &[
+    (
+        &[
+            "department / category",
+            "department",
+            "departement",
+            "category",
+            "categorie",
+            "categories",
+            "folder",
+            "dossier",
+            "group",
+            "groupe",
+            "team",
+            "equipe",
+            "pole",
+            "division",
+        ],
+        || Target::Folder,
+    ),
+    (
+        &[
+            "recovery codes",
+            "recovery keys",
+            "recovery code",
+            "backup codes",
+            "codes de secours",
+            "codes de recuperation",
+            "cles de recuperation",
+            "codes de recup",
+        ],
+        || Target::Recovery,
+    ),
     (
         &[
             "cout total",
@@ -177,9 +214,22 @@ const RULES: &[Rule] = &[
     ),
 ];
 
+/// Technical columns of other managers' exports, worth nothing in Notes (exact names).
+const TECHNICAL: &[&str] = &[
+    "type",
+    "reprompt",
+    "favorite",
+    "login_fido2credentials",
+    "vault",
+    "archived",
+];
+
 fn guess(header: &str) -> Option<Target> {
     let h = fold(header);
     let base = h.split('(').next().unwrap_or(&h).trim().to_owned();
+    if TECHNICAL.contains(&base.as_str()) {
+        return Some(Target::Skip);
+    }
     for (keys, t) in RULES {
         if keys.iter().any(|k| base == *k) {
             return Some(t());
@@ -297,7 +347,7 @@ pub fn preview(data: &str) -> Result<Preview, ImportError> {
                 sample
             };
             match guess(h) {
-                Some(t) if t == Target::Skip || !used.contains(&t) => {
+                Some(t) if t == Target::Skip || t == Target::Notes || !used.contains(&t) => {
                     used.push(t.clone());
                     Mapping {
                         header: h.clone(),
@@ -306,9 +356,10 @@ pub fn preview(data: &str) -> Result<Preview, ImportError> {
                         sample,
                     }
                 }
+                // D-102: what Cleis does not know goes to Notes, under its column's name.
                 _ => Mapping {
                     header: h.clone(),
-                    target: Target::Skip,
+                    target: Target::Notes,
                     automatic: false,
                     sample,
                 },
@@ -445,6 +496,8 @@ pub fn parse_date(v: &str) -> Option<String> {
 #[derive(Debug, Default)]
 pub struct Outcome {
     pub entries: Vec<Entry>,
+    /// For each entry, the folder (department, category…) it goes into, if the file says.
+    pub folders: Vec<Option<String>>,
     /// (row number starting at 2 like a spreadsheet, message)
     pub warnings: Vec<(usize, String)>,
 }
@@ -462,6 +515,9 @@ pub fn build(
     for (ri, row) in p.rows.iter().enumerate() {
         let line = ri + 2;
         let mut e = Entry::new(space, "");
+        let mut folder: Option<String> = None;
+        // Columns Cleis does not know, kept in Notes after the notes themselves (D-102).
+        let mut extras: Vec<String> = vec![];
         for (ci, m) in mappings.iter().enumerate() {
             let v = row.get(ci).map(String::as_str).unwrap_or("").trim();
             if v.is_empty() {
@@ -472,11 +528,23 @@ pub fn build(
                 Target::Username => e.username = v.to_owned(),
                 Target::Password => e.password = v.to_owned(),
                 Target::Website => e.urls.push(v.to_owned()),
+                // A column that is not a notes column keeps its name (D-102).
+                Target::Notes if guess(&m.header) != Some(Target::Notes) => {
+                    extras.push(if m.header.is_empty() {
+                        v.to_owned()
+                    } else {
+                        format!("{}: {v}", m.header)
+                    });
+                }
                 Target::Notes => {
                     if !e.notes.is_empty() {
                         e.notes.push('\n');
                     }
                     e.notes.push_str(v);
+                }
+                Target::Folder => folder = Some(v.to_owned()),
+                Target::Recovery => {
+                    e.add_recovery(crate::entry::parse_recovery_codes(v));
                 }
                 Target::Totp => match Totp::parse(v) {
                     Ok(t) => e.totp = Some(t),
@@ -535,19 +603,91 @@ pub fn build(
                 Target::Skip => {}
             }
         }
+        for x in extras {
+            if !e.notes.is_empty() {
+                e.notes.push('\n');
+            }
+            e.notes.push_str(&x);
+        }
+        // D-102: several identifiers (and passwords) in one row, separated by "," ";" or a new
+        // line: one item per identifier, with the same name.
+        let users = split_many(&e.username);
+        let passwords = split_passwords(&e.password, users.len());
+        let n = users.len().max(passwords.len());
+        if users.len() > 1 && passwords.len() > 1 && users.len() != passwords.len() {
+            out.warnings.push((
+                line,
+                format!(
+                    "{} identifiers but {} passwords: paired in order",
+                    users.len(),
+                    passwords.len()
+                ),
+            ));
+        }
         if e.name.is_empty() {
             if let Some(h) = e.host() {
                 e.name = h;
-            } else if !e.username.is_empty() {
-                e.name = e.username.clone();
+            } else if let Some(u) = users.first() {
+                e.name = u.clone();
             } else {
                 out.warnings.push((line, "empty row skipped".into()));
                 continue;
             }
         }
-        out.entries.push(e);
+        if n <= 1 {
+            out.entries.push(e);
+            out.folders.push(folder);
+            continue;
+        }
+        let pick = |v: &[String], i: usize| -> String {
+            match v.len() {
+                0 => String::new(),
+                1 => v[0].clone(),
+                _ => v.get(i).cloned().unwrap_or_default(),
+            }
+        };
+        for i in 0..n {
+            let mut one = e.clone();
+            one.id = crate::ids::EntryId::new();
+            one.username = pick(&users, i);
+            one.password = pick(&passwords, i);
+            out.entries.push(one);
+            out.folders.push(folder.clone());
+        }
     }
     out
+}
+
+/// Identifiers in one cell: separated by a comma, a semicolon or a new line.
+fn split_many(v: &str) -> Vec<String> {
+    v.split([',', ';', '\n', '\r'])
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Passwords in one cell. A password may hold a comma or a semicolon: the cell is split by
+/// them only when that gives as many passwords as identifiers; a new line always separates.
+fn split_passwords(v: &str, users: usize) -> Vec<String> {
+    if v.is_empty() {
+        return vec![];
+    }
+    if v.contains('\n') {
+        return v
+            .lines()
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+            .map(str::to_owned)
+            .collect();
+    }
+    if users > 1 {
+        let parts = split_many(v);
+        if parts.len() == users {
+            return parts;
+        }
+    }
+    vec![v.to_owned()]
 }
 
 /// Items of `new` already in `existing`: same space, name and username (letter case and
@@ -571,13 +711,15 @@ pub fn target_label(t: &Target) -> &'static str {
         Target::Price => "Price",
         Target::Licenses => "Licenses",
         Target::Renewal => "Renewal",
+        Target::Folder => "Folder",
+        Target::Recovery => "Recovery keys",
         Target::Custom(_) => "Custom",
         Target::Skip => "Skip",
     }
 }
 
 /// Built-in targets offered in the mapping menu (custom columns are added after them).
-pub const TARGETS: [Target; 11] = [
+pub const TARGETS: [Target; 13] = [
     Target::Name,
     Target::Username,
     Target::Password,
@@ -588,6 +730,8 @@ pub const TARGETS: [Target; 11] = [
     Target::Price,
     Target::Licenses,
     Target::Renewal,
+    Target::Folder,
+    Target::Recovery,
     Target::Skip,
 ];
 
@@ -636,6 +780,65 @@ Webflow,design@example-studio.com,wf,webflow.com,en cours,\"29,00 €\",1,29 €
         assert_eq!(o.entries[1].subscription, Subscription::Free);
         assert_eq!(o.entries[2].subscription, Subscription::Pending);
         assert_eq!(o.entries[2].price.as_ref().unwrap().cents, 2900);
+    }
+
+    /// D-102: "Department / category" names folders; columns Cleis does not know go to Notes
+    /// under their name; several identifiers and passwords in a cell make one item each.
+    #[test]
+    fn departments_extras_and_several_logins() {
+        let csv = "Name,Department / category,Email,Password,Contract n°,Recovery codes\n\
+Figma,Design,\"a@example-studio.com, b@example-studio.com\",\"pw-a, pw-b\",C-12,\"k2m9-x8p1 r4tq-1kd9\"\n\
+Bank,Accounting,\"c@example-studio.com\nd@example-studio.com\ne@example-studio.com\",\"one;pass\",,\n\
+Router,,admin,\"p1\np2\np3\",,\n";
+        let p = preview(csv).unwrap();
+        let t: Vec<Target> = p.mappings.iter().map(|m| m.target.clone()).collect();
+        assert_eq!(
+            t,
+            vec![
+                Target::Name,
+                Target::Folder,
+                Target::Username,
+                Target::Password,
+                Target::Notes,
+                Target::Recovery
+            ]
+        );
+        let o = build(&p, &p.mappings, SpaceId::new(), "EUR", &[]);
+        let got: Vec<(&str, &str, &str)> = o
+            .entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.username.as_str(), e.password.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Figma", "a@example-studio.com", "pw-a"),
+                ("Figma", "b@example-studio.com", "pw-b"),
+                // "one;pass" gives 2 parts for 3 identifiers: a password with a ";", kept whole.
+                ("Bank", "c@example-studio.com", "one;pass"),
+                ("Bank", "d@example-studio.com", "one;pass"),
+                ("Bank", "e@example-studio.com", "one;pass"),
+                ("Router", "admin", "p1"),
+                ("Router", "admin", "p2"),
+                ("Router", "admin", "p3"),
+            ]
+        );
+        assert_ne!(o.entries[0].id, o.entries[1].id);
+        assert_eq!(o.entries[0].notes, "Contract n°: C-12");
+        assert_eq!(o.entries[1].recovery.len(), 2);
+        assert_eq!(
+            o.folders,
+            vec![
+                Some("Design".into()),
+                Some("Design".into()),
+                Some("Accounting".into()),
+                Some("Accounting".into()),
+                Some("Accounting".into()),
+                None,
+                None,
+                None
+            ]
+        );
     }
 
     #[test]

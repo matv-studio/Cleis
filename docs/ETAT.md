@@ -52,6 +52,10 @@
   Website, raccourcis en case éditable, table qui défile en largeur.
 - À essayer sur Windows : connexion GitHub réelle avec la GitHub App (création du dépôt sur la page
   préremplie, installation sur `cleis-vault` seul, reprise automatique), renouvellement du jeton après 8 h.
+- D-102 (maquettes 47a à 47g validées) : onglet actif au-dessus du survol voisin, retour de la table à
+  sa largeur, animation des contacts, clic droit sur la corbeille, création d'organisation en deux choix
+  (rien par défaut), codes de récupération (section et colonne), import par département, colonnes
+  inconnues dans Notes, identifiants multiples.
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

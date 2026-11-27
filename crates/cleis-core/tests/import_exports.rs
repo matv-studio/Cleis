@@ -40,7 +40,11 @@ Webflow,design@example-studio.com,wf-pass,webflow.com,Pending,29,\"March 1, 2027
     assert_eq!(o.entries.len(), 3);
     let f = &o.entries[0];
     assert_eq!(f.renewal.as_deref(), Some("2026-12-03"));
-    assert_eq!(f.notes, "Team plan\nAdmin: Ines");
+    // D-102: the columns Cleis does not know follow the notes, under their name.
+    assert_eq!(
+        f.notes,
+        "Team plan\nAdmin: Ines\nTags: Design, SaaS\nShared: Yes"
+    );
     assert_eq!(f.subscription, Subscription::Active);
     assert_eq!(o.entries[1].renewal.as_deref(), Some("2027-01-15"));
     assert_eq!(o.entries[1].subscription, Subscription::RenewSoon);

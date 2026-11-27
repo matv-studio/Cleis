@@ -355,6 +355,13 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
                             0.,
                             cx,
                         )
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Right,
+                            super::ctx::on_right(super::ctx::CtxTarget::Trash, cx),
+                        )
+                        .when(s.aimed(super::ctx::CtxTarget::Trash), |d| {
+                            d.relative().child(super::ctx::aim_ring(t, RADIUS_MD))
+                        })
                         .test_support(),
                     ),
                 )

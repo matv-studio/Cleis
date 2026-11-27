@@ -2143,6 +2143,86 @@ function espacesMembres() {
     </div>`);
 }
 
+// ---------- 47 (27/11/2026): organization place in two choices, trash menu, recovery keys ----------
+// 47a–47c. Create an organization: two choices, none chosen at first (Server, Shared folder); the
+// server's place is chosen inside it (NAS, Linux server over SSH, this computer). No sentence under
+// a choice: what it means is in its tooltip.
+const navOrg = settingsNav('Organization', false).replace('</nav>', `<div class="side-item is-active">${i('server')}<span>Organization</span></div></nav>`);
+const settingsOrg = (body) => shell('Settings', `<div class="settings">${navOrg}<div class="settings-body"><div class="page">${body}</div></div></div>`, { primary: null });
+function orgCreer(which = '', where = 'NAS') {
+  const ch = (ico, name, tip, on, extra = '') => `<div class="choice ${on ? 'is-active' : ''}" title="${tip}"><span class="radio ${on ? 'on' : ''}"></span><div class="txt"><b style="font-weight:var(--weight-medium)">${name}</b>${extra}</div><span class="ico">${i(ico)}</span></div>`;
+  const seg = (opts) => `<div class="segmented" role="radiogroup">${opts.map(([ico, n, tip]) => `<button role="radio" aria-checked="${n === where}" title="${tip}">${i(ico)}${n}</button>`).join('')}</div>`;
+  const ssh = (host, user) => `<div style="display:flex;gap:12px"><div style="flex:1">${fld(where === 'NAS' ? 'NAS address' : 'Server address', host, true)}</div><div style="width:90px">${fld('SSH port', '22')}</div></div>
+    <div style="display:flex;gap:12px"><div style="flex:1">${fld('Administrator', user)}</div><div style="flex:1"><div class="field"><span class="label">Password</span><div class="input"><span class="grow dots">••••••••</span></div></div></div></div>
+    <div class="row" style="padding:0" title="Docker (Synology Container Manager, QNAP Container Station) or a Linux service"><span class="row-label" style="color:var(--text-muted)">Found</span><span class="chip chip--ok"><span class="dot"></span>${where === 'NAS' ? 'QNAP · QTS 5.2' : 'Debian 13 · systemd'}</span></div>`;
+  const here = `<div class="row" style="padding:0"><span class="row-label" title="Reachable by the other members only while this computer is on">This computer</span><span class="chip">PC-STUDIO</span></div>`;
+  const server = `<div style="display:flex;flex-direction:column;gap:var(--s-3);margin-top:var(--s-3)">
+      <div class="row" style="padding:0"><span class="row-label">Where</span>${seg([['server', 'NAS', 'Cleis installs the server on your NAS over SSH (QNAP, Synology, other Linux NAS)'], ['window', 'Linux server', 'Any Linux machine you reach over SSH: a VPS, a mini PC…'], ['laptop', 'This computer', 'The server runs here; members reach it only while this computer is on']])}</div>
+      ${where === 'This computer' ? here : ssh(where === 'NAS' ? 'nas.example-studio.lan' : 'vault.example-studio.com', where === 'NAS' ? 'admin' : 'root')}
+    </div>`;
+  const place = (ico, name, tip, on, value, action) => `<div class="row" style="padding:var(--s-2) 0" title="${tip}"><span class="radio ${on ? 'on' : ''}"></span><span class="site-ico">${i(ico)}</span><span class="row-label">${name}${value ? `<span class="code" style="margin-left:var(--s-2);color:var(--text-muted);font-size:var(--text-sm)">${value}</span>` : ''}</span>${action}</div>`;
+  const folder = `<div style="margin-top:var(--s-3);border:1px solid var(--line-strong);border-radius:var(--radius-md);padding:0 var(--s-3);background:var(--bg)">
+      ${place('cloud', 'SharePoint', 'Folder kept by OneDrive for the SharePoint library', true, 'C:\\Users\\lea\\Example Studio\\Cleis', '<button class="btn btn--sm">Change</button>')}
+      ${place('cloud', 'Google shared drive', 'Folder kept by Google Drive for desktop', false, '', '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('folder', 'NAS share', 'A network folder (\\\\nas\\cleis)', false, '', '<button class="btn btn--sm">Choose folder</button>')}
+      ${place('server', 'SFTP', 'A folder on an SSH server', false, '', '<button class="btn btn--sm">Set up</button>')}
+    </div>`;
+  const go = which === 'server' ? (where === 'This computer' ? 'Create' : 'Install and create') : 'Create';
+  return settingsOrg(`
+    <div class="page-head"><h1>Organization</h1></div>
+    <div class="section">${sectionTitle('Create an organization')}
+      <div style="display:flex;gap:12px"><div style="flex:1">${fld('Name', 'Example Studio')}</div><div style="flex:1">${fld('Your name', 'Lea Martin')}</div></div>
+      ${ch('server', 'Server', 'Access changes at once; members reach it over the network or your VPN', which === 'server', which === 'server' ? server : '')}
+      ${ch('folder', 'Shared folder', 'No server: SharePoint, Google shared drive, NAS share or SFTP; access changes at the next sync', which === 'folder', which === 'folder' ? folder : '')}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn--primary" ${which ? '' : 'disabled style="opacity:.45" title="Choose Server or Shared folder"'}>${go}</button></div>
+    </div>
+    <div class="section">${sectionTitle('Join an organization')}
+      <div style="display:flex;gap:12px"><div style="flex:1">${fld('Server address', '<span class="ph">vault.example-studio.lan</span>')}</div></div>
+    </div>`);
+}
+function orgServeur() { return orgCreer('server', 'NAS'); }
+function orgServeurIci() { return orgCreer('server', 'This computer'); }
+function orgDossier() { return orgCreer('folder'); }
+
+// 47e. Right-click on Trash: Empty trash… (asks first, as the button on the Trash page).
+function corbeilleMenu() {
+  const side = personalSidebar().replace(`<div class="side-item ">${i('trash')}<span>Trash</span>`, `<div class="side-item" style="box-shadow:inset 0 0 0 1px var(--focus);border-radius:var(--radius-sm)">${i('trash')}<span>Trash</span><span class="count">5</span>`);
+  const m = ctx(24, 700, `${mi('trash', 'Open')}${sep}${mi('trash', 'Empty trash…', '', { danger: true, hover: true })}`, 200);
+  return shell('Vault', `<div class="work">${side}<section class="center">${vaultToolbar()}<div class="table-wrap">${vaultTable({ selected: null })}</div></section></div>${statusbar()}`, { overlay: m, doc: 'My vault' });
+}
+
+// 47f. Recovery keys: a column (left / total, orange at 2 or fewer) and a section of the panel
+// under the 2FA key: one line per code, masked until shown, copy on hover, a box to mark it used
+// (struck through). "+" pastes the codes a site gives, one per line or separated by spaces.
+function cleRecuperation(adding = false) {
+  const codes = [['4f9k-2xq8', false], ['a8d2-k1m3', true], ['p7wc-9ze4', false], ['m2rt-6hv1', false], ['x5ne-0bq7', true], ['c3jy-8lk2', false]];
+  const shown = adding;
+  const line = ([c, used], k) => `<div style="display:flex;align-items:center;gap:var(--s-2);height:26px;padding:0 4px;border-radius:var(--radius-sm);${k === 2 ? 'background:var(--surface-hover)' : ''}">
+      <span class="check ${used ? 'on' : ''}" title="${used ? 'Used' : 'Mark as used'}">${used ? i('check') : ''}</span>
+      <span class="code" style="flex:1;font-size:var(--text-sm);${used ? 'text-decoration:line-through;color:var(--text-faint)' : ''}">${shown || k === 2 ? c : '••••-••••'}</span>
+      ${k === 2 ? `<button class="icon-btn icon-btn--sm" style="background:var(--surface-active);color:var(--text)" title="Copy">${i('copy')}</button>` : '<span style="width:24px"></span>'}</div>`;
+  const add = adding ? `<div class="field"><div class="input is-focus" style="height:auto;min-height:64px;align-items:flex-start;padding:6px 8px;font-family:var(--font-mono);font-size:var(--text-sm)">r4tq-1kd9 v8bn-3sz0<br>h6wl-5ce2 j1ux-7pa4</div></div>
+      <div style="display:flex;justify-content:flex-end;gap:var(--s-2)"><button class="btn btn--sm">Cancel</button><button class="btn btn--primary btn--sm" title="4 codes found">Add 4</button></div>` : '';
+  const section = `<div class="section" style="padding:var(--s-3);gap:var(--s-2);background:var(--surface-raised)">
+      <div style="display:flex;align-items:center;gap:var(--s-2)"><h3 style="flex:1">Recovery keys</h3><span class="chip" title="Unused codes left">4 / 6</span>
+        <button class="icon-btn icon-btn--sm" title="Show the codes">${i('eye')}</button><button class="icon-btn icon-btn--sm" title="Add codes">${i('plus')}</button></div>
+      ${codes.map(line).join('')}${add}</div>`;
+  const insp = inspector().replace(/(<div class="field"><span class="label">Notes<\/span>)/, `${section}$1`);
+  const rows = vaultTable({ selected: 'Figma' })
+    .replace('<th class="num" style="width:100px" title="Price × licenses, per year">Yearly cost</th>', '<th style="width:120px" title="Unused codes left / codes kept">Recovery keys</th>');
+  // The Yearly cost column becomes Recovery keys in this mockup (same width, fewer columns).
+  const rk = { OVHcloud: '8 / 10', Cloudflare: '—', Figma: '4 / 6', 'Adobe Creative Cloud': '—', Notion: '—', 'Google Workspace': '2 / 10', 'Microsoft 365': '—', 'Bank — business portal': '—', GitHub: '16 / 16', Webflow: '—', Slack: '—', 'Office router': '—', Canva: '—', Dropbox: '—' };
+  let html = rows;
+  for (const r of ROWS) {
+    const v = rk[r.n];
+    const cell = v === '—' ? '<span style="color:var(--text-faint)">—</span>' : (parseInt(v) <= 2 ? `<span class="chip chip--warn" title="2 unused codes left">${v}</span>` : `<span class="num" style="color:var(--text-muted)">${v}</span>`);
+    html = html.replace(`<td class="num">${r.cost}</td>\n    </tr>`, `<td>${cell}</td>\n    </tr>`);
+  }
+  html = html.replace(/<tr><td colspan="6"[\s\S]*?<\/tr><\/tbody>/, '</tbody>');
+  return shell('Vault', `<div class="work">${sidebar()}<section class="center">${vaultToolbar()}<div class="table-wrap">${html}</div></section>${insp}</div>${statusbar()}`);
+}
+function cleRecuperationAjout() { return cleRecuperation(true); }
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -2270,6 +2350,13 @@ export const SCREENS = {
   '46d-colonne-site': ['Website column — open link, stronger cell buttons', siteColonne],
   '46e-raccourcis-cases': ['Shortcuts — keys in an editable box', raccourcisCases],
   '46f-espaces-membres': ['Spaces — members of a space', espacesMembres],
+  '47a-organisation-choix': ['Create an organization — nothing chosen', orgCreer],
+  '47b-organisation-serveur': ['Create an organization — Server, on the NAS', orgServeur],
+  '47c-organisation-serveur-ici': ['Create an organization — Server, on this computer', orgServeurIci],
+  '47d-organisation-dossier': ['Create an organization — Shared folder', orgDossier],
+  '47e-corbeille-menu': ['Trash — right-click', corbeilleMenu],
+  '47f-cles-recuperation': ['Recovery keys — column and section', cleRecuperation],
+  '47g-cles-recuperation-ajout': ['Recovery keys — paste codes', cleRecuperationAjout],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],

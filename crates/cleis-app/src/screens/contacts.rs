@@ -825,7 +825,11 @@ fn table(
         .flex()
         .flex_col()
         .child(head)
-        .child(rows)
+        // Another folder or section: its contacts come in, as the vault's items (27/11/2026).
+        .child(crate::ui::page_in(
+            format!("crows-{:?}", s.contacts_ui.filter),
+            div().flex_1().min_h_0().flex().flex_col().child(rows),
+        ))
 }
 
 fn cards(
@@ -1021,9 +1025,18 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 super::ctx::CtxTarget::Contact(id) => Some(id),
                 _ => None,
             });
-            cards(&list, sel, aimed, t, cx)
+            crate::ui::page_in(
+                format!("ccards-{:?}", ui.filter),
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(cards(&list, sel, aimed, t, cx)),
+            )
+            .into_any_element()
         } else {
-            table(s, &list, sel, t, cx)
+            table(s, &list, sel, t, cx).into_any_element()
         };
         div()
             .flex_1()

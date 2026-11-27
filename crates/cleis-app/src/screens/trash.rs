@@ -92,23 +92,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     d.child(
                         button("empty-trash", t, BtnKind::DangerGhost, true)
                             .child(tr("Empty trash"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.ask(
-                                    Confirm {
-                                        title: crate::trf!(
-                                            "Delete {} item{} for good?",
-                                            n,
-                                            if n == 1 { "" } else { "s" }
-                                        )
-                                        .into(),
-                                        body: "They are erased from this computer and cannot be restored."
-                                            .into(),
-                                        button: tr("Empty trash").into(),
-                                        action: ConfirmAction::EmptyTrash,
-                                    },
-                                    cx,
-                                )
-                            }))
+                            .on_click(cx.listener(|this, _, _, cx| this.ask_empty_trash(cx)))
                             .test_support(),
                     )
                 }),
@@ -369,5 +353,28 @@ impl CleisApp {
             Err(err) => s.toast = Some(crate::trf!("Not restored: {}", err).into()),
         }
         cx.notify();
+    }
+}
+
+impl CleisApp {
+    /// Empty trash (the Trash page's button, the sidebar's right-click): asked first.
+    pub fn ask_empty_trash(&mut self, cx: &mut Context<Self>) {
+        let Some(n) = self.session().map(|s| s.trash.len()).filter(|n| *n > 0) else {
+            return;
+        };
+        self.ask(
+            Confirm {
+                title: crate::trf!(
+                    "Delete {} item{} for good?",
+                    n,
+                    if n == 1 { "" } else { "s" }
+                )
+                .into(),
+                body: "They are erased from this computer and cannot be restored.".into(),
+                button: tr("Empty trash").into(),
+                action: ConfirmAction::EmptyTrash,
+            },
+            cx,
+        )
     }
 }

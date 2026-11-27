@@ -31,6 +31,8 @@ pub enum CtxTarget {
     ContactsSidebar,
     /// The password box of the panel on the right (mockup 37o).
     PasswordField(EntryId),
+    /// The sidebar's Trash (mockup 47e).
+    Trash,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +276,37 @@ pub fn render(
         CtxTarget::SidebarVoid => (sidebar_void_menu(s, t, cx), None),
         CtxTarget::ContactsVoid => (contacts_void_menu(s, t, cx), None),
         CtxTarget::PasswordField(id) => (password_field_menu(s, id, t, cx)?, None),
+        // Mockup 47e: open it, or empty it (asked first, as from the Trash page).
+        CtxTarget::Trash => {
+            let mut r = Rows::new(t);
+            r.row(act(
+                item("cx-trash-open", t, "trash", tr("Open"), None, false),
+                cx,
+                |this, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.filter = crate::app::Filter::Trash;
+                        s.refilter();
+                    }
+                    cx.notify();
+                },
+            ));
+            r.sep();
+            r.row(if s.trash.is_empty() {
+                plain(
+                    item("cx-trash-empty", t, "trash", tr("Empty trash…"), None, true)
+                        .opacity(0.45),
+                    cx,
+                )
+                .into_any_element()
+            } else {
+                act(
+                    item("cx-trash-empty", t, "trash", tr("Empty trash…"), None, true),
+                    cx,
+                    |this, _, cx| this.ask_empty_trash(cx),
+                )
+            });
+            (r.menu, None)
+        }
         CtxTarget::ContactsSidebar => {
             let mut r = Rows::new(t);
             r.row(act(

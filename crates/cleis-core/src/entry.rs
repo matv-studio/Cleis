@@ -51,6 +51,41 @@ pub struct PasswordHistory {
     pub replaced_by: Option<MemberId>,
 }
 
+/// One of the single-use codes a site gives with two-step verification (D-102, mockup 47f).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct RecoveryCode {
+    pub code: String,
+    /// Spent: kept, struck through.
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub used: bool,
+}
+
+/// The codes in a site's text: one per line, or separated by spaces, commas or semicolons
+/// (`r4tq-1kd9 v8bn-3sz0`). Numbering (`1.`, `2)`) and duplicates are left out.
+pub fn parse_recovery_codes(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for raw in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';') {
+        let c = raw.trim_matches(|c: char| matches!(c, '"' | '\'' | '•' | '·'));
+        // "1." / "2)" before a code: a list's numbering, not a code.
+        if c.is_empty()
+            || (c.len() <= 3
+                && c.trim_end_matches(['.', ')', ':'])
+                    .chars()
+                    .all(|d| d.is_ascii_digit()))
+        {
+            continue;
+        }
+        if c.chars().count() < 4 {
+            continue;
+        }
+        if !out.iter().any(|o| o == c) {
+            out.push(c.to_owned());
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: EntryId,
@@ -71,6 +106,9 @@ pub struct Entry {
     /// Values of custom columns.
     pub fields: BTreeMap<ColumnId, Value>,
     pub password_history: Vec<PasswordHistory>,
+    /// Recovery keys of the account (D-102).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recovery: Vec<RecoveryCode>,
     pub password_changed: Timestamp,
     pub created: Timestamp,
     pub updated: Timestamp,
@@ -103,6 +141,7 @@ impl Entry {
             linked_apps: vec![],
             fields: BTreeMap::new(),
             password_history: vec![],
+            recovery: vec![],
             password_changed: t,
             created: t,
             updated: t,
@@ -179,8 +218,35 @@ impl Entry {
             "renewal" => self.renewal.clone().map(Value::Date),
             "website" => self.urls.first().cloned().map(Value::Text),
             "notes" => Some(Value::Text(self.notes.clone())),
+            "recovery" => (!self.recovery.is_empty()).then(|| {
+                let (left, all) = self.recovery_left();
+                Value::Text(format!("{left} / {all}"))
+            }),
             _ => None,
         }
+    }
+
+    /// Unused recovery codes, and all of them.
+    pub fn recovery_left(&self) -> (usize, usize) {
+        (
+            self.recovery.iter().filter(|c| !c.used).count(),
+            self.recovery.len(),
+        )
+    }
+
+    /// Adds the codes not kept yet; returns how many were added.
+    pub fn add_recovery(&mut self, codes: Vec<String>) -> usize {
+        let mut n = 0;
+        for c in codes {
+            if !self.recovery.iter().any(|r| r.code == c) {
+                self.recovery.push(RecoveryCode {
+                    code: c,
+                    used: false,
+                });
+                n += 1;
+            }
+        }
+        n
     }
 
     /// Computes a formula column for this entry.
@@ -248,5 +314,37 @@ mod tests {
         assert_eq!(e.password_history[0].password, "first");
         e.urls = vec!["www.ovhcloud.com/fr/".into()];
         assert_eq!(e.host().as_deref(), Some("ovhcloud.com"));
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+
+    #[test]
+    fn codes_read_from_a_sites_text() {
+        let t = "1. r4tq-1kd9\n2. v8bn-3sz0\n3) h6wl-5ce2; j1ux-7pa4, r4tq-1kd9\n\"k2m9 x8p1\"";
+        assert_eq!(
+            parse_recovery_codes(t),
+            vec![
+                "r4tq-1kd9",
+                "v8bn-3sz0",
+                "h6wl-5ce2",
+                "j1ux-7pa4",
+                "k2m9",
+                "x8p1"
+            ]
+        );
+        assert!(parse_recovery_codes("  , ; ").is_empty());
+        let mut e = Entry::new(SpaceId::new(), "GitHub");
+        assert_eq!(e.add_recovery(vec!["a1b2c3".into(), "d4e5f6".into()]), 2);
+        assert_eq!(e.add_recovery(vec!["a1b2c3".into()]), 0, "kept once");
+        e.recovery[0].used = true;
+        assert_eq!(e.recovery_left(), (1, 2));
+        // Older vaults have no codes: the field may be missing.
+        let mut v = serde_json::to_value(&e).unwrap();
+        v.as_object_mut().unwrap().remove("recovery");
+        let back: Entry = serde_json::from_value(v).unwrap();
+        assert!(back.recovery.is_empty());
     }
 }

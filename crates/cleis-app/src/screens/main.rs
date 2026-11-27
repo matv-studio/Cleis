@@ -265,7 +265,17 @@ fn topbar(
         "tab-Settings".into(),
         tr("Settings").into(),
     ));
-    let mut nav = div().flex().items_end().h(TOPBAR_H);
+    let mut nav = div().relative().flex().items_end().h(TOPBAR_H);
+    // The active tab is drawn again in a layer above the others (27/11/2026): its outline curves
+    // 8 px into its neighbours, and a neighbour's hover light (its whole clickable area) passes
+    // under that curve, never over it. Same boxes in both layers, so they line up exactly.
+    let mut top = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .bottom_0()
+        .flex()
+        .items_end();
     let is_active = |tab: Tab, scope: &Option<crate::app::Scope>| {
         s.tab == tab && scope.as_ref().is_none_or(|sc| *sc == s.scope)
     };
@@ -273,17 +283,22 @@ fn topbar(
         .iter()
         .position(|(tab, scope, _, _)| is_active(*tab, scope));
     let shown_ix = active_ix.unwrap_or(0);
+    let clear = gpui_kit::transparent_black();
     for (ix, (tab, scope, id, label)) in tabs.into_iter().enumerate() {
         let active = is_active(tab, &scope);
+        let label = crate::i18n::tr_owned(&label);
         // The page comes from the side of the tab clicked (26/11/2026).
         let dir = (ix as f32 - shown_ix as f32).signum();
-        let mut el = div()
+        let shape = || {
+            div()
+                .h(px(32.))
+                .px(px(16.))
+                .flex()
+                .items_center()
+                .font_weight(W_MEDIUM)
+        };
+        let mut el = shape()
             .id(SharedString::from(id))
-            .h(px(32.))
-            .px(px(16.))
-            .flex()
-            .items_center()
-            .font_weight(W_MEDIUM)
             .cursor_pointer()
             // The top bar moves the window except over a control (ui::title_bar).
             .no_drag()
@@ -294,23 +309,10 @@ fn topbar(
                 this.open_tab(tab, scope.clone(), cx);
             }));
         el = if active {
-            // The tab and its outline are one drawn shape (26/11/2026): no seam between pieces at
-            // 125 or 150 % scale, where separate boxes and arcs landed on different pixels.
-            el.h(px(33.))
-                .mb(px(-1.))
-                .relative()
-                .text_color(t.accent_text)
-                .child(tab_shape(t))
+            // Drawn in the layer above; here only its room and its click.
+            el.h(px(33.)).mb(px(-1.)).text_color(clear)
         } else {
-            // Hover (26/11/2026): the tab lights up under the pointer. The active tab's outline
-            // curves 8 px into its neighbours (`tab_shape`): their light stops short of it, so it
-            // never covers that line (27/11/2026).
-            let left = if ix > 0 && active_ix == Some(ix - 1) {
-                8.
-            } else {
-                0.
-            };
-            let right = if active_ix == Some(ix + 1) { 8. } else { 0. };
+            // Hover (26/11/2026): the whole tab lights up under the pointer.
             let group = SharedString::from(format!("tabhover-{ix}"));
             el.relative()
                 .group(group.clone())
@@ -319,16 +321,27 @@ fn topbar(
                 .child(
                     div()
                         .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(left))
-                        .right(px(right))
+                        .inset_0()
                         .rounded_t(px(8.))
                         .group_hover(group, |d| d.bg(t.surface_hover)),
                 )
         };
-        nav = nav.child(el.child(crate::i18n::tr_owned(&label)).test_support());
+        top = top.child(if active {
+            // The tab and its outline are one drawn shape (26/11/2026): no seam between pieces
+            // at 125 or 150 % scale, where separate boxes and arcs landed on different pixels.
+            shape()
+                .h(px(33.))
+                .mb(px(-1.))
+                .relative()
+                .text_color(t.accent_text)
+                .child(tab_shape(t))
+                .child(label.clone())
+        } else {
+            shape().text_color(clear).child(label.clone())
+        });
+        nav = nav.child(el.child(label).test_support());
     }
+    let nav = nav.child(top);
     let primary = match s.tab {
         Tab::Vault => Some(("new-item", "New password")),
         Tab::Contacts => Some(("new-contact", "New contact")),
@@ -510,6 +523,7 @@ fn col_width(c: &ColumnDef) -> Option<f32> {
         "yearly_cost" => Some(100.),
         "website" => Some(160.),
         "renewal" => Some(110.),
+        "recovery" => Some(120.),
         _ => Some(140.),
     }
 }
@@ -533,9 +547,6 @@ fn vault_width(s: &Session, c: &ColumnDef) -> Option<f32> {
 }
 
 /// A cell of column `c`, `w` wide (or sharing the rest of the row when `None`).
-/// Narrowest a free column gets.
-const FREE_MIN: f32 = 150.;
-
 fn cell_box(c: &ColumnDef, w: Option<f32>) -> Div {
     let d = div()
         .h_full()
@@ -547,9 +558,7 @@ fn cell_box(c: &ColumnDef, w: Option<f32>) -> Div {
         .min_w_0();
     let d = match w {
         Some(w) => d.w(px(w)).flex_none(),
-        // A free column (Username, Notes) keeps room for its text and its button when many
-        // columns are shown (27/11/2026: Username was crushed by Website).
-        None => d.flex_1().min_w(px(FREE_MIN)),
+        None => d.flex_1(),
     };
     if is_num(c) { d.justify_end() } else { d }
 }
@@ -672,6 +681,20 @@ fn row_cell(
                     })),
             )
             .into_any_element()
+        }
+        // D-102 (mockup 47f): unused recovery keys / all, orange at 2 or fewer.
+        "recovery" => {
+            let (left, all) = e.recovery_left();
+            if all == 0 {
+                return base.child(faint_dash(t)).into_any_element();
+            }
+            let text = format!("{left} / {all}");
+            if left <= 2 {
+                base.child(chip(t, Tone::Warn, text, false))
+                    .into_any_element()
+            } else {
+                base.text_color(t.text_muted).child(text).into_any_element()
+            }
         }
         // Mockup 46d: the site's address, and the button opening it.
         "website" => match e.urls.first() {
@@ -1101,11 +1124,6 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
         _ => None,
     };
     let ncols = cols.len();
-    // Wider than the pane (many columns): the table scrolls sideways, header with it.
-    let table_min: f32 = cols
-        .iter()
-        .map(|c| vault_width(s, c).unwrap_or(FREE_MIN))
-        .sum();
     for (ci, c) in cols.iter().enumerate() {
         let arrow = sorted.filter(|(id, _)| c.id.0 == *id).map(|(_, a)| a);
         head = head.child(
@@ -1310,44 +1328,25 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
             )
         })
         .when(!s.vault_cards, |d| {
-            d.child(
+            d.child(head).child(
+                // A click below the rows lets go of the item and closes the panel on the right.
                 div()
-                    .id("table-x")
+                    .id("entries-void")
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .overflow_x_scroll()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .w_full()
-                            .min_w(px(table_min))
-                            .flex()
-                            .flex_col()
-                            .child(head)
-                            .child(
-                                // A click below the rows lets go of the item and closes the panel on the right.
-                                div()
-                                    .id("entries-void")
-                                    .flex_1()
-                                    .min_h_0()
-                                    .flex()
-                                    .flex_col()
-                                    .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
-                                    .on_mouse_down(
-                                        gpui_kit::MouseButton::Right,
-                                        super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
-                                    )
-                                    // Another folder or section: its items come in (26/11/2026).
-                                    .child(crate::ui::page_in(
-                                        format!("rows-{:?}-{:?}", s.filter, s.scope),
-                                        div().flex_1().min_h_0().flex().flex_col().child(list),
-                                    ))
-                                    .test_support(),
-                            ),
-                    ),
+                    .on_click(cx.listener(|this, _, _, cx| this.deselect(cx)))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Right,
+                        super::ctx::on_right(super::ctx::CtxTarget::ListVoid, cx),
+                    )
+                    // Another folder or section: its items come in (26/11/2026).
+                    .child(crate::ui::page_in(
+                        format!("rows-{:?}-{:?}", s.filter, s.scope),
+                        div().flex_1().min_h_0().flex().flex_col().child(list),
+                    ))
+                    .test_support(),
             )
         })
         .when(s.vault_cards, |d| {

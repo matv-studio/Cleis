@@ -580,6 +580,142 @@ fn import_notion_csv(cx: &mut TestAppContext) {
     assert_eq!(saved.len(), before + 5);
 }
 
+/// Scenario (D-102): a file with a "Department / category" column, a column Cleis does not know
+/// and two logins in one row. Banking (a folder the vault has) gets its item, Travel is made;
+/// the unknown column lands in Notes; the row with two logins gives two items.
+#[gpui_kit::test]
+fn import_departments_and_several_logins(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let csv = dir.path().join("team.csv");
+    std::fs::write(
+        &csv,
+        "Name,Department / category,Email,Password,Contract n°\n\
+Example Rail,Travel,\"lea@example-rail.com; hugo@example-rail.com\",\"Rail-1;Rail-2\",R-77\n\
+Example Bank Pro,Banking,pro@example-bank.com,Bank-Pro-2026,\n",
+    )
+    .unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Import & export", cx));
+    app.update(cx, |a, cx| a.load_import(&csv, cx));
+    cx.run_until_parked();
+    act(cx, h, |w, cx| w.click("import-continue", cx));
+    // One folder to make: Travel (Banking is there).
+    assert!(window_has(cx, h, "import-new-folders"));
+    act(cx, h, |w, cx| w.click("import-run", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let travel = s
+            .spaces
+            .iter()
+            .find(|sp| sp.name == "Travel")
+            .expect("Travel made");
+        let banking = s.spaces.iter().find(|sp| sp.name == "Banking").unwrap();
+        assert_eq!(
+            s.spaces.iter().filter(|sp| sp.name == "Banking").count(),
+            1,
+            "Banking not made twice"
+        );
+        let rail: Vec<_> = s
+            .entries
+            .iter()
+            .filter(|e| e.name == "Example Rail")
+            .collect();
+        assert_eq!(rail.len(), 2);
+        assert!(rail.iter().all(|e| e.space == travel.id));
+        let mut logins: Vec<(&str, &str)> = rail
+            .iter()
+            .map(|e| (e.username.as_str(), e.password.as_str()))
+            .collect();
+        logins.sort();
+        assert_eq!(
+            logins,
+            vec![
+                ("hugo@example-rail.com", "Rail-2"),
+                ("lea@example-rail.com", "Rail-1")
+            ]
+        );
+        assert_eq!(rail[0].notes, "Contract n°: R-77");
+        let bank = s
+            .entries
+            .iter()
+            .find(|e| e.name == "Example Bank Pro")
+            .unwrap();
+        assert_eq!(bank.space, banking.id);
+    });
+}
+
+/// Scenario (mockups 47e–47g, D-102): recovery keys pasted into an item, one marked used, the
+/// column counts them; then the Trash's right-click empties it, after asking.
+#[gpui_kit::test]
+fn recovery_keys_and_trash_menu(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let id = app.read_with(cx, |a, _| match &a.phase {
+        Phase::Main(s) => s.entries[s.visible[0]].id,
+        _ => panic!(),
+    });
+    let codes = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            let e = s.entries.iter().find(|e| e.id == id).unwrap();
+            (e.recovery.len(), e.recovery_left())
+        })
+    };
+    // (The demo item may hold codes already.)
+    let (n0, (left0, _)) = codes(cx);
+    act(cx, h, |w, cx| w.click(format!("row-{id}"), cx));
+    act(cx, h, |w, cx| w.click("recovery-add", cx));
+    act(cx, h, |w, cx| {
+        w.input("1. r4tq-1kd9\n2. v8bn-3sz0\n3. h6wl-5ce2", cx)
+    });
+    act(cx, h, |w, cx| w.click("recovery-save", cx));
+    assert_eq!(codes(cx), (n0 + 3, (left0 + 3, n0 + 3)));
+    assert!(window_has(cx, h, &format!("rc-row-{}", n0 + 2)));
+    act(cx, h, |w, cx| w.click(format!("rc-used-{}", n0 + 1), cx));
+    assert_eq!(codes(cx), (n0 + 3, (left0 + 2, n0 + 3)));
+    // Kept in the vault file.
+    let saved = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap()
+        .entries()
+        .unwrap();
+    let e = saved.iter().find(|e| e.id == id).unwrap();
+    assert!(e.recovery[n0 + 1].used && e.recovery[n0].code == "r4tq-1kd9");
+    // The column is among the vault's (a new built-in one).
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.columns.iter().any(|c| c.id.0 == "recovery"));
+    });
+
+    // 47e: right-click on Trash; empty asks first.
+    app.update(cx, |a, cx| a.trash_entry(id, cx));
+    act(cx, h, |w, cx| w.right_click("f-trash", cx));
+    act(cx, h, |w, cx| w.click("cx-trash-empty", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.trash.is_empty());
+    });
+}
+
 /// Scenario (screens 20, 21): edit a contact in the inspector (a wrong email is refused), add a
 /// phone and a label, merge the duplicate, then delete a contact after confirming.
 #[gpui_kit::test]

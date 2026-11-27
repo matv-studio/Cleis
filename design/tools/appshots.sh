@@ -46,6 +46,8 @@ for theme in ${THEMES:-dark}; do
   shot "github-install-$theme" --demo --unlocked --tab settings --page account --menu github-install --theme $theme
   shot "account-menu-$theme" --demo --unlocked --menu account --theme $theme
   shot "profile-menu-$theme" --demo --unlocked --menu profile-menu --theme $theme
+  shot "trash-menu-$theme" --demo --unlocked --menu ctx-trash --theme $theme
+  shot "recovery-keys-$theme" --demo --unlocked --menu recovery --theme $theme
   shot "profile-edit-$theme" --demo --unlocked --menu profile-edit --theme $theme
   shot "website-column-$theme" --demo --unlocked --menu website --theme $theme
   shot "space-members-$theme" --demo --unlocked --tab settings --page spaces --menu space-members --theme $theme
@@ -92,6 +94,8 @@ for theme in ${THEMES:-dark}; do
   shot "policy-pin-$theme" --demo --unlocked --tab settings --page policy --menu policy-pin --theme $theme
   shot "create-org-$theme" --demo --unlocked --no-org --tab settings --page join --theme $theme
   shot "create-folder-$theme" --demo --unlocked --no-org --tab settings --page join --menu create-folder --theme $theme
+  shot "create-server-$theme" --demo --unlocked --no-org --tab settings --page join --menu create-server --theme $theme
+  shot "create-server-here-$theme" --demo --unlocked --no-org --tab settings --page join --menu create-server-here --theme $theme
   shot "members-$theme" --demo --unlocked --tab settings --page members --theme $theme
   shot "invite-$theme" --demo --unlocked --tab settings --page members --menu invite --theme $theme
   shot "invite-code-$theme" --demo --unlocked --tab settings --page members --menu invite-code --theme $theme

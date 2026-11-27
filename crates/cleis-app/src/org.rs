@@ -200,6 +200,20 @@ pub fn save_memberships(s: &crate::app::Session) {
     let _ = s.vault.set_org_setting(SETTING, &all.first());
 }
 
+/// This computer's name (Settings › Organization › Server › This computer).
+pub fn computer_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .filter(|h| !h.trim().is_empty())
+        .or_else(|| {
+            std::fs::read_to_string("/etc/hostname")
+                .ok()
+                .map(|s| s.trim().to_owned())
+        })
+        .unwrap_or_else(|| tr("Computer").into())
+}
+
 /// Name shown in the activity log: computer name and system.
 pub fn device_name() -> String {
     let host = std::env::var("COMPUTERNAME")
@@ -2510,7 +2524,12 @@ impl CleisApp {
         reserved: bool,
         cx: &mut Context<Self>,
     ) {
-        self.org_create_space(name, mode, reserved, (false, false), cx);
+        self.org_create_space(name, mode, reserved, (false, false), true, cx);
+    }
+
+    /// A space made by an import (D-102): usable at once, the list stays where it is.
+    pub fn org_new_space_quiet(&mut self, name: String, cx: &mut Context<Self>) -> Option<SpaceId> {
+        self.org_create_space(name, SpaceMode::Standard, false, (false, false), false, cx)
     }
 
     /// A contacts folder of the organization (27/11/2026), or its "Uncategorized" space
@@ -2521,7 +2540,7 @@ impl CleisApp {
         unfiled: bool,
         cx: &mut Context<Self>,
     ) -> Option<SpaceId> {
-        self.org_create_space(name, SpaceMode::Standard, false, (true, unfiled), cx)
+        self.org_create_space(name, SpaceMode::Standard, false, (true, unfiled), true, cx)
     }
 
     fn org_create_space(
@@ -2530,6 +2549,7 @@ impl CleisApp {
         mode: SpaceMode,
         reserved: bool,
         (for_contacts, unfiled): (bool, bool),
+        show: bool,
         cx: &mut Context<Self>,
     ) -> Option<SpaceId> {
         // A reserved space is end-to-end (D-61).
@@ -2599,7 +2619,7 @@ impl CleisApp {
         }
         let _ = crate::sync::reload(s);
         let id = info.id;
-        if for_contacts {
+        if for_contacts && show {
             s.contacts_ui.filter = if unfiled {
                 crate::screens::contacts::ContactFilter::Org(key.clone())
             } else {
@@ -2616,7 +2636,7 @@ impl CleisApp {
                     let _ = s.vault.remove_org_space(id);
                     let _ = crate::sync::reload(s);
                 } else if let Some(s) = app.session() {
-                    if !for_contacts {
+                    if !for_contacts && show {
                         s.filter = crate::app::Filter::Space(id);
                         s.refilter();
                     }

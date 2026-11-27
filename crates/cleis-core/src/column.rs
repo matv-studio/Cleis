@@ -178,7 +178,23 @@ pub fn default_vault_columns(currency: &str) -> Vec<ColumnDef> {
         col(t, "renewal", "Renewal", ColumnKind::Date, false, 9),
         col(t, "notes", "Notes", ColumnKind::Text, false, 10),
         col(t, "space", "Space", ColumnKind::Text, false, 11),
+        // D-102: unused codes left / codes kept; shown from Columns (the table keeps its room).
+        col(t, "recovery", "Recovery keys", ColumnKind::Text, false, 12),
     ]
+}
+
+/// Built-in columns added since a vault saved its own (D-102: Recovery keys), at the end.
+pub fn with_new_builtins(mut saved: Vec<ColumnDef>, defaults: Vec<ColumnDef>) -> Vec<ColumnDef> {
+    let mut next = saved.iter().map(|c| c.order).max().map_or(0, |o| o + 1);
+    for d in defaults {
+        if d.builtin && !saved.iter().any(|c| c.id == d.id && c.table == d.table) {
+            let mut d = d;
+            d.order = next;
+            next += 1;
+            saved.push(d);
+        }
+    }
+    saved
 }
 
 /// Default contact columns, as in the mockups (20-contacts).

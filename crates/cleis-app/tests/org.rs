@@ -567,7 +567,8 @@ fn organization_hosted_here(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("set-Organization", cx));
     act(cx, h, |w, cx| {
         // D-78: the server on this computer, not on a NAS.
-        w.click("create-here", cx);
+        w.click("create-server", cx);
+        w.click("create-where-2", cx);
         w.click("create-name", cx);
         w.input("Example Studio", cx);
         w.click("create-me", cx);
@@ -923,6 +924,39 @@ fn refused_changes_and_moves(cx: &mut TestAppContext) {
     session(cx, &lea, |s| {
         let f = s.vault.entries().unwrap();
         assert_eq!(f.iter().find(|e| e.id == figma).unwrap().space, general);
+    });
+
+    // D-102: the organization's import makes a space per department; the server keeps it.
+    let csv = dir.path().join("org.csv");
+    std::fs::write(
+        &csv,
+        "Name,Department,Login,Password\nExample Payroll,Finance,pay@example-studio.com,Pay-2026\n",
+    )
+    .unwrap();
+    act(cx, lh, |w, cx| w.click("tab-Settings", cx));
+    act(cx, lh, |w, cx| {
+        w.click("set-Organization import & export", cx)
+    });
+    lea.update(cx, |a, cx| a.load_import(&csv, cx));
+    cx.run_until_parked();
+    act(cx, lh, |w, cx| w.click("import-continue", cx));
+    act(cx, lh, |w, cx| w.click("import-run", cx));
+    cx.run_until_parked();
+    sync(cx, &lea);
+    session(cx, &lea, |s| {
+        let o = s.org.as_ref().unwrap();
+        let st = o.state.as_ref().unwrap();
+        let fin = st
+            .spaces
+            .iter()
+            .find(|sv| o.names.get(&sv.id).is_some_and(|n| n == "Finance"))
+            .expect("the space reached the server");
+        let e = s
+            .entries
+            .iter()
+            .find(|e| e.name == "Example Payroll")
+            .unwrap();
+        assert_eq!(e.space, fin.id);
     });
 }
 

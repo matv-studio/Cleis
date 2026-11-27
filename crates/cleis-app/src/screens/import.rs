@@ -202,6 +202,23 @@ fn label_of(s: &Session, t: &Target) -> String {
     }
 }
 
+/// Folder names the file gives (Department / category…) that do not exist yet where the import
+/// goes (D-102): made by the import.
+pub fn new_folders(s: &Session, o: &Outcome) -> Vec<String> {
+    let have: Vec<String> = spaces(s)
+        .into_iter()
+        .map(|(_, n)| cleis_core::text::fold(&n))
+        .collect();
+    let mut out: Vec<String> = vec![];
+    for f in o.folders.iter().flatten() {
+        let k = cleis_core::text::fold(f);
+        if !have.contains(&k) && !out.iter().any(|x| cleis_core::text::fold(x) == k) {
+            out.push(f.clone());
+        }
+    }
+    out
+}
+
 pub fn review(s: &Session, l: &Loaded) -> Review {
     let outcome = import_csv::build(
         &l.preview,
@@ -620,6 +637,7 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
     let r = review(s, l);
     let existing = r.existing.iter().filter(|e| **e).count();
     let n = r.new_count(st.skip_existing);
+    let folders = new_folders(s, &r.outcome);
     let space_id = chosen_space(s);
     let space_name = spaces(s)
         .into_iter()
@@ -646,6 +664,15 @@ fn step_review(s: &Session, l: &Loaded, t: &Tokens, cx: &mut Context<CleisApp>) 
                 .flex()
                 .gap(px(12.))
                 .child(stat(t, "New items", n, false))
+                .when(!folders.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .id("import-new-folders")
+                            .child(stat(t, "New folders", folders.len(), false))
+                            .tooltip(crate::ui::tip(folders.join(", ")))
+                            .test_support(),
+                    )
+                })
                 .child(stat(t, "Already in the vault", existing, false))
                 .child(stat(t, "Warnings", r.outcome.warnings.len(), true)),
         )
@@ -825,27 +852,114 @@ impl CleisApp {
             return;
         };
         let r = review(s, l);
-        let entries: Vec<Entry> = r
+        let org = for_org(s);
+        let skip = s.import.skip_existing;
+        let mut rows: Vec<(Entry, Option<String>)> = r
             .outcome
             .entries
             .into_iter()
+            .zip(r.outcome.folders)
             .zip(r.existing)
-            .filter(|(_, ex)| !(s.import.skip_existing && *ex))
-            .map(|(e, _)| e)
+            .filter(|(_, ex)| !(skip && *ex))
+            .map(|(x, _)| x)
             .collect();
-        if entries.is_empty() {
+        if rows.is_empty() {
             return;
         }
+        // D-102: each folder named by the file (Department / category…), found by its name or
+        // made: a personal folder, or a space of the organization (for whoever manages it).
+        let manage = org.is_some()
+            && s.org
+                .as_ref()
+                .is_some_and(|o| o.can(cleis_core::org::Perm::Manage));
+        let mut found: Vec<(String, SpaceId)> = spaces(s)
+            .into_iter()
+            .map(|(id, n)| (cleis_core::text::fold(&n), id))
+            .collect();
+        let names: Vec<String> = {
+            let mut v: Vec<String> = vec![];
+            for (_, f) in &rows {
+                if let Some(f) = f
+                    && !v
+                        .iter()
+                        .any(|x| cleis_core::text::fold(x) == cleis_core::text::fold(f))
+                {
+                    v.push(f.clone());
+                }
+            }
+            v
+        };
+        let mut made = 0;
+        for name in names {
+            let k = cleis_core::text::fold(&name);
+            if found.iter().any(|(n, _)| *n == k) {
+                continue;
+            }
+            let id = if org.is_some() {
+                if !manage {
+                    continue;
+                }
+                self.org_new_space_quiet(name.clone(), cx)
+            } else {
+                let Phase::Main(s) = &mut self.phase else {
+                    return;
+                };
+                s.vault
+                    .create_space(
+                        &name,
+                        cleis_store::SpaceKind::Personal,
+                        cleis_store::EncryptionMode::EndToEnd,
+                        false,
+                    )
+                    .ok()
+            };
+            if let Some(id) = id {
+                found.push((k, id));
+                made += 1;
+            }
+        }
+        let Phase::Main(s) = &mut self.phase else {
+            return;
+        };
+        for (e, f) in rows.iter_mut() {
+            let Some(f) = f else { continue };
+            let k = cleis_core::text::fold(f);
+            match found.iter().find(|(n, _)| *n == k) {
+                Some((_, id)) => e.space = *id,
+                // Not made (no right to make spaces): the folder's name kept in the notes.
+                None => {
+                    if !e.notes.is_empty() {
+                        e.notes.push('\n');
+                    }
+                    e.notes.push_str(&crate::trf!("Folder: {}", f));
+                }
+            }
+        }
+        let entries: Vec<Entry> = rows.into_iter().map(|(e, _)| e).collect();
         let n = entries.len();
         match s.vault.put_entries(&entries) {
             Ok(()) => {
-                s.entries.extend(entries);
+                if made > 0 {
+                    let _ = crate::sync::reload(s);
+                } else {
+                    s.entries.extend(entries);
+                }
                 s.import = ImportState::default();
                 s.tab = Tab::Vault;
                 s.filter = crate::app::Filter::All;
                 s.refilter();
                 self.toast(
-                    crate::trf!("{} item{} imported", n, if n == 1 { "" } else { "s" }),
+                    if made > 0 {
+                        crate::trf!(
+                            "{} item{} imported · {} new folder{}",
+                            n,
+                            if n == 1 { "" } else { "s" },
+                            made,
+                            if made == 1 { "" } else { "s" }
+                        )
+                    } else {
+                        crate::trf!("{} item{} imported", n, if n == 1 { "" } else { "s" })
+                    },
                     cx,
                 );
             }

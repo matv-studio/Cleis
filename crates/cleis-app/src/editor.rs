@@ -41,6 +41,12 @@ pub struct EntryEditor {
     /// the editing ends; never at each key).
     pub dirty: std::collections::HashSet<Field>,
     pub dirty_custom: std::collections::HashSet<ColumnId>,
+    /// Recovery keys shown in clear (D-102; masked by default).
+    pub recovery_shown: bool,
+    /// The box where a site's codes are pasted (mockup 47g).
+    pub recovery_add: Option<Entity<TextareaState>>,
+    /// Redraws while codes are pasted (the "Add n" count).
+    pub recovery_sub: Option<Subscription>,
     _subs: Vec<Subscription>,
 }
 
@@ -214,6 +220,9 @@ impl CleisApp {
                 menu: None,
                 dirty: Default::default(),
                 dirty_custom: Default::default(),
+                recovery_shown: false,
+                recovery_add: None,
+                recovery_sub: None,
                 _subs: subs,
             });
         }

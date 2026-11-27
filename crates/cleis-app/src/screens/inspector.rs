@@ -366,6 +366,9 @@ fn details(
         _ => field(t, tr("2FA key"), boxed(t, ed, Field::Totp, totp_key)),
     });
 
+    // D-102 (mockups 47f, 47g): the account's recovery keys.
+    d = d.child(recovery_section(s, e, ed, t, cx));
+
     d = d.child(field(t, tr("Notes"), Textarea::new(&ed.notes)));
 
     // Subscription: state, price, licenses, yearly cost, renewal.
@@ -664,5 +667,263 @@ impl CleisApp {
             self.update_entry(id, |e| e.set_password(p, None), cx);
             self.refresh_field(Field::Password, window, cx);
         }
+    }
+}
+
+/// Mockups 47f, 47g: the codes a site gives with two-step verification, one line each, masked
+/// until shown; a box marks one used (struck through), copy and remove under the pointer; "+"
+/// pastes a site's codes.
+fn recovery_section(
+    s: &Session,
+    e: &Entry,
+    ed: &EntryEditor,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    let id = e.id;
+    let edit = s.may(e.space, cleis_core::org::Perm::Edit);
+    let see = s.may_see(e);
+    let shown = ed.recovery_shown && see;
+    let (left, all) = e.recovery_left();
+    let adding = ed.recovery_add.clone();
+    let mut box_ = div()
+        .id("recovery")
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .p(px(12.))
+        .bg(t.surface_raised)
+        .border_1()
+        .border_color(t.line)
+        .rounded(RADIUS_LG)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(24.))
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(TEXT_SM)
+                        .font_weight(W_MEDIUM)
+                        .text_color(t.text_muted)
+                        .child(tr("Recovery keys")),
+                )
+                .when(all > 0, |d| {
+                    d.child(
+                        div()
+                            .id("recovery-left")
+                            .child(chip(
+                                t,
+                                if left <= 2 { Tone::Warn } else { Tone::Neutral },
+                                format!("{left} / {all}"),
+                                false,
+                            ))
+                            .tooltip(tip("Unused codes left"))
+                            .test_support(),
+                    )
+                })
+                .when(all > 0 && see, |d| {
+                    d.child(
+                        icon_button("recovery-show", t, "eye", true)
+                            .when(shown, |b| b.bg(t.surface_active))
+                            .tooltip(tip(if shown {
+                                "Hide the codes"
+                            } else {
+                                "Show the codes"
+                            }))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(ed) = this.session().and_then(|s| s.editor.as_mut()) {
+                                    ed.recovery_shown = !ed.recovery_shown;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                })
+                .when(edit, |d| {
+                    d.child(
+                        icon_button("recovery-add", t, "plus", true)
+                            .tooltip(tip("Add codes"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.open_recovery_add(window, cx)
+                                }),
+                            )
+                            .test_support(),
+                    )
+                }),
+        );
+    for (i, c) in e.recovery.iter().enumerate() {
+        let used = c.used;
+        let code = c.code.clone();
+        let group = SharedString::from(format!("rc-{i}"));
+        let text = if shown {
+            c.code.clone()
+        } else {
+            "••••-••••".to_owned()
+        };
+        let hover = t.surface_hover;
+        box_ = box_.child(
+            div()
+                .id(SharedString::from(format!("rc-row-{i}")))
+                .group(group.clone())
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(26.))
+                .px(px(4.))
+                .rounded(RADIUS_SM)
+                .hover(move |d| d.bg(hover))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("rc-used-{i}")))
+                        .when(edit, |d| d.cursor_pointer())
+                        .child(crate::screens::org::check_box(t, used))
+                        .tooltip(tip(if used { "Used" } else { "Mark as used" }))
+                        .when(edit, |d| {
+                            d.on_click(cx.listener(move |this, _, _, cx| {
+                                this.update_entry(
+                                    id,
+                                    |e| {
+                                        if let Some(c) = e.recovery.get_mut(i) {
+                                            c.used = !c.used;
+                                        }
+                                    },
+                                    cx,
+                                )
+                            }))
+                        })
+                        .test_support(),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .font_family(FONT_MONO)
+                        .text_size(TEXT_SM)
+                        .text_color(if used { t.text_faint } else { t.text })
+                        .when(used, |d| d.line_through())
+                        .child(text),
+                )
+                .child(
+                    cell_button(format!("rc-copy-{i}"), t, "copy")
+                        .invisible()
+                        .group_hover(group.clone(), |s| s.visible())
+                        .tooltip(tip("Copy"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.copy_of(id, code.clone(), "Recovery key", cx)
+                        }))
+                        .test_support(),
+                )
+                .when(edit, |d| {
+                    d.child(
+                        cell_button(format!("rc-remove-{i}"), t, "x")
+                            .invisible()
+                            .group_hover(group, |s| s.visible())
+                            .tooltip(tip("Remove"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.update_entry(
+                                    id,
+                                    |e| {
+                                        if i < e.recovery.len() {
+                                            e.recovery.remove(i);
+                                        }
+                                    },
+                                    cx,
+                                )
+                            }))
+                            .test_support(),
+                    )
+                })
+                .test_support(),
+        );
+    }
+    if let Some(st) = adding {
+        let found = cleis_core::entry::parse_recovery_codes(&st.read(cx).value()).len();
+        box_ = box_
+            .child(div().pt(px(4.)).child(Textarea::new(&st)))
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        button("recovery-cancel", t, BtnKind::Default, true)
+                            .child(tr("Cancel"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(ed) = this.session().and_then(|s| s.editor.as_mut()) {
+                                    ed.recovery_add = None;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .child(
+                        button("recovery-save", t, BtnKind::Primary, true)
+                            .when(found == 0, |b| b.opacity(0.45))
+                            .child(if found == 0 {
+                                tr("Add").to_owned()
+                            } else {
+                                crate::trf!("Add {}", found)
+                            })
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.save_recovery_add(id, cx)),
+                            )
+                            .test_support(),
+                    ),
+            );
+    } else if all == 0 {
+        box_ = box_.child(
+            div()
+                .text_size(TEXT_SM)
+                .text_color(t.text_faint)
+                .child(tr("None")),
+        );
+    }
+    div().child(box_.test_support())
+}
+
+impl CleisApp {
+    /// "+" of Recovery keys (mockup 47g): the box where a site's codes are pasted.
+    pub fn open_recovery_add(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        let st = cx.new(|cx| {
+            gpui_kit::component::input::TextareaState::new(window, cx)
+                .auto_grow(2, 8)
+                .placeholder(tr("Paste the codes, one per line or separated by spaces"))
+        });
+        st.update(cx, |s, cx| s.focus(window, cx));
+        let sub = cx.observe(&st, |_, _, cx| cx.notify());
+        if let Some(ed) = self.session().and_then(|s| s.editor.as_mut()) {
+            ed.recovery_add = Some(st);
+            ed.recovery_sub = Some(sub);
+        }
+        cx.notify();
+    }
+
+    /// The codes pasted, added to the item (those it has already are left out).
+    pub fn save_recovery_add(&mut self, id: cleis_core::EntryId, cx: &mut Context<Self>) {
+        let Some(st) = self
+            .session()
+            .and_then(|s| s.editor.as_ref())
+            .and_then(|ed| ed.recovery_add.clone())
+        else {
+            return;
+        };
+        let codes = cleis_core::entry::parse_recovery_codes(&st.read(cx).value());
+        if codes.is_empty() {
+            return;
+        }
+        if let Some(ed) = self.session().and_then(|s| s.editor.as_mut()) {
+            ed.recovery_add = None;
+        }
+        self.update_entry(
+            id,
+            move |e| {
+                e.add_recovery(codes);
+            },
+            cx,
+        );
     }
 }

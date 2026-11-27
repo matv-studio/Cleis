@@ -315,6 +315,39 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
             e.notes = "Team account · invoices in the studio's name".into();
             e.renewal = Some("2026-12-03".into());
         }
+        // D-102: recovery keys (fictitious codes), one set nearly spent.
+        let codes = |n: usize, seed: &str| -> Vec<String> {
+            (0..n)
+                .map(|k| {
+                    let h = cleis_crypto::fingerprint(format!("{seed}{k}").as_bytes());
+                    let a: String = h
+                        .rsplit(':')
+                        .next()
+                        .unwrap_or_default()
+                        .chars()
+                        .filter(char::is_ascii_alphanumeric)
+                        .collect();
+                    format!("{}-{}", &a[..4], &a[4..8]).to_lowercase()
+                })
+                .collect()
+        };
+        match *name {
+            "GitHub" => {
+                e.add_recovery(codes(16, "gh"));
+            }
+            "Google Workspace" => {
+                e.add_recovery(codes(10, "gw"));
+                for c in e.recovery.iter_mut().take(8) {
+                    c.used = true;
+                }
+            }
+            "Adobe Creative Cloud" => {
+                e.add_recovery(codes(6, "ad"));
+                e.recovery[1].used = true;
+                e.recovery[4].used = true;
+            }
+            _ => {}
+        }
         entries.push(e);
     }
     v.put_entries(&entries)?;

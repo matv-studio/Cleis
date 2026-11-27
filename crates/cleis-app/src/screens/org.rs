@@ -91,13 +91,29 @@ pub struct SftpForm {
     pub path: Entity<InputState>,
 }
 
-/// Where a new organization lives (D-78).
+/// Where a new organization lives (D-78; D-102: nothing chosen at first, then Server — on the
+/// NAS, a Linux server or this computer — or Shared folder).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OrgPlace {
     #[default]
+    None,
     Nas,
+    /// Any Linux machine reached over SSH (a VPS, a mini PC): installed as on a NAS.
+    Linux,
     Here,
     Folder,
+}
+
+impl OrgPlace {
+    /// A server Cleis runs (not a shared folder).
+    pub fn is_server(self) -> bool {
+        matches!(self, OrgPlace::Nas | OrgPlace::Linux | OrgPlace::Here)
+    }
+
+    /// Installed over SSH.
+    pub fn over_ssh(self) -> bool {
+        matches!(self, OrgPlace::Nas | OrgPlace::Linux)
+    }
 }
 
 /// Server on the NAS: how Cleis signs in to it, and what it found there.
@@ -2165,29 +2181,36 @@ pub fn join_page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         )
 }
 
-/// Create an organization (mockups 25b, 36f, 36i, D-78): on the NAS (Cleis installs its server
-/// there over SSH), on this computer, or in a shared folder.
+/// Create an organization (mockups 47a–47d, D-102): two choices, none chosen at first — Server
+/// (where: NAS, Linux server over SSH, this computer) or Shared folder. What each means is in its
+/// tooltip, never a line under it.
 fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     use super::welcome::choice_with;
     let Some(name) = &j.org_name else {
         return div();
     };
-    let nas_extra = (j.place == OrgPlace::Nas).then(|| nas_fields(j, t, cx));
+    let server = j.place.is_server();
+    let server_extra = server.then(|| server_fields(j, t, cx));
     let folder_extra = (j.place == OrgPlace::Folder).then(|| folder_places(j, t, cx));
     let opt = |id: &'static str,
+               on: bool,
                p: OrgPlace,
                title: &str,
-               sub: &str,
+               tip_text: &'static str,
                ico: &str,
                extra: Option<Div>,
                cx: &mut Context<CleisApp>| {
         div()
             .id(id)
             .cursor_pointer()
-            .child(choice_with(t, j.place == p, title, sub, ico, extra))
+            .child(choice_with(t, on, title, "", ico, extra))
+            .tooltip(tip(tr(tip_text)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(j) = this.join_form_mut() {
-                    j.place = p;
+                    // Server again: its place stays as chosen.
+                    if !(p.is_server() && j.place.is_server()) {
+                        j.place = p;
+                    }
                     j.error = None;
                 }
                 cx.notify();
@@ -2198,40 +2221,47 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let label = match (j.place, busy, j.nas.as_ref().and_then(|n| n.step)) {
         (_, true, Some(step)) => crate::i18n::tr_owned(step),
         (_, true, None) => tr("Creating…").to_owned(),
-        (OrgPlace::Nas, false, _) if !j.elsewhere => tr("Install and create").to_owned(),
+        (p, false, _) if p.over_ssh() && !j.elsewhere => tr("Install and create").to_owned(),
         _ => tr("Create").to_owned(),
     };
-    let planned = j.place == OrgPlace::Folder && j.folder.is_none();
-    let by_hand = j.place == OrgPlace::Nas && j.elsewhere;
+    let unchosen = j.place == OrgPlace::None;
+    let planned = unchosen || (j.place == OrgPlace::Folder && j.folder.is_none());
+    let by_hand = j.place.over_ssh() && j.elsewhere;
     section(t)
         .child(titled(t, tr("Create an organization"), None))
-        .child(field(t, tr("Name"), Input::new(name).id("create-name")))
-        .when_some(j.creator.as_ref().filter(|_| !by_hand), |d, c| {
-            d.child(field(t, tr("Your name"), Input::new(c).id("create-me")))
-        })
+        .child(
+            div()
+                .flex()
+                .gap(px(12.))
+                .child(div().flex_1().child(field(
+                    t,
+                    tr("Name"),
+                    Input::new(name).id("create-name"),
+                )))
+                .when_some(j.creator.as_ref().filter(|_| !by_hand), |d, c| {
+                    d.child(div().flex_1().child(field(
+                        t,
+                        tr("Your name"),
+                        Input::new(c).id("create-me"),
+                    )))
+                }),
+        )
         .child(opt(
-            "create-nas",
+            "create-server",
+            server,
             OrgPlace::Nas,
-            "Server on the NAS",
-            "Cleis installs it there · immediate access changes · reachable through your VPN",
+            "Server",
+            "Access changes at once; members reach it over the network or your VPN",
             "server",
-            nas_extra,
-            cx,
-        ))
-        .child(opt(
-            "create-here",
-            OrgPlace::Here,
-            "Server on this computer",
-            "Only while this computer is on",
-            "laptop",
-            None,
+            server_extra,
             cx,
         ))
         .child(opt(
             "create-folder",
+            j.place == OrgPlace::Folder,
             OrgPlace::Folder,
             "Shared folder",
-            "No server · access changes at the next sync",
+            "No server: SharePoint, Google shared drive, NAS share or SFTP; access changes at the next sync",
             "folder",
             folder_extra,
             cx,
@@ -2244,9 +2274,13 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             d.child(
                 div().flex().justify_end().child(
                     button("create-org", t, BtnKind::Primary, false)
-                        .when(busy || planned, |b| b.opacity(0.6))
+                        .when(busy || planned, |b| b.opacity(0.45))
                         .when(planned, |b| {
-                            b.tooltip(tip(tr("Choose the shared folder first")))
+                            b.tooltip(tip(tr(if unchosen {
+                                "Choose Server or Shared folder"
+                            } else {
+                                "Choose the shared folder first"
+                            })))
                         })
                         .child(label)
                         .when(!planned, |b| {
@@ -2256,6 +2290,104 @@ fn create_section(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 ),
             )
         })
+}
+
+/// Mockups 47b, 47c: where the server runs, then what that place needs.
+fn server_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    const WHERE: [(OrgPlace, &str, &str, &str); 3] = [
+        (
+            OrgPlace::Nas,
+            "server",
+            "NAS",
+            "Cleis installs the server on your NAS over SSH (QNAP, Synology, other Linux NAS)",
+        ),
+        (
+            OrgPlace::Linux,
+            "window",
+            "Linux server",
+            "Any Linux machine you reach over SSH: a VPS, a mini PC…",
+        ),
+        (
+            OrgPlace::Here,
+            "laptop",
+            "This computer",
+            "The server runs here; members reach it only while this computer is on",
+        ),
+    ];
+    let mut seg = div()
+        .flex()
+        .flex_none()
+        .p(px(2.))
+        .gap(px(2.))
+        .bg(t.bg)
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS_MD);
+    for (n, (p, ico, label, tip_text)) in WHERE.into_iter().enumerate() {
+        let on = j.place == p;
+        let fg = if on { t.accent_text } else { t.text_muted };
+        let hover = t.surface_hover;
+        seg = seg.child(
+            div()
+                .id(SharedString::from(format!("create-where-{n}")))
+                .h(px(22.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(RADIUS_SM)
+                .cursor_pointer()
+                .text_color(fg)
+                .font_weight(W_MEDIUM)
+                .when(on, |d| d.bg(t.accent_soft))
+                .when(!on, |d| d.hover(move |d| d.bg(hover)))
+                .child(icon(ico, 14., fg))
+                .child(tr(label))
+                .tooltip(tip(tr(tip_text)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(j) = this.join_form_mut() {
+                        j.place = p;
+                        j.error = None;
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        );
+    }
+    let body = if j.place.over_ssh() {
+        nas_fields(j, t, cx)
+    } else {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(
+                div()
+                    .id("create-here-tip")
+                    .flex_1()
+                    .text_color(t.text_muted)
+                    .child(tr("This computer"))
+                    .tooltip(tip(tr(
+                        "Reachable by the other members only while this computer is on",
+                    )))
+                    .test_support(),
+            )
+            .child(chip(t, Tone::Neutral, crate::org::computer_name(), false))
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(div().flex_1().child(tr("Where")))
+                .child(seg),
+        )
+        .child(body)
 }
 
 /// Server on the NAS: address, SSH port, administrator and password (used once, never kept);
@@ -2351,7 +2483,11 @@ fn nas_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 .gap(px(12.))
                 .child(div().flex_1().child(field(
                     t,
-                    tr("NAS address"),
+                    tr(if j.place == OrgPlace::Linux {
+                        "Server address"
+                    } else {
+                        "NAS address"
+                    }),
                     Input::new(&n.address).id("nas-address"),
                 )))
                 .child(div().w(px(90.)).child(field(
@@ -2400,12 +2536,12 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     for (i, (ico, name, sub)) in PLACES.into_iter().enumerate() {
         let chosen = j.folder.as_ref().filter(|(k, _)| *k == i);
         let on = chosen.is_some();
-        let sub = chosen.map_or_else(
-            || crate::i18n::tr_owned(sub),
-            |(_, p)| p.display().to_string(),
-        );
+        // What it is goes in the tooltip; under the name, only the folder chosen (D-102).
+        let path = chosen.map(|(_, p)| p.display().to_string());
         list = list.child(
             row(t, i > 0)
+                .id(SharedString::from(format!("folder-place-{i}")))
+                .tooltip(tip(tr(sub)))
                 .py(px(10.))
                 .gap(px(10.))
                 .child(
@@ -2424,15 +2560,17 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .flex()
                         .flex_col()
                         .child(crate::i18n::tr_owned(name))
-                        .child(
-                            div()
-                                .text_size(TEXT_SM)
-                                .text_color(t.text_muted)
-                                .when(on, |d| d.font_family(FONT_MONO))
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(sub),
-                        ),
+                        .when_some(path, |d, p| {
+                            d.child(
+                                div()
+                                    .text_size(TEXT_SM)
+                                    .text_color(t.text_muted)
+                                    .font_family(FONT_MONO)
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(p),
+                            )
+                        }),
                 )
                 .child(
                     button(
@@ -2488,6 +2626,8 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     });
     list.child(
         row(t, true)
+            .id("folder-place-sftp")
+            .tooltip(tip(tr("A folder on an SSH server")))
             .py(px(10.))
             .gap(px(10.))
             .child(
@@ -2499,14 +2639,7 @@ fn folder_places(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     .border_color(if on { t.accent_text } else { t.text_faint }),
             )
             .child(icon("server", 16., t.text_muted))
-            .child(
-                div().flex_1().flex().flex_col().child(tr("SFTP")).child(
-                    div()
-                        .text_size(TEXT_SM)
-                        .text_color(t.text_muted)
-                        .child(tr("An SSH server")),
-                ),
-            )
+            .child(div().flex_1().child(tr("SFTP")))
             .when(!on, |d| {
                 d.child(
                     button("folder-pick-sftp", t, BtnKind::Default, true)
@@ -4397,7 +4530,8 @@ impl CleisApp {
         }
         match place {
             OrgPlace::Here => self.org_create_here(n, me, cx),
-            OrgPlace::Nas => self.org_create_on_nas(n, me, cx),
+            OrgPlace::Nas | OrgPlace::Linux => self.org_create_on_nas(n, me, cx),
+            OrgPlace::None => {}
             OrgPlace::Folder => {
                 let Some((kind, folder)) = self.join_form_mut().and_then(|j| j.folder.clone())
                 else {
@@ -4747,7 +4881,18 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
         }
         "create-elsewhere" => {
             if let Some(j) = app.join_form_mut() {
+                j.place = OrgPlace::Nas;
                 j.elsewhere = true;
+            }
+        }
+        // Mockups 47b, 47c: Server, on the NAS or on this computer.
+        "create-server" | "create-server-here" => {
+            if let Some(j) = app.join_form_mut() {
+                j.place = if m == "create-server" {
+                    OrgPlace::Nas
+                } else {
+                    OrgPlace::Here
+                };
             }
         }
         // D-78: Shared folder, a SharePoint library chosen (mockup 36i).
@@ -4834,11 +4979,15 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
         }
         // Mockup 46d: the Website column, its open button on the selected row.
-        "website" => {
+        "website" | "recovery" => {
             if let Some(s) = app.session() {
                 for c in s.columns.iter_mut() {
-                    if c.id.0 == "website" {
+                    if c.id.0 == m {
                         c.visible = true;
+                    }
+                    // Mockup 47f: room for Recovery keys.
+                    if m == "recovery" && c.id.0 == "yearly_cost" {
+                        c.visible = false;
                     }
                 }
             }
@@ -4938,7 +5087,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
             }
         }
         "ctx-entry" | "ctx-space" | "ctx-contact" | "ctx-member" | "ctx-list" | "ctx-sidebar"
-        | "confirm-transfer" | "confirm-remove" => {
+        | "ctx-trash" | "confirm-transfer" | "confirm-remove" => {
             use super::ctx::{CtxMenu, CtxTarget, Sub};
             use gpui_kit::point;
             let Some(s) = app.session() else { return };
@@ -4948,7 +5097,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 .and_then(|o| o.state.as_ref())
                 .and_then(|st| st.members.get(1).map(|m| m.id));
             // The void menus are opened with nothing selected (the panel on the right closed).
-            if matches!(m, "ctx-list" | "ctx-sidebar") {
+            if matches!(m, "ctx-list" | "ctx-sidebar" | "ctx-trash") {
                 s.selected = None;
             }
             let (target, at, sub) = match m {
@@ -4990,6 +5139,8 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                     point(px(120.), px(560.)),
                     None,
                 ),
+                // Mockup 47e: the Trash's menu.
+                "ctx-trash" => (Some(CtxTarget::Trash), point(px(40.), px(760.)), None),
                 _ => (None, point(px(0.), px(0.)), None),
             };
             if let Some(target) = target {
