@@ -913,8 +913,11 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 3. Validation de l'étape « mot de passe maître » du premier lancement (D-45).
 4. Enregistrement des applications OAuth (Microsoft, Google) pour la connexion par compte et les places
    OneDrive / Google Drive (D-50, D-58, D-80) : Microsoft créé (D-103, ID connu ; permissions
-   `Files.ReadWrite.AppFolder` et `offline_access` à ajouter pour OneDrive) ; Google à créer (étapes
-   données le 27/11/2026), puis Client ID à fournir ; GitHub fait (D-84).
+   `Files.ReadWrite.AppFolder` et `offline_access` ajoutées le 27/11) ; Google : client « Desktop »
+   créé le 27/11 (ID `1020018847728-29t0jep2co6uge1bdsjau15jdmfp5k1o.apps.googleusercontent.com`,
+   secret à mettre par l'utilisateur dans un secret de CI, jamais dans git), encore en « Test » :
+   la publication demande une page d'accueil et une politique de confidentialité sur un domaine à
+   soi ; GitHub fait (D-84).
 5. Essai du remplissage sur un Mac (Windows validé le 25/11/2026).
 6. Code d'invitation court (8 caractères, maquette 03) : demanderait un échange PAKE (D-59).
 8. ~~Essai de Windows Hello et Touch ID~~ (retirés, D-71).
