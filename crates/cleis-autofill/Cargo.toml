@@ -37,10 +37,13 @@ windows-registry = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
 # Opening Cleis (D-83): the key that seals the PIN's and "Nothing"'s secrets, in the login Keychain.
 security-framework = "3"
+# Touch ID (D-98): LocalAuthentication asks the fingerprint (or the Mac's password).
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "block2"] }
+block2 = "0.6"
 
 [lints]
 workspace = true

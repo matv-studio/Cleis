@@ -245,49 +245,36 @@ pub fn sections(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Vec<Div>
     vec![unlock, opening, locking, clipboard]
 }
 
-/// Mockup 35h (D-76): how this computer opens the vault, the recovery key, the master password,
-/// and the organization's rule.
+/// Mockup 35h (D-76): how this computer opens the vault, the recovery key, the password. An
+/// organization has no say in it (D-98).
 fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     use crate::opening::Mode;
     let has_password = s.vault.has_password().unwrap_or(true);
     let recovery = s.vault.recovery_saved().ok().flatten();
-    let (rule, by) = s.unlock_rule();
     let hello_ok = crate::opening::hello_available();
-    let modes = [
+    let mut modes = vec![
         (Mode::Password, "key", "Password", None::<&'static str>),
         (
             Mode::Pin,
             "hash",
             "PIN",
-            if rule.allows_hello() {
-                Some("Digits only, on this computer; the password after too many wrong tries")
-            } else {
-                Some("Not allowed by your organization")
-            },
-        ),
-        (
-            Mode::Hello,
-            "fingerprint",
-            "Windows Hello",
-            if !rule.allows_hello() {
-                Some("Not allowed by your organization")
-            } else if !hello_ok {
-                Some("Windows Hello is not set up on this computer")
-            } else {
-                Some("Face, fingerprint or PIN of this Windows account")
-            },
-        ),
-        (
-            Mode::Nothing,
-            "laptop",
-            "Nothing",
-            if rule.allows_nothing() {
-                Some("Anyone using this Windows account opens Cleis")
-            } else {
-                Some("Not allowed by your organization")
-            },
+            Some("Digits only, on this computer; the password after too many wrong tries"),
         ),
     ];
+    if let Some(name) = crate::opening::hello_name() {
+        modes.push((
+            Mode::Hello,
+            "fingerprint",
+            name,
+            Some(crate::opening::hello_tip(hello_ok)),
+        ));
+    }
+    modes.push((
+        Mode::Nothing,
+        "laptop",
+        "Nothing",
+        Some(crate::opening::nothing_tip()),
+    ));
     let mut seg = div()
         .flex()
         .flex_none()
@@ -299,12 +286,7 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .rounded(RADIUS_MD);
     for (mode, ico, label, why) in modes {
         let on = s.opening == mode;
-        let allowed = match mode {
-            Mode::Password => true,
-            Mode::Pin => rule.allows_hello(),
-            Mode::Hello => rule.allows_hello() && hello_ok,
-            Mode::Nothing => rule.allows_nothing(),
-        };
+        let allowed = mode != Mode::Hello || hello_ok;
         let fg = if on { t.accent_text } else { t.text_muted };
         seg = seg.child(
             div()
@@ -344,16 +326,11 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         },
     };
     // The password goes only with a recovery key and another way in on this computer.
-    let removable = has_password
-        && recovery.is_some()
-        && s.opening != Mode::Password
-        && rule.allows_no_password();
-    let remove_why = if !rule.allows_no_password() {
-        "Not allowed by your organization"
-    } else if recovery.is_none() {
+    let removable = has_password && recovery.is_some() && s.opening != Mode::Password;
+    let remove_why = if recovery.is_none() {
         "Make a recovery key first"
     } else if s.opening == Mode::Password {
-        "Choose a PIN, Windows Hello or Nothing first"
+        "Choose another way to unlock first"
     } else {
         "The recovery key then opens your vault on another computer"
     };
@@ -435,27 +412,6 @@ fn opening_section(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     )
                 }),
         )
-        .when_some(by, |d, org| {
-            let label = match rule {
-                cleis_core::org::UnlockRule::PasswordOnly => tr("Password only"),
-                cleis_core::org::UnlockRule::PasswordOrHello => {
-                    tr("Password, PIN or Windows Hello")
-                }
-                cleis_core::org::UnlockRule::Any => tr("Anything, also nothing"),
-            };
-            d.child(
-                row(t, false)
-                    .child(
-                        div()
-                            .id("unlock-rule")
-                            .flex_1()
-                            .text_color(t.text_muted)
-                            .child(tr("Your organization"))
-                            .tooltip(crate::ui::tip(crate::trf!("Set by {}", org))),
-                    )
-                    .child(muted(label.into())),
-            )
-        })
 }
 
 /// The PIN's rows under "Unlock with" (mockup 37e).

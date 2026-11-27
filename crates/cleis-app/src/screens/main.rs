@@ -502,11 +502,13 @@ fn sync_status(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl Into
                 .and_then(|o| o.me())
                 .filter(|_| super::account::github_login(s).is_none()),
             |d, m| {
-                d.child(
-                    div()
-                        .ml(px(4.))
-                        .child(avatar(t, &crate::org::initials(&m.name), 24.)),
-                )
+                d.child(div().ml(px(4.)).child(match super::org::org_in_view(s) {
+                    // D-98: in the organization's vault, its logo.
+                    Some(o) => {
+                        org_logo(t, o.local.logo.as_deref(), &o.m.name, 24.).into_any_element()
+                    }
+                    None => avatar(t, &crate::org::initials(&m.name), 24.).into_any_element(),
+                }))
             },
         )
 }
@@ -604,7 +606,13 @@ fn account_button(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option
                     .cursor_pointer()
                     .rounded_full()
                     .when(open, |d| d.border_1().border_color(t.focus))
-                    .child(avatar(t, &initial, 24.))
+                    // D-98: in an organization's vault, its logo; the profile again elsewhere.
+                    .child(match super::org::org_in_view(s) {
+                        Some(o) => {
+                            org_logo(t, o.local.logo.as_deref(), &o.m.name, 24.).into_any_element()
+                        }
+                        None => avatar(t, &initial, 24.).into_any_element(),
+                    })
                     .tooltip(move |window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(tip_text.clone())
                             .build(window, cx)

@@ -8,6 +8,7 @@
 
 use cleis_app::app::{CleisApp, Phase, Tab};
 use cleis_app::theme;
+use cleis_core::org::AccessWith;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds, WindowHandle, WindowOptions,
@@ -848,9 +849,13 @@ fn organization_pin(cx: &mut TestAppContext) {
     };
     assert!(sees_figma(cx));
 
-    // Lea: Security policy › Organization PIN, on, 4 digits, set.
+    // Lea: Security policy › Accessing (mockups 42), on, with a PIN of 4 digits, set.
     act(cx, lh, |w, cx| w.click("set-Security policy", cx));
-    act(cx, lh, |w, cx| w.click("pol-pin", cx));
+    act(cx, lh, |w, cx| w.click("pol-access", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("pol-access-with", cx));
+    act(cx, lh, |w, cx| w.click("pol-access-with-1", cx));
+    sync(cx, &lea);
     act(cx, lh, |w, cx| w.click("pin-len-0", cx));
     sync(cx, &lea);
     // Set: typed twice in the boxes of 37f (the first ones have the keyboard).
@@ -868,7 +873,7 @@ fn organization_pin(cx: &mut TestAppContext) {
     sync(cx, &lea);
     session(cx, &lea, |s| {
         let st = s.org.as_ref().unwrap().state.as_ref().unwrap();
-        assert!(st.policy.pin.on && st.pin_set);
+        assert!(st.policy.access.on && st.policy.access.with == AccessWith::Pin && st.pin_set);
         assert!(
             s.org.as_ref().unwrap().pin.is_none(),
             "not asked of the admin who set it"
@@ -929,6 +934,137 @@ fn organization_pin(cx: &mut TestAppContext) {
         .unwrap()
         .pin
         .is_none()));
+    assert!(sees_figma(cx));
+
+    // D-98: a password in place of the PIN; asked again after 5 minutes without using Cleis.
+    act(cx, lh, |w, cx| w.click("pol-access-with", cx));
+    act(cx, lh, |w, cx| w.click("pol-access-with-0", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("pol-pin-idle", cx));
+    act(cx, lh, |w, cx| w.click("pol-pin-idle-1", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("pin-set", cx));
+    act(cx, lh, |w, cx| {
+        w.click("access-pw", cx);
+        w.input("short", cx);
+        w.click("access-pw-confirm", cx);
+        w.input("short", cx);
+        w.click("access-pw-save", cx);
+    });
+    assert!(session(cx, &lea, |s| s
+        .org
+        .as_ref()
+        .unwrap()
+        .ui
+        .access_pw
+        .as_ref()
+        .is_some_and(|f| f.error.is_some())));
+    let org_pw = "studio access 2026";
+    act(cx, lh, |w, cx| {
+        w.click("access-pw", cx);
+        w.press("ctrl-a", cx);
+        w.input(org_pw, cx);
+        w.click("access-pw-confirm", cx);
+        w.press("ctrl-a", cx);
+        w.input(org_pw, cx);
+        w.click("access-pw-save", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if session(cx, &lea, |s| s.org.as_ref().unwrap().ui.access_pw.is_none()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(session(cx, &lea, |s| s
+        .org
+        .as_ref()
+        .unwrap()
+        .ui
+        .access_pw
+        .is_none()));
+    // Hugo's next session asks the password (a field, not boxes).
+    hugo.update(cx, |a, _| {
+        if let Some(o) = a.session().and_then(|s| s.org.as_mut()) {
+            o.token = None;
+        }
+    });
+    sync(cx, &hugo);
+    assert!(session(cx, &hugo, |s| s
+        .org
+        .as_ref()
+        .unwrap()
+        .pin
+        .as_ref()
+        .is_some_and(|p| p.with == AccessWith::Password)));
+    assert!(!sees_figma(cx));
+    act(cx, hh, |w, cx| {
+        w.click("org-password", cx);
+        w.input(org_pw, cx);
+        w.press("enter", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if sees_figma(cx) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sees_figma(cx));
+    // Five minutes without using Cleis: asked again, here, without a server's word.
+    hugo.update(cx, |a, cx| {
+        if let Some(s) = a.session() {
+            s.last_activity = std::time::Instant::now() - std::time::Duration::from_secs(301);
+        }
+        a.org_idle_check(cx);
+    });
+    assert!(!sees_figma(cx));
+    // A wrong one is counted by the server; the right one opens again.
+    act(cx, hh, |w, cx| {
+        w.click("org-password", cx);
+        w.input("not it at all", cx);
+        w.press("enter", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if session(cx, &hugo, |s| {
+            s.org
+                .as_ref()
+                .unwrap()
+                .pin
+                .as_ref()
+                .is_some_and(|p| p.error.is_some())
+        }) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let err = session(cx, &hugo, |s| {
+        s.org
+            .as_ref()
+            .unwrap()
+            .pin
+            .as_ref()
+            .and_then(|p| p.error.clone())
+    });
+    assert!(
+        err.as_ref()
+            .is_some_and(|e| e.starts_with("Wrong password")),
+        "{err:?}"
+    );
+    act(cx, hh, |w, cx| {
+        w.click("org-password", cx);
+        w.press("ctrl-a", cx);
+        w.input(org_pw, cx);
+        w.press("enter", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if sees_figma(cx) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     assert!(sees_figma(cx));
 }
 
@@ -1078,4 +1214,112 @@ fn organization_in_shared_folder(cx: &mut TestAppContext) {
             .expect("shared item");
         assert_eq!(f.password, "figma-pass-2026");
     });
+
+    // D-98: a PIN in a shared folder. Set by Lea (only its digest goes to the folder); Hugo's app
+    // checks it and counts wrong ones itself.
+    act(cx, lh, |w, cx| w.click("set-Security policy", cx));
+    act(cx, lh, |w, cx| w.click("pol-access", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("pol-access-with", cx));
+    act(cx, lh, |w, cx| w.click("pol-access-with-1", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("pin-len-0", cx));
+    sync(cx, &lea);
+    act(cx, lh, |w, cx| w.click("pin-set", cx));
+    act(cx, lh, |w, cx| {
+        w.input("2468", cx);
+        w.input("2468", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if session(cx, &lea, |s| s.pin_setup.is_none()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(session(cx, &lea, |s| s.pin_setup.is_none()));
+    // Nothing in clear in the folder.
+    let mut found = false;
+    for f in walk(&shared) {
+        let text = std::fs::read(&f).unwrap_or_default();
+        assert!(!text.windows(4).any(|w| w == b"2468"), "PIN in {f:?}");
+        found = true;
+    }
+    assert!(found);
+    sync(cx, &hugo);
+    let sees = |cx: &mut TestAppContext| {
+        session(cx, &hugo, |s| s.entries.iter().any(|e| e.name == "Figma"))
+    };
+    assert!(!sees(cx), "asked first");
+    let okey = session(cx, &hugo, |s| s.org.as_ref().unwrap().m.key());
+    act(cx, hh, |w, cx| w.click("tab-Vault", cx));
+    act(cx, hh, |w, cx| w.click(format!("org-{okey}"), cx));
+    act(cx, hh, |w, cx| {
+        w.click("org-pin", cx);
+        w.input("1111", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if session(cx, &hugo, |s| s.org.as_ref().unwrap().local.fails == 1) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(
+        session(cx, &hugo, |s| s.org.as_ref().unwrap().local.fails),
+        1
+    );
+    assert!(!sees(cx));
+    act(cx, hh, |w, cx| {
+        w.click("org-pin", cx);
+        w.input("2468", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if sees(cx) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sees(cx));
+
+    // D-98: Lea, Super Admin, deletes the organization; the folder keeps only the mark and
+    // Hugo's app forgets it at its next sync.
+    act(cx, lh, |w, cx| w.click("set-Server", cx));
+    act(cx, lh, |w, cx| {
+        w.click("del-org", cx);
+    });
+    act(cx, lh, |w, cx| {
+        w.click("del-org-export", cx);
+        w.click("del-org-name", cx);
+        w.input("Example Studio", cx);
+        w.click("del-org-go", cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if session(cx, &lea, |s| s.org.is_none()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(session(cx, &lea, |s| s.org.is_none()));
+    assert!(shared.join("deleted.json").is_file());
+    assert!(walk(&shared.join("ops")).is_empty());
+    sync(cx, &hugo);
+    assert!(session(cx, &hugo, |s| s.org.is_none()));
+    assert!(!sees(cx));
+}
+
+/// Every file under `dir`.
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![];
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out
 }

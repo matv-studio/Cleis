@@ -166,13 +166,74 @@ pub fn set_open_at_login(on: bool, exe: &std::path::Path, args: &[&str]) -> Resu
     std::fs::write(&file, plist).map_err(|e| e.to_string())
 }
 
-/// Opening Cleis (D-76): Windows only for now.
+// ---------- Touch ID (D-98) ----------
+// As Windows Hello on Windows: LocalAuthentication asks the fingerprint (or this Mac's password),
+// then a secret kept for `name` in the login Keychain gives, with the challenge, a key that is the
+// same for the same challenge (HKDF in cleis-crypto). The Keychain is the safe here, as for
+// "Nothing" (D-83); Touch ID decides when it is read.
+
+/// Whether Touch ID is set up on this Mac.
 pub fn hello_available() -> bool {
-    false
+    use objc2_local_authentication::{LAContext, LAPolicy};
+    // SAFETY: a new context, asked a preflight check; nothing is shown.
+    unsafe {
+        let ctx = LAContext::new();
+        ctx.canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthenticationWithBiometrics)
+            .is_ok()
+    }
 }
 
-pub fn hello_sign(_name: &str, _challenge: &[u8]) -> Result<Vec<u8>, String> {
-    Err("Windows Hello is not available on this system".into())
+/// Touch ID's prompt; the Mac's password if the finger is not read. Blocks until it closes.
+fn touch_id(reason: &str) -> Result<(), String> {
+    use objc2_foundation::{NSError, NSString};
+    use objc2_local_authentication::{LAContext, LAPolicy};
+    let (tx, rx) = std::sync::mpsc::channel::<bool>();
+    let reply = block2::RcBlock::new(move |ok: objc2::runtime::Bool, _err: *mut NSError| {
+        let _ = tx.send(ok.as_bool());
+    });
+    // SAFETY: the context lives until the reply came (we wait for it below); the block is
+    // copied by LocalAuthentication and called once, on its own queue.
+    let ctx = unsafe { LAContext::new() };
+    unsafe {
+        ctx.evaluatePolicy_localizedReason_reply(
+            LAPolicy::DeviceOwnerAuthentication,
+            &NSString::from_str(reason),
+            &reply,
+        );
+    }
+    match rx.recv() {
+        Ok(true) => Ok(()),
+        _ => Err("Canceled".into()),
+    }
+}
+
+/// The key of `name` for `challenge`, after Touch ID (the secret made the first time).
+pub fn hello_sign(name: &str, challenge: &[u8]) -> Result<Vec<u8>, String> {
+    use security_framework::passwords::{
+        PasswordOptions, generic_password, set_generic_password_options,
+    };
+    touch_id("open Cleis")?;
+    let account = format!("touch-id:{name}");
+    let secret: zeroize::Zeroizing<Vec<u8>> = match generic_password(
+        PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, &account),
+    ) {
+        Ok(v) => zeroize::Zeroizing::new(v),
+        Err(e) if e.code() == ITEM_NOT_FOUND => {
+            let fresh: [u8; 32] = cleis_crypto::random_bytes().map_err(|e| e.to_string())?;
+            let mut o = PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, &account);
+            o.set_label("Cleis");
+            o.set_description("Opens Cleis on this Mac with Touch ID");
+            set_generic_password_options(&fresh, o).map_err(keychain_error)?;
+            zeroize::Zeroizing::new(fresh.to_vec())
+        }
+        Err(e) => return Err(keychain_error(e)),
+    };
+    let secret: [u8; 32] = secret
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Keychain secret unreadable".to_string())?;
+    let key = cleis_crypto::derive_device_key(&secret, challenge).map_err(|e| e.to_string())?;
+    Ok(key.to_vec())
 }
 
 /// D-83: the login Keychain keeps one random key for this user; the secrets of "Nothing" and of

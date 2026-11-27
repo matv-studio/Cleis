@@ -88,8 +88,10 @@ const READS: [&str; 6] = [
     "/v1/me/devices",
 ];
 
-/// What a shared folder cannot do (no server to send codes, count PINs, hold sessions).
-const NOT_HERE: [&str; 10] = [
+/// What a shared folder cannot do (no server to send codes, hold sessions).
+/// The organization's password or PIN is checked by each app against the digest in the folder
+/// (D-98): `/v1/access/check` is a server's.
+const NOT_HERE: [&str; 9] = [
     "/v1/challenge",
     "/v1/session",
     "/v1/me/code",
@@ -98,8 +100,7 @@ const NOT_HERE: [&str; 10] = [
     "/v1/restore",
     "/v1/members/sign-out",
     "/v1/me/devices/sign-out",
-    "/v1/policy/pin",
-    "/v1/members/reset-pin",
+    "/v1/access/check",
 ];
 
 pub struct Engine {
@@ -121,6 +122,7 @@ fn answer(status: u16, error: &str, message: &str) -> Answer {
             error: error.into(),
             message: message.into(),
             pin_length: None,
+            password: false,
         })
         .unwrap_or_default(),
     }
@@ -464,6 +466,10 @@ impl Engine {
     }
 
     fn handle(&mut self, method: &str, path: &str, body: &[u8]) -> Answer {
+        // Deleted by its Super Admin (D-98): only the mark is left in the folder.
+        if self.store.read(DELETED).ok().flatten().is_some() {
+            return answer(410, "deleted", "This organization was deleted.");
+        }
         if NOT_HERE.contains(&path) {
             return answer(400, "folder", "Not with an organization in a shared folder");
         }
@@ -487,6 +493,40 @@ impl Engine {
             path,
             body.to_vec(),
         )
+    }
+}
+
+/// The mark a deleted organization leaves in its folder (D-98).
+const DELETED: &str = "deleted.json";
+
+impl Engine {
+    /// The organization was deleted: every operation goes, the mark stays so the other
+    /// computers forget it at their next sync.
+    fn purge(&mut self) {
+        let _ = self.store.write(
+            DELETED,
+            format!("{{\"deleted\":{}}}", cleis_core::now()).as_bytes(),
+        );
+        let Ok(dirs) = self.store.list("ops") else {
+            return;
+        };
+        for d in dirs {
+            for f in self.store.list(&format!("ops/{d}")).unwrap_or_default() {
+                self.store.remove(&format!("ops/{d}/{f}"));
+            }
+            self.store.remove(&format!("ops/{d}"));
+        }
+        self.cache.clear();
+    }
+}
+
+/// After `/v1/org/delete` in a shared folder (D-98).
+pub fn mark_deleted(key: &str) {
+    if let Ok(open) = OPEN.lock()
+        && let Some((_, e)) = open.iter().find(|(k, _)| k == key)
+        && let Ok(mut e) = e.0.lock()
+    {
+        e.purge();
     }
 }
 

@@ -125,6 +125,16 @@ pub fn derive_pin_key(
     hkdf_sha256(device_secret, stretched.as_ref(), b"cleis/pin/v1")
 }
 
+/// A key from a secret kept by the system and a challenge (D-98, Touch ID): HKDF-SHA256 of the
+/// secret, salted by the challenge, so the same challenge always gives the same key, as Windows
+/// Hello's deterministic signature does.
+pub fn derive_device_key(
+    device_secret: &[u8; 32],
+    challenge: &[u8],
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    hkdf_sha256(challenge, device_secret, b"cleis/device-check/v1")
+}
+
 /// HKDF-SHA256 (RFC 5869), 32 bytes out.
 fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8]) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
     let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
@@ -149,6 +159,14 @@ mod tests {
             crate::hex(okm.as_ref()),
             "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
         );
+    }
+
+    #[test]
+    fn device_key_is_stable_per_challenge() {
+        let a = derive_device_key(&[3; 32], b"challenge").unwrap();
+        assert_eq!(a, derive_device_key(&[3; 32], b"challenge").unwrap());
+        assert_ne!(a, derive_device_key(&[3; 32], b"another").unwrap());
+        assert_ne!(a, derive_device_key(&[4; 32], b"challenge").unwrap());
     }
 
     #[test]

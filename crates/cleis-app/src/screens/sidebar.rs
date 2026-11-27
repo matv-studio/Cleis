@@ -300,8 +300,17 @@ pub fn render(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoE
         .child(tr("Import"))
         .on_click(cx.listener(|this, _, _, cx| {
             if let Some(s) = this.session() {
+                // D-99: into the organization shown, or the personal vault.
+                let org = crate::screens::org::org_in_view(s).map(|o| o.m.key());
                 s.tab = Tab::Settings;
-                s.settings_page = "Import & export";
+                s.settings_page = if org.is_some() {
+                    crate::screens::import::ORG_PAGE
+                } else {
+                    "Import & export"
+                };
+                if let Some(k) = org {
+                    this.activate_org(&k);
+                }
             }
             cx.notify();
         }))

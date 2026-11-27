@@ -85,9 +85,63 @@ impl ApiErr {
     pub fn unauthorized(code: &'static str, msg: &str) -> Self {
         Self(StatusCode::UNAUTHORIZED, code, msg.into(), None)
     }
-    /// A `pin_*` refusal, with the PIN's length.
+    /// A `pin_*` refusal (D-79, D-98): the PIN's length, or 0 when a password is asked.
     pub fn pin(code: &'static str, msg: &str, length: u8) -> Self {
         Self(StatusCode::UNAUTHORIZED, code, msg.into(), Some(length))
+    }
+
+    /// A `pin_*` refusal for the organization's rule: its PIN's length, or a password.
+    pub fn access(code: &'static str, msg: &str, rule: &cleis_core::org::AccessRule) -> Self {
+        let len = match rule.with {
+            cleis_core::org::AccessWith::Pin => rule.length,
+            _ => 0,
+        };
+        Self::pin(code, msg, len)
+    }
+}
+
+/// The digest of an organization's password or PIN (D-79, D-98): the authentication half of
+/// Argon2id, in hex. Made by the admin's app, checked by the server or, in a shared folder, by
+/// each member's app.
+pub fn access_digest(
+    secret: &str,
+    salt: &[u8; 16],
+    params: cleis_crypto::KdfParams,
+) -> Result<String, String> {
+    let k = cleis_crypto::derive_master_key(secret, salt, params).map_err(|e| e.to_string())?;
+    Ok(data_encoding::HEXLOWER.encode(k.authentication.as_bytes()))
+}
+
+/// A new digest of `secret`, with a random salt and Cleis' default cost.
+pub fn new_access_secret(secret: &str) -> Result<cleis_core::org::AccessSecret, String> {
+    let salt: [u8; 16] = cleis_crypto::random_bytes().map_err(|e| e.to_string())?;
+    let params = cleis_crypto::KdfParams::default();
+    Ok(cleis_core::org::AccessSecret {
+        salt: data_encoding::HEXLOWER.encode(&salt),
+        hash: access_digest(secret, &salt, params)?,
+        params,
+    })
+}
+
+/// Whether `secret` is the one `stored` was made from.
+pub fn access_matches(stored: &cleis_core::org::AccessSecret, secret: &str) -> bool {
+    let Some(salt) = data_encoding::HEXLOWER
+        .decode(stored.salt.as_bytes())
+        .ok()
+        .and_then(|v| <[u8; 16]>::try_from(v).ok())
+    else {
+        return false;
+    };
+    access_digest(secret, &salt, stored.params).is_ok_and(|h| {
+        use subtle_eq::ct_eq;
+        ct_eq(h.as_bytes(), stored.hash.as_bytes())
+    })
+}
+
+/// Comparison that does not stop at the first different byte.
+mod subtle_eq {
+    pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
     }
 }
 
@@ -110,7 +164,8 @@ impl IntoResponse for ApiErr {
             axum::Json(ApiError {
                 error: self.1.into(),
                 message: self.2,
-                pin_length: self.3,
+                pin_length: self.3.filter(|l| *l > 0),
+                password: self.3 == Some(0),
             }),
         )
             .into_response()

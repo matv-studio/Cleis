@@ -20,14 +20,24 @@ pub const DEFAULT_ACCENT: &str = "#977327";
 /// new one.
 pub const OLD_DEFAULT_ACCENT: &str = "#e0a93b";
 
-/// Accent colours offered in Preferences, after "None".
+/// Accent colours offered in Preferences, after "None": muted, as the bronze (D-99, 27/11/2026,
+/// the violet given by the user, `#494A6A`; the others at its saturation and lightness).
 pub const ACCENTS: [(&str, &str); 6] = [
     ("#977327", "Bronze"),
-    ("#3b82f6", "Blue"),
-    ("#8b5cf6", "Violet"),
-    ("#10b981", "Green"),
-    ("#14b8a6", "Teal"),
-    ("#ef4444", "Red"),
+    ("#3f5a75", "Blue"),
+    ("#494a6a", "Violet"),
+    ("#48664f", "Green"),
+    ("#3f6766", "Teal"),
+    ("#7a4646", "Red"),
+];
+
+/// The bright colours offered before D-99, and the muted one each became.
+pub const OLD_ACCENTS: [(&str, &str); 5] = [
+    ("#3b82f6", "#3f5a75"),
+    ("#8b5cf6", "#494a6a"),
+    ("#10b981", "#48664f"),
+    ("#14b8a6", "#3f6766"),
+    ("#ef4444", "#7a4646"),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -402,10 +412,18 @@ impl Preferences {
             .map(|(k, _)| k)
     }
 
-    /// Brings preferences saved by an older Cleis up to date (D-81: the old default accent).
+    /// Brings preferences saved by an older Cleis up to date (D-81: the old default accent;
+    /// D-99: a bright colour of the former list becomes its muted one).
     pub fn upgraded(mut self) -> Self {
         if self.accent.as_deref() == Some(OLD_DEFAULT_ACCENT) {
             self.accent = Some(DEFAULT_ACCENT.into());
+        }
+        if let Some(a) = &self.accent
+            && let Some((_, new)) = OLD_ACCENTS
+                .iter()
+                .find(|(old, _)| old.eq_ignore_ascii_case(a))
+        {
+            self.accent = Some((*new).into());
         }
         self
     }
@@ -435,6 +453,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bright_accents_become_muted() {
+        // D-99: a colour of the former list moves to its muted one; one of the user's own stays.
+        let p = Preferences {
+            accent: Some("#8B5CF6".into()),
+            ..Default::default()
+        };
+        assert_eq!(p.upgraded().accent.as_deref(), Some("#494a6a"));
+        let own = Preferences {
+            accent: Some("#e06b9a".into()),
+            ..Default::default()
+        };
+        assert_eq!(own.upgraded().accent.as_deref(), Some("#e06b9a"));
+    }
+
+    #[test]
     fn defaults_and_policy() {
         let mut p = Preferences::default();
         let pol = Policy {
@@ -454,8 +487,8 @@ mod tests {
         // D-81: the ochre that was the default becomes the new default; another colour stays.
         let ochre: Preferences = serde_json::from_str(r##"{"accent":"#e0a93b"}"##).unwrap();
         assert_eq!(ochre.upgraded().accent.as_deref(), Some(DEFAULT_ACCENT));
-        let blue: Preferences = serde_json::from_str(r##"{"accent":"#3b82f6"}"##).unwrap();
-        assert_eq!(blue.upgraded().accent.as_deref(), Some("#3b82f6"));
+        let pink: Preferences = serde_json::from_str(r##"{"accent":"#e06b9a"}"##).unwrap();
+        assert_eq!(pink.upgraded().accent.as_deref(), Some("#e06b9a"));
         assert_eq!(DEFAULT_SHORTCUTS, [true, true, false]);
         // Mockup 38: defaults, a change, a clash found both ways, written any way.
         let mut k = Preferences::default();

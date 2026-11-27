@@ -83,6 +83,19 @@ pub struct Local {
     /// The PIN was last given on this computer until then: the organization's spaces open
     /// without asking it again before.
     pub pin_until: Option<i64>,
+    /// What the organization asks (D-98), as last received; `None`: nothing.
+    pub access_with: Option<AccessWith>,
+    /// Asked again after this many minutes without using Cleis (D-98).
+    pub idle_mins: Option<u32>,
+    /// Wrong tries allowed before this computer locks (shared folder, D-98).
+    pub tries: u32,
+    /// Shared folder (D-98): the digest checked here, as last received (it is in the folder).
+    pub secret: Option<AccessSecret>,
+    /// Shared folder: wrong tries in a row on this computer, and when it locked itself.
+    pub fails: u32,
+    pub locked_at: Option<i64>,
+    /// The organization's logo (PNG, base64), shown when it asks (D-98).
+    pub logo: Option<String>,
     /// Shared folder (D-78): where the organization's folder is on this computer.
     pub folder: Option<PathBuf>,
 }
@@ -337,6 +350,7 @@ impl Conn {
                 Err(NetError::Api(
                     r.status,
                     serde_json::from_slice(&r.body).unwrap_or(ApiError {
+                        password: false,
                         error: "http".into(),
                         message: crate::trf!("HTTP {}", r.status),
                         pin_length: None,
@@ -379,7 +393,11 @@ pub enum Outcome {
         locked: bool,
         /// The PIN's length, as the server says (D-79).
         length: Option<u8>,
+        /// A password is asked, not a PIN (D-98).
+        password: bool,
     },
+    /// The organization was deleted by its Super Admin (D-98).
+    Deleted,
     /// This member was removed from the organization.
     Revoked,
     Failed(String),
@@ -477,8 +495,10 @@ pub fn sync_job(mut conn: Conn, push: Changes, since: u64, full: Vec<SpaceId>) -
                     NetError::Api(_, a) => a.pin_length,
                     _ => None,
                 },
+                password: matches!(&e, NetError::Api(_, a) if a.password),
             },
             Some("revoked") => Outcome::Revoked,
+            Some("deleted") => Outcome::Deleted,
             Some("setup_code") => Outcome::Failed(tr("Set up your verification code").into()),
             _ => Outcome::Failed(e.to_string()),
         },
@@ -575,8 +595,14 @@ impl CodePrompt {
     }
 }
 
-/// The organization's PIN being asked (mockup 36h): one box per digit, as for the vault's PIN.
+/// What the organization asks before its spaces show (mockups 36h, 42g, 42h): a PIN in boxes, a
+/// password in a field, or Windows Hello / Touch ID.
 pub struct PinPrompt {
+    pub with: AccessWith,
+    /// Checked on this computer (shared folder, Windows Hello), not by the server.
+    pub here: bool,
+    /// The password's field (made at the next render).
+    pub field: Option<Entity<InputState>>,
     /// Made at the next render (they need the keyboard focus).
     pub boxes: Option<crate::screens::pin::PinBoxes>,
     /// Digits, from the server's refusal or the policy last received (D-79).
@@ -591,7 +617,14 @@ pub struct PinPrompt {
 
 impl PinPrompt {
     pub fn new(len: u8) -> Self {
+        Self::asking(AccessWith::Pin, len, false)
+    }
+
+    pub fn asking(with: AccessWith, len: u8, here: bool) -> Self {
         Self {
+            with,
+            here,
+            field: None,
             boxes: None,
             len: if crate::opening::PIN_LENGTHS.contains(&usize::from(len)) {
                 len
@@ -768,11 +801,11 @@ impl CleisApp {
                 && local
                     .last_ok
                     .is_some_and(|t| cleis_core::now() - t > offline_days * 86_400);
-            // D-79: the PIN given here is too old (or never given): asked before the spaces open.
+            // D-79, D-98: given here too long ago (or never): asked before the spaces open.
             let pin = (!demo
                 && local.pin_hours.is_some()
                 && local.pin_until.is_none_or(|t| cleis_core::now() >= t))
-            .then(|| PinPrompt::new(local.pin_len.unwrap_or(PIN_DEFAULT_LEN)));
+            .then(|| prompt_for(&local, m.in_folder()));
             let mut o = OrgSession {
                 m,
                 token: None,
@@ -1286,7 +1319,9 @@ impl CleisApp {
             return false;
         };
         let Some(o) = &s.org else { return false };
-        if o.busy || o.code.is_some() || o.pin.is_some() || s.gate.is_some() || self.demo {
+        // Asked here (shared folder, Windows Hello): the copy keeps syncing behind the card.
+        let asked = o.pin.as_ref().is_some_and(|p| !p.here);
+        if o.busy || o.code.is_some() || asked || s.gate.is_some() || self.demo {
             return false;
         }
         let since = o.last_attempt.map_or(i64::MAX, |t| cleis_core::now() - t);
@@ -1366,15 +1401,56 @@ impl CleisApp {
                 o.error = None;
                 o.local.last_ok = Some(cleis_core::now());
                 o.local.offline_days = Some(state.policy.offline_days);
-                // D-79: the PIN given (or not asked) opens the spaces until "Ask again after".
-                let pin = state.policy.pin;
-                let was_asked = o.pin.take().is_some();
-                o.local.pin_hours = pin.on.then_some(pin.again_hours);
-                o.local.pin_len = pin.on.then_some(pin.length);
-                if pin.on && (was_asked || o.local.pin_until.is_none()) {
-                    o.local.pin_until =
-                        Some(cleis_core::now() + i64::from(pin.again_hours.max(1)) * 3600);
+                // D-79, D-98: what the organization asks, kept for the next start.
+                let rule = state.policy.access;
+                let folder = o.m.in_folder();
+                let secret_known = if folder {
+                    state.access_secret.is_some()
+                } else {
+                    state.pin_set
+                };
+                // Something to check: a password or PIN once set, or Windows Hello.
+                let asks = rule.on && (rule.with == AccessWith::Hello || secret_known);
+                let here = folder || rule.with == AccessWith::Hello;
+                o.local.pin_hours = asks.then_some(rule.again_hours);
+                o.local.pin_len = (asks && rule.with == AccessWith::Pin).then_some(rule.length);
+                o.local.access_with = asks.then_some(rule.with);
+                o.local.idle_mins = rule.idle_mins.filter(|_| asks);
+                o.local.tries = rule.tries;
+                o.local.secret = state.access_secret.clone();
+                o.local.logo = state
+                    .org
+                    .logo
+                    .as_ref()
+                    .map(|b| data_encoding::BASE64.encode(b));
+                // An admin unlocked this member since this computer locked itself.
+                if let (Some(at), Some(reset)) = (o.local.locked_at, state.me.pin_reset)
+                    && reset > at
+                {
+                    o.local.locked_at = None;
+                    o.local.fails = 0;
+                    if let Some(p) = o.pin.as_mut() {
+                        p.locked = false;
+                    }
                 }
+                let was_asked = if !asks {
+                    o.local.pin_until = None;
+                    o.pin.take().is_some()
+                } else if here {
+                    // Checked on this computer: a sync opens nothing; asked if never given.
+                    if o.pin.is_none() && o.local.pin_until.is_none_or(|t| cleis_core::now() >= t) {
+                        o.pin = Some(prompt_for(&o.local, folder));
+                    }
+                    false
+                } else {
+                    // The server checked it: given (or not asked) until "Ask again after".
+                    let was = o.pin.take().is_some();
+                    if was || o.local.pin_until.is_none() {
+                        o.local.pin_until =
+                            Some(cleis_core::now() + i64::from(rule.again_hours.max(1)) * 3600);
+                    }
+                    was
+                };
                 let key = o.m.key();
                 let _ = s.vault.set_org_setting(
                     &remembered_setting(&s.sync.device, &key),
@@ -1401,8 +1477,9 @@ impl CleisApp {
                 apply_state(s, *state, &changes);
                 if was_asked {
                     let _ = crate::sync::reload(s);
+                } else {
+                    hide_org_entries(s);
                 }
-                s.enforce_opening(&path);
             }
             Outcome::NeedCode { wrong, message } => {
                 o.again = false;
@@ -1456,13 +1533,25 @@ impl CleisApp {
                 message,
                 locked,
                 length,
+                password,
             } => {
                 o.again = false;
                 if length.is_some() {
                     o.local.pin_len = length;
                 }
+                let with = if password {
+                    AccessWith::Password
+                } else {
+                    AccessWith::Pin
+                };
+                o.local.access_with = Some(with);
                 let len = o.local.pin_len.unwrap_or(PIN_DEFAULT_LEN);
-                let p = o.pin.get_or_insert_with(|| PinPrompt::new(len));
+                let p = o
+                    .pin
+                    .get_or_insert_with(|| PinPrompt::asking(with, len, false));
+                if p.with != with {
+                    *p = PinPrompt::asking(with, len, false);
+                }
                 p.busy = false;
                 p.error = message;
                 p.locked = locked;
@@ -1473,12 +1562,23 @@ impl CleisApp {
                 } else if let Some(b) = p.boxes.as_mut() {
                     b.clear();
                 }
+                p.focused = false;
                 if let Some(s) = self.session() {
                     hide_org_entries(s);
                 }
                 self.org_followups(cx);
                 cx.notify();
                 return;
+            }
+            Outcome::Deleted => {
+                let name = o.m.name.clone();
+                let key = o.m.key();
+                let _ = s.vault.leave_org(&key);
+                s.org = None;
+                save_memberships(s);
+                remove_local(&path, &key);
+                let _ = crate::sync::reload(s);
+                s.toast = Some(crate::trf!("{} was deleted", name).into());
             }
             Outcome::Revoked => {
                 let name = o.m.name.clone();
@@ -2199,44 +2299,80 @@ impl CleisApp {
         );
     }
 
-    /// Security policy › Organization PIN: the PIN typed twice in the boxes (37f) becomes the
-    /// organization's (D-79). The dialog closes once the server took it.
-    pub fn org_set_pin(&mut self, pin: Zeroizing<String>, cx: &mut Context<Self>) {
+    /// Security policy › Accessing: the password or PIN typed twice becomes the organization's
+    /// (D-79, D-98). Only its digest leaves this app; the dialog closes once it is kept.
+    pub fn org_set_access(&mut self, secret: Zeroizing<String>, cx: &mut Context<Self>) {
         let Some(o) = self.session().and_then(|s| s.org.as_mut()) else {
             return;
         };
-        let Some(rule) = o.state.as_ref().map(|st| st.policy.pin) else {
+        let Some(rule) = o.state.as_ref().map(|st| st.policy.access) else {
             return;
         };
-        if !rule.accepts(&pin) {
-            self.toast(crate::trf!("The PIN has {} digits", rule.length), cx);
+        if !rule.accepts(&secret) {
+            let why = match rule.with {
+                AccessWith::Pin => crate::trf!("The PIN has {} digits", rule.length),
+                _ => crate::trf!("At least {} characters", ACCESS_PASSWORD_MIN),
+            };
+            self.access_setup_failed(why.into(), cx);
             return;
         }
-        self.org_request::<_, PushReply>(
-            "/v1/policy/pin",
-            PinSet {
-                pin: pin.to_string(),
-            },
-            |app, r, cx| {
-                let Some(s) = app.session() else { return };
-                match r {
-                    Ok(_) => {
-                        s.pin_setup = None;
-                        if let Some(st) = s.org.as_mut().and_then(|o| o.state.as_mut()) {
-                            st.pin_set = true;
-                        }
-                        app.toast(tr("PIN set"), cx);
-                    }
-                    Err(e) => {
-                        if let Some(d) = s.pin_setup.as_mut() {
-                            d.busy = false;
-                            d.error = Some(crate::i18n::tr_dynamic(&e).into());
-                        }
-                    }
-                }
-            },
-            cx,
-        );
+        let Some(key) = self.active_org_key() else {
+            return;
+        };
+        let task = cx.background_spawn(async move { cleis_server::new_access_secret(&secret) });
+        cx.spawn(async move |this, cx| {
+            let digest = task.await;
+            this.update(cx, |app, cx| {
+                app.in_org(&key, |app| match digest {
+                    Err(e) => app.access_setup_failed(e.into(), cx),
+                    Ok(d) => app.org_request::<_, PushReply>(
+                        "/v1/policy/access",
+                        d,
+                        |app, r, cx| {
+                            let path = app.path.clone();
+                            let Some(s) = app.session() else { return };
+                            match r {
+                                Ok(_) => {
+                                    s.pin_setup = None;
+                                    if let Some(o) = s.org.as_mut() {
+                                        o.ui.access_pw = None;
+                                        if let Some(st) = o.state.as_mut() {
+                                            st.pin_set = true;
+                                        }
+                                        // The one who set it is not asked it right away here.
+                                        let hours = o.local.pin_hours.unwrap_or(8).max(1);
+                                        o.local.pin_until =
+                                            Some(cleis_core::now() + i64::from(hours) * 3600);
+                                        save_local_bare(&path, &o.m.key(), &o.local);
+                                        o.again = true;
+                                    }
+                                    app.toast(tr("Saved"), cx);
+                                }
+                                Err(e) => app.access_setup_failed(e.into(), cx),
+                            }
+                        },
+                        cx,
+                    ),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The set-up dialog (PIN boxes or password fields) shows why it was refused.
+    fn access_setup_failed(&mut self, why: SharedString, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        if let Some(d) = s.pin_setup.as_mut() {
+            d.busy = false;
+            d.error = Some(crate::i18n::tr_dynamic(&why).into());
+        }
+        if let Some(f) = s.org.as_mut().and_then(|o| o.ui.access_pw.as_mut()) {
+            f.busy = false;
+            f.error = Some(why);
+        }
+        cx.notify();
     }
 
     /// Ends a member's sessions on every device.
@@ -3265,30 +3401,150 @@ fn apply_state(s: &mut Session, st: State, changes: &Changes) {
 }
 
 impl CleisApp {
-    /// The PIN typed (mockup 36h): the next sign-in carries it.
+    /// The password or PIN typed, or Windows Hello asked (mockups 36h, 42g, 42h). A server
+    /// checks the password or PIN at the next sign-in; a shared folder's is checked here, and
+    /// Windows Hello by this computer.
     pub fn org_pin_submit(&mut self, cx: &mut Context<Self>) {
-        let Some(mut conn) = self.org_conn() else {
-            return;
-        };
+        let conn = self.org_conn();
         let Some(o) = self.session().and_then(|s| s.org.as_mut()) else {
             return;
         };
+        let key = o.m.key();
         let Some(p) = o.pin.as_mut() else { return };
         if p.busy || p.locked {
             return;
         }
-        let Some(b) = p.boxes.as_ref().filter(|b| b.full()) else {
-            p.error = Some(crate::trf!("The PIN has {} digits", p.len));
-            cx.notify();
-            return;
+        let typed = match p.with {
+            AccessWith::Hello => None,
+            AccessWith::Pin => {
+                let Some(b) = p.boxes.as_ref().filter(|b| b.full()) else {
+                    p.error = Some(crate::trf!("The PIN has {} digits", p.len));
+                    cx.notify();
+                    return;
+                };
+                Some(Zeroizing::new(b.value.to_string()))
+            }
+            AccessWith::Password => {
+                let v = p
+                    .field
+                    .as_ref()
+                    .map(|f| f.read(cx).value().to_string())
+                    .unwrap_or_default();
+                if v.is_empty() {
+                    p.error = Some(tr("Enter the organization's password").into());
+                    cx.notify();
+                    return;
+                }
+                Some(Zeroizing::new(v))
+            }
         };
-        let typed = b.value.to_string();
         p.busy = true;
         p.error = None;
-        // A new sign-in: the session (if any) was opened before the PIN was asked.
-        conn.client.token = None;
-        conn.pin = Some(Zeroizing::new(typed));
-        self.org_run(conn, cx);
+        cx.notify();
+        if !p.here {
+            let (Some(mut conn), Some(typed)) = (conn, typed) else {
+                return;
+            };
+            // A new sign-in: the session (if any) was opened before it was asked.
+            conn.client.token = None;
+            conn.pin = Some(typed);
+            self.org_run(conn, cx);
+            return;
+        }
+        let secret = o.local.secret.clone();
+        let task = cx.background_spawn(async move {
+            match typed {
+                None => crate::opening::hello_check()
+                    .map(|_| true)
+                    .map_err(|e| e.to_string()),
+                Some(t) => Ok(secret.is_some_and(|s| cleis_server::access_matches(&s, &t))),
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                app.in_org(&key, |app| app.org_checked_here(r, cx));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// What this computer found (shared folder, Windows Hello): the spaces open until "Ask again
+    /// after", or a wrong try is counted.
+    fn org_checked_here(&mut self, r: Result<bool, String>, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let Some(o) = s.org.as_mut() else { return };
+        let key = o.m.key();
+        let Some(p) = o.pin.as_mut() else { return };
+        p.busy = false;
+        match r {
+            Ok(true) => {
+                o.pin = None;
+                o.local.fails = 0;
+                o.local.pin_until = Some(
+                    cleis_core::now() + i64::from(o.local.pin_hours.unwrap_or(8).max(1)) * 3600,
+                );
+                save_local_bare(&path, &key, &o.local);
+                let _ = crate::sync::reload(s);
+            }
+            Ok(false) => {
+                o.local.fails += 1;
+                let tries = o.local.tries;
+                if tries > 0 && o.local.fails >= tries {
+                    o.local.locked_at = Some(cleis_core::now());
+                    p.locked = true;
+                } else {
+                    let left = tries.saturating_sub(o.local.fails);
+                    p.error = Some(if tries == 0 {
+                        tr("Wrong, try again").into()
+                    } else if left == 1 {
+                        tr("Wrong. 1 try left.").into()
+                    } else {
+                        crate::trf!("Wrong. {} tries left.", left)
+                    });
+                }
+                if let Some(b) = p.boxes.as_mut() {
+                    b.clear();
+                }
+                p.focused = false;
+                save_local_bare(&path, &key, &o.local);
+            }
+            Err(e) => p.error = Some(crate::i18n::tr_dynamic(&e)),
+        }
+        cx.notify();
+    }
+
+    /// Called every second (D-98): an organization asks again after its own inactivity delay, or
+    /// once "Ask again after" has passed on this computer.
+    pub fn org_idle_check(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let idle = s.last_activity.elapsed().as_secs();
+        let now = cleis_core::now();
+        let mut hid = false;
+        for o in s.org.iter_mut().chain(s.orgs_idle.iter_mut()) {
+            if o.pin.is_some() || o.local.access_with.is_none() {
+                continue;
+            }
+            let idle_due = o.local.idle_mins.is_some_and(|m| idle >= u64::from(m) * 60);
+            let hours_due = o.local.pin_until.is_some_and(|t| now >= t);
+            if idle_due || hours_due {
+                o.local.pin_until = None;
+                o.pin = Some(prompt_for(&o.local, o.m.in_folder()));
+                save_local_bare(&path, &o.m.key(), &o.local);
+                hid = true;
+            }
+        }
+        if hid {
+            hide_org_entries(s);
+            cx.notify();
+        }
     }
 
     /// Reserves a space or frees it (Super Admin, D-61). A Standard space is re-encrypted
@@ -3325,5 +3581,170 @@ impl CleisApp {
             |_, _, _| {},
             cx,
         );
+    }
+}
+
+/// The card an organization shows before its spaces (D-98): what it asks, checked by the server
+/// or here.
+pub fn prompt_for(local: &Local, folder: bool) -> PinPrompt {
+    let with = local.access_with.unwrap_or(AccessWith::Pin);
+    let mut p = PinPrompt::asking(
+        with,
+        local.pin_len.unwrap_or(PIN_DEFAULT_LEN),
+        folder || with == AccessWith::Hello,
+    );
+    p.locked = folder && local.locked_at.is_some();
+    p
+}
+
+/// This computer's file, without the remembered-device token (kept in the vault).
+pub fn save_local_bare(vault: &Path, key: &str, l: &Local) {
+    let mut bare = l.clone();
+    bare.remembered = None;
+    save_local(vault, key, &bare);
+}
+
+/// Side of the organization's logo, in pixels (sharp at the 48 px of the access card, D-98).
+const LOGO_SIDE: u32 = 128;
+
+/// A picture as the organization's logo: the centred square at [`LOGO_SIDE`] px, PNG.
+pub fn logo_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+    let side = img.width().min(img.height());
+    if side == 0 {
+        return Err("Empty picture".into());
+    }
+    let sq = img.crop_imm(
+        (img.width() - side) / 2,
+        (img.height() - side) / 2,
+        side,
+        side,
+    );
+    let small = sq.resize_exact(
+        LOGO_SIDE.min(side),
+        LOGO_SIDE.min(side),
+        image::imageops::FilterType::Lanczos3,
+    );
+    let mut out = std::io::Cursor::new(Vec::new());
+    small
+        .write_to(&mut out, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    let out = out.into_inner();
+    if out.len() > LOGO_MAX {
+        return Err("The logo is too large".into());
+    }
+    Ok(out)
+}
+
+impl CleisApp {
+    /// Server › Logo (D-98): set, or taken away.
+    pub fn org_set_logo(&mut self, png: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        let shown = png.as_ref().map(|b| data_encoding::BASE64.encode(b));
+        self.org_request::<_, PushReply>(
+            "/v1/org/logo",
+            LogoSet { png },
+            move |app, r, cx| {
+                let path = app.path.clone();
+                if r.is_ok()
+                    && let Some(o) = app.session().and_then(|s| s.org.as_mut())
+                {
+                    o.local.logo = shown;
+                    if let Some(st) = o.state.as_mut() {
+                        st.org.logo = o
+                            .local
+                            .logo
+                            .as_ref()
+                            .and_then(|b| data_encoding::BASE64.decode(b.as_bytes()).ok());
+                    }
+                    save_local_bare(&path, &o.m.key(), &o.local);
+                }
+                cx.notify();
+            },
+            cx,
+        );
+    }
+
+    /// Server › Delete (42j, D-98): an export first if asked, then the server erases everything;
+    /// a server on this computer stops and its folder goes, a shared folder keeps only the mark
+    /// that it was deleted. The organization then leaves this vault.
+    pub fn org_delete_server(&mut self, cx: &mut Context<Self>) {
+        let vault = self.path.clone();
+        let Some(mut conn) = self.org_conn() else {
+            return;
+        };
+        let Some(s) = self.session() else { return };
+        let backup = backup_key(&s.vault).ok();
+        let Some(o) = s.org.as_mut() else { return };
+        let Some(f) = o.ui.delete_org.as_mut() else {
+            return;
+        };
+        let name = f.name.read(cx).value().trim().to_string();
+        let export = f.export;
+        f.busy = true;
+        f.error = None;
+        let key = o.m.key();
+        let dir = org_backups_dir(&vault, &o.m);
+        let host_dir = o.local.host_dir.clone();
+        let folder =
+            o.m.in_folder()
+                .then(|| replica_dir(&vault, &key).display().to_string());
+        cx.notify();
+        let task = cx.background_spawn(async move {
+            if export {
+                let k = backup.ok_or_else(|| "No backup key".to_string())?;
+                let bytes = conn
+                    .send("GET", "/v1/backup", None)
+                    .map_err(|e| e.to_string())?;
+                let sealed =
+                    cleis_crypto::seal(&k, BACKUP_CONTEXT, &bytes).map_err(|e| e.to_string())?;
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let file = dir.join(format!(
+                    "server-{}.cleisorg",
+                    crate::format::stamp(cleis_core::now())
+                ));
+                std::fs::write(&file, &sealed).map_err(|e| e.to_string())?;
+            }
+            let _: PushReply = conn
+                .call("/v1/org/delete", &OrgDelete { name })
+                .map_err(|e| e.to_string())?;
+            if let Some(rkey) = folder {
+                crate::folder_org::mark_deleted(&rkey);
+            }
+            if let Some(d) = host_dir {
+                crate::host::stop();
+                let _ = std::fs::remove_dir_all(d);
+            }
+            Ok::<(), String>(())
+        });
+        let key2 = o.m.key();
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |app, cx| {
+                app.in_org(&key2, |app| match r {
+                    Ok(()) => {
+                        let name = app
+                            .session()
+                            .and_then(|s| s.org.as_ref())
+                            .map(|o| o.m.name.clone())
+                            .unwrap_or_default();
+                        app.org_leave(cx);
+                        app.toast(crate::trf!("{} was deleted", name), cx);
+                    }
+                    Err(e) => {
+                        if let Some(f) = app
+                            .session()
+                            .and_then(|s| s.org.as_mut())
+                            .and_then(|o| o.ui.delete_org.as_mut())
+                        {
+                            f.busy = false;
+                            f.error = Some(crate::i18n::tr_dynamic(&e).into());
+                        }
+                        cx.notify();
+                    }
+                });
+            })
+            .ok();
+        })
+        .detach();
     }
 }

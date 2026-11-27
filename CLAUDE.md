@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-98,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-99,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -12,11 +12,11 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
    `python3 design/tools/shots.py all dark` (Playwright Chromium) → `target/captures/`.
    Canevas partagé : « Cleis — maquettes » (https://claude.ai/artifact/Y9eQTWzQgwtWhrfcXAVsCM).
 4. Appli réelle : `cargo run -p cleis-app -- --demo [--unlocked] [--tab contacts|health|settings]
-   [--page account|autofill|security|sync|import|merge|members|policy|encryption|server|org-backups|join|
+   [--page account|autofill|security|sync|import|org-import|merge|members|policy|encryption|server|org-backups|join|
    profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
    [--quick-access] [--restore] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
@@ -167,3 +167,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   recompile dans un autre profil).
 - Barre du haut (fenêtre sans cadre) : sous Windows, tout contrôle posé dedans doit avoir
   `.occlude()`, sinon le clic part en déplacement de fenêtre.
+- Accès à l'organisation (D-98) : `OrgSession::pin` est la carte demandée (`PinPrompt::with` : PIN,
+  mot de passe, Hello ; `here` : vérifié par l'appli, dossier partagé ou Hello). Les essais e2e qui
+  attendent une empreinte Argon2id (64 Mio) bouclent sur `run_until_parked` + court sommeil.
+- Dossier partagé supprimé (D-98) : seule `deleted.json` reste ; le registre `folder_org` a pour clé le
+  chemin de la copie (`replica_dir(...).display()`), pas la clé de l'organisation.

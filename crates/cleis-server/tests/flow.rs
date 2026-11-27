@@ -1182,24 +1182,31 @@ fn organization_pin() {
     let mut noa = join(&srv.addr, &noa_code.code, "Noa", "noa@example-studio.com").unwrap();
 
     let mut p = lea.state().policy;
-    p.pin = PinRule {
+    p.access = AccessRule {
         on: true,
+        with: AccessWith::Pin,
         length: 4,
         again_hours: 8,
+        idle_mins: None,
         tries: 3,
     };
     let _: Policy = lea.client.call("/v1/policy", &p).unwrap();
-    // Only a PIN of the policy's length.
+    // Only a digest comes (D-98); an unreadable one is refused.
     let r: Result<PushReply, NetError> = lea.client.call(
-        "/v1/policy/pin",
-        &PinSet {
-            pin: "12345".into(),
+        "/v1/policy/access",
+        &AccessSecret {
+            salt: "00".into(),
+            hash: "zz".into(),
+            params: cleis_crypto::KdfParams::default(),
         },
     );
     assert_eq!(r.unwrap_err().code(), Some("bad_request"));
     let _: PushReply = lea
         .client
-        .call("/v1/policy/pin", &PinSet { pin: "4821".into() })
+        .call(
+            "/v1/policy/access",
+            &cleis_server::new_access_secret("4821").unwrap(),
+        )
         .unwrap();
     // The admin who set it goes on; the member is asked it.
     lea.state();
@@ -1258,10 +1265,125 @@ fn organization_pin() {
             .unwrap()
             .pin_locked
     );
-    // A member cannot change the PIN.
-    let r: Result<PushReply, NetError> = noa
+    // The admin's unlock is dated for the computers of a shared folder (D-98).
+    assert!(
+        lea.state()
+            .members
+            .iter()
+            .find(|m| m.id == noa.member)
+            .unwrap()
+            .pin_reset
+            .is_some()
+    );
+    // Typed again after inactivity (D-98): checked even before "Ask again after", and counted.
+    let r: Result<PushReply, NetError> = noa.client.call(
+        "/v1/access/check",
+        &AccessCheck {
+            secret: "9999".into(),
+        },
+    );
+    assert_eq!(r.unwrap_err().code(), Some("wrong_pin"));
+    let _: PushReply = noa
         .client
-        .call("/v1/policy/pin", &PinSet { pin: "1234".into() });
+        .call(
+            "/v1/access/check",
+            &AccessCheck {
+                secret: "4821".into(),
+            },
+        )
+        .unwrap();
+    // A member cannot change it.
+    let r: Result<PushReply, NetError> = noa.client.call(
+        "/v1/policy/access",
+        &cleis_server::new_access_secret("1234").unwrap(),
+    );
     assert_eq!(r.unwrap_err().code(), Some("forbidden"));
+    // A password in place of the PIN (D-98): the old PIN no longer counts, the refusal says a
+    // password is asked.
+    p.access.with = AccessWith::Password;
+    let _: Policy = lea.client.call("/v1/policy", &p).unwrap();
+    assert!(!lea.state().pin_set);
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/policy/access",
+            &cleis_server::new_access_secret("a long organization password").unwrap(),
+        )
+        .unwrap();
+    noa.pin = None;
+    match noa.sign_in(None).unwrap_err() {
+        NetError::Api(_, a) => {
+            assert_eq!(a.error, "pin_required");
+            assert!(a.password && a.pin_length.is_none());
+        }
+        e => panic!("{e}"),
+    }
+    noa.pin = Some("a long organization password".into());
+    noa.sign_in(None).unwrap();
+    // Windows Hello: checked by the member's computer, the server asks nothing.
+    p.access.with = AccessWith::Hello;
+    let _: Policy = lea.client.call("/v1/policy", &p).unwrap();
+    noa.pin = None;
+    noa.sign_in(None).unwrap();
+    // The state never carries the digest from a server.
+    assert!(noa.state().access_secret.is_none());
+    srv.stop();
+}
+
+/// D-98: the logo, set by an admin, seen by the members; the Super Admin deletes the
+/// organization, and every request then answers `deleted`.
+#[test]
+fn logo_and_deletion() {
+    let dir = tempdir();
+    let code = App::init(&dir, "Example Studio", &[]).unwrap();
+    let app = App::open(&dir).unwrap();
+    let srv = Server::start_app(app.clone(), dir);
+    let mut lea = join(&srv.addr, &code, "Lea", "lea@example-studio.com").unwrap();
+    lea.sign_in(None).unwrap();
+    let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[0; 32]].concat();
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/org/logo",
+            &LogoSet {
+                png: Some(png.clone()),
+            },
+        )
+        .unwrap();
+    assert_eq!(lea.state().org.logo.as_deref(), Some(png.as_slice()));
+    let r: Result<PushReply, NetError> = lea.client.call(
+        "/v1/org/logo",
+        &LogoSet {
+            png: Some(b"GIF89a".to_vec()),
+        },
+    );
+    assert_eq!(r.unwrap_err().code(), Some("bad_request"));
+    // The name typed again.
+    let r: Result<PushReply, NetError> = lea.client.call(
+        "/v1/org/delete",
+        &OrgDelete {
+            name: "Example".into(),
+        },
+    );
+    assert_eq!(r.unwrap_err().code(), Some("bad_request"));
+    let _: PushReply = lea
+        .client
+        .call(
+            "/v1/org/delete",
+            &OrgDelete {
+                name: "Example Studio".into(),
+            },
+        )
+        .unwrap();
+    let r: Result<State, NetError> = lea.client.get("/v1/state");
+    assert_eq!(r.unwrap_err().code(), Some("deleted"));
+    assert_eq!(lea.sign_in(None).unwrap_err().code(), Some("deleted"));
+    // Nothing left but the name and the mark.
+    let conn = app.db.lock().unwrap();
+    let n: i64 = conn
+        .query_row("SELECT count(*) FROM members", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 0);
+    drop(conn);
     srv.stop();
 }

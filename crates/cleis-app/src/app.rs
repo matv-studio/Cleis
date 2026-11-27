@@ -238,10 +238,6 @@ pub struct Session {
     pub opening: crate::opening::Mode,
     /// Chosen while the vault had no master password: applied once it is set.
     pub after_password: Option<crate::opening::Mode>,
-    /// An organization's rule asks for a master password, or a longer one (D-76).
-    pub password_due: bool,
-    /// Length of the master password typed at the unlock (checked against the rules).
-    pub typed_len: Option<usize>,
     /// Menu opened by a right-click (mockups 33 to 33d).
     pub ctx: Option<crate::screens::ctx::CtxMenu>,
     /// Settings › Organization: joining one from an open vault.
@@ -370,18 +366,10 @@ impl Session {
         }
     }
 
-    /// Minutes of inactivity before locking: this vault's choice, never longer than the
-    /// organization's policy.
+    /// Minutes of inactivity before Cleis locks: this vault's own choice. An organization only
+    /// hides its own spaces after its own delay (D-98).
     pub fn lock_after(&self) -> Option<u32> {
-        let own = self.prefs.lock_after_mins;
-        let org = self
-            .all_orgs()
-            .filter_map(|o| o.policy().and_then(|p| p.lock_after_mins))
-            .min();
-        match (own, org) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        self.prefs.lock_after_mins
     }
 
     /// Whether this item's password may be shown (an organization role may only copy and fill).
@@ -441,54 +429,10 @@ impl Session {
         self.all_orgs().find(|o| o.names.contains_key(&space))
     }
 
-    /// The organizations' rule for opening Cleis (the strictest), and who sets it (D-76).
-    pub fn unlock_rule(&self) -> (cleis_core::org::UnlockRule, Option<String>) {
-        let mut rule = cleis_core::org::UnlockRule::Any;
-        let mut by = None;
-        for o in self.all_orgs() {
-            if let Some(p) = o.policy() {
-                let r = rule.stricter(p.unlock);
-                if r != rule {
-                    by = Some(o.m.name.clone());
-                }
-                rule = r;
-            }
-        }
-        (rule, by)
-    }
-
-    /// Applies the organizations' rule for opening Cleis (D-76): a way in they forbid on this
-    /// computer goes, and a missing or too short master password is asked for.
-    pub fn enforce_opening(&mut self, path: &std::path::Path) {
-        use crate::opening::Mode;
-        let (rule, _) = self.unlock_rule();
-        let forbidden = match self.opening {
-            Mode::Hello | Mode::Pin => !rule.allows_hello(),
-            Mode::Nothing => !rule.allows_nothing(),
-            Mode::Password => false,
-        };
-        if forbidden {
-            crate::opening::forget(path);
-            self.opening = Mode::Password;
-            self.toast = Some(tr("Your organization asks for the password").into());
-        }
-        let has = self.vault.has_password().unwrap_or(true);
-        if !has && !rule.allows_no_password() {
-            self.password_due = true;
-        }
-        if has && self.typed_len.is_some_and(|n| n < self.master_min()) {
-            self.typed_len = None;
-            self.password_due = true;
-            self.toast = Some(tr("Your organization asks for a longer password").into());
-        }
-    }
-
-    /// The shortest master password allowed: Cleis' own minimum, or more if an organization
-    /// says so (D-76).
+    /// The shortest password allowed for the vault: Cleis' own minimum. Organizations no longer
+    /// rule how Cleis opens (D-98).
     pub fn master_min(&self) -> usize {
-        self.all_orgs()
-            .filter_map(|o| o.policy().map(|p| p.master_min_length as usize))
-            .fold(10, usize::max)
+        10
     }
 
     /// Whether an item of `space` is shown by the current scope (D-69).
@@ -602,27 +546,16 @@ impl CleisApp {
                             }
                         });
                     }
-                    // An organization's rule asks for a master password (D-76).
-                    if app.password_due() {
-                        return app.main_window.map(|w| (w, false));
-                    }
-                    app.idle_lock_due()
-                        .then_some(app.main_window)
-                        .flatten()
-                        .map(|w| (w, true))
+                    // An organization asks again after its own inactivity delay (D-98).
+                    app.org_idle_check(cx);
+                    app.idle_lock_due().then_some(app.main_window).flatten()
                 }) else {
                     break;
                 };
                 // Security › Locking › After inactivity.
-                if let Some((w, lock)) = idle {
+                if let Some(w) = idle {
                     let _ = cx.update_window(w, |_, window, cx| {
-                        let _ = this.update(cx, |app, cx| {
-                            if lock {
-                                app.lock(window, cx)
-                            } else {
-                                app.start_change_password(window, cx)
-                            }
-                        });
+                        let _ = this.update(cx, |app, cx| app.lock(window, cx));
                     });
                 }
             }
@@ -986,7 +919,6 @@ impl CleisApp {
         if pw.is_empty() {
             return;
         }
-        let len = pw.chars().count();
         u.busy = true;
         u.error = None;
         cx.notify();
@@ -1007,11 +939,6 @@ impl CleisApp {
             this.update_in(cx, |this, window, cx| match res {
                 Ok(v) => {
                     this.enter(v, window, cx);
-                    let path = this.path.clone();
-                    if let Some(s) = this.session() {
-                        s.typed_len = Some(len);
-                        s.enforce_opening(&path);
-                    }
                 }
                 Err(e) => {
                     if let Phase::Unlock(u) = &mut this.phase {
@@ -1270,8 +1197,6 @@ impl CleisApp {
             tab_dir: 0.,
             opening: crate::opening::mode(&self.path),
             after_password: None,
-            password_due: false,
-            typed_len: None,
             ctx: None,
             orgs_idle: vec![],
             vault_name: None,
@@ -1503,18 +1428,6 @@ impl CleisApp {
         if let Phase::Main(s) = &mut self.phase {
             s.last_activity = std::time::Instant::now();
         }
-    }
-
-    /// A master password to set or lengthen, and nothing else open to ask it in.
-    fn password_due(&mut self) -> bool {
-        let Phase::Main(s) = &mut self.phase else {
-            return false;
-        };
-        if !s.password_due || s.security.dialog.is_some() || s.gate.is_some() {
-            return false;
-        }
-        s.password_due = false;
-        true
     }
 
     fn idle_lock_due(&self) -> bool {

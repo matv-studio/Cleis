@@ -275,7 +275,11 @@ impl CleisApp {
     pub fn open_org_pin_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let Some(o) = s.org.as_ref() else { return };
-        let Some(len) = o.state.as_ref().map(|st| usize::from(st.policy.pin.length)) else {
+        let Some(len) = o
+            .state
+            .as_ref()
+            .map(|st| usize::from(st.policy.access.length))
+        else {
             return;
         };
         let key = o.m.key();
@@ -315,7 +319,7 @@ impl CleisApp {
         d.error = None;
         let (pin, len, tries) = (d.first.value.clone(), d.first.len, d.max_tries);
         if let Some(key) = d.org.clone() {
-            self.in_org(&key, |app| app.org_set_pin(pin, cx));
+            self.in_org(&key, |app| app.org_set_access(pin, cx));
             cx.notify();
             return;
         }

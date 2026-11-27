@@ -236,46 +236,6 @@ pub fn upgrade_roles(mut roles: Vec<Role>) -> Vec<Role> {
 
 // ---------- Security policy ----------
 
-/// How the members' Cleis may open on their computers (D-76, mockup 35k).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UnlockRule {
-    /// The master password every time.
-    PasswordOnly,
-    /// The master password, or Windows Hello on the member's computer.
-    PasswordOrHello,
-    /// Also nothing to type on the member's computer.
-    #[default]
-    Any,
-}
-
-impl UnlockRule {
-    /// Whether Windows Hello may open the vault.
-    pub fn allows_hello(self) -> bool {
-        self != UnlockRule::PasswordOnly
-    }
-
-    /// Whether nothing to type may open the vault.
-    pub fn allows_nothing(self) -> bool {
-        self == UnlockRule::Any
-    }
-
-    /// Whether the master password may be removed (the recovery key then opens elsewhere).
-    pub fn allows_no_password(self) -> bool {
-        self != UnlockRule::PasswordOnly
-    }
-
-    /// The stricter of two rules (a vault in several organizations follows all of them).
-    pub fn stricter(self, o: UnlockRule) -> UnlockRule {
-        use UnlockRule::*;
-        match (self, o) {
-            (PasswordOnly, _) | (_, PasswordOnly) => PasswordOnly,
-            (PasswordOrHello, _) | (_, PasswordOrHello) => PasswordOrHello,
-            _ => Any,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogDetail {
@@ -354,8 +314,6 @@ pub struct Policy {
     /// Days a device is remembered after a code (0: ask every time).
     pub remember_days: u32,
     pub methods: BTreeSet<Method>,
-    /// Lock after this many minutes without activity (None: never). Members cannot set longer.
-    pub lock_after_mins: Option<u32>,
     /// How long the organization's spaces stay readable without reaching the server.
     pub offline_days: u32,
     /// Health report: flag passwords shorter than this.
@@ -368,51 +326,108 @@ pub struct Policy {
     pub fill_fields: bool,
     pub type_keys: bool,
     pub read_addresses: bool,
-    /// How Cleis may open on the members' computers (D-76).
-    pub unlock: UnlockRule,
-    /// The members' master password: at least this many characters (0: Cleis' own minimum).
-    pub master_min_length: u32,
-    /// The organization's PIN, asked before its spaces open (D-79).
-    pub pin: PinRule,
+    /// What the organization asks before its spaces show (D-79, D-98). It rules access to the
+    /// organization only: how a member opens Cleis and their own vault stays theirs.
+    #[serde(alias = "pin")]
+    pub access: AccessRule,
 }
 
-/// The organization's PIN (D-79, mockups 36g/36h): one PIN set by an admin, checked by the
-/// server before it opens a session; the organization's spaces stay closed in the app until it
-/// is given.
+/// What asks before the organization's spaces show (D-98, mockups 42).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessWith {
+    /// A password set by an admin and given to the members.
+    #[default]
+    Password,
+    /// Digits set by an admin (D-79).
+    Pin,
+    /// Windows Hello or Touch ID of the member's own computer: nothing to set or give.
+    Hello,
+}
+
+impl AccessWith {
+    /// Before D-98 only the PIN existed: a rule saved then has no `with`.
+    fn legacy() -> Self {
+        AccessWith::Pin
+    }
+}
+
+/// The organization's password: at least this many characters.
+pub const ACCESS_PASSWORD_MIN: usize = 10;
+
+/// Accessing the organization (D-79, D-98): asked on each device before its spaces show, again
+/// after `again_hours` or `idle_mins` without use. The server counts wrong passwords and PINs;
+/// in a shared folder each computer counts its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct PinRule {
+pub struct AccessRule {
     pub on: bool,
-    /// Digits: 4, 6 or 8.
+    #[serde(default = "AccessWith::legacy")]
+    pub with: AccessWith,
+    /// PIN digits: 4, 6 or 8.
     pub length: u8,
     /// Asked again after this many hours on a device.
     pub again_hours: u32,
-    /// Wrong PINs in a row before the member is locked out (until an admin unlocks).
+    /// Asked again after this many minutes without using Cleis (None: never).
+    pub idle_mins: Option<u32>,
+    /// Wrong passwords or PINs in a row before the member is locked out (until an admin
+    /// unlocks).
     pub tries: u32,
 }
 
-impl Default for PinRule {
+impl Default for AccessRule {
     fn default() -> Self {
         Self {
             on: false,
+            with: AccessWith::Password,
             length: 6,
             again_hours: 8,
+            idle_mins: None,
             tries: 5,
         }
     }
 }
 
-impl PinRule {
-    /// A PIN of the policy's length, digits only.
-    pub fn accepts(&self, pin: &str) -> bool {
-        pin.len() == usize::from(self.length) && pin.bytes().all(|b| b.is_ascii_digit())
+impl AccessRule {
+    /// Something is asked before the spaces show.
+    pub fn asks(&self) -> bool {
+        self.on
+    }
+
+    /// An admin sets a password or a PIN that the members type (not Windows Hello).
+    pub fn has_secret(&self) -> bool {
+        self.on && self.with != AccessWith::Hello
+    }
+
+    /// A password or PIN the rule takes: the PIN's length in digits, a password long enough.
+    pub fn accepts(&self, secret: &str) -> bool {
+        match self.with {
+            AccessWith::Pin => {
+                secret.len() == usize::from(self.length)
+                    && secret.bytes().all(|b| b.is_ascii_digit())
+            }
+            AccessWith::Password => secret.chars().count() >= ACCESS_PASSWORD_MIN,
+            AccessWith::Hello => false,
+        }
     }
 }
 
-/// Sets the organization's PIN (`/v1/policy/pin`).
+/// Sets the organization's password or PIN (`/v1/policy/access`, D-98): only its Argon2id
+/// digest leaves the admin's app, so a shared folder never holds it in clear.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessSecret {
+    /// Hex.
+    pub salt: String,
+    /// Hex of the authentication half of Argon2id(secret, salt).
+    pub hash: String,
+    pub params: cleis_crypto::KdfParams,
+}
+
+/// Typed by a member to check the organization's password or PIN (`/v1/access/check`): the
+/// server counts wrong ones.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PinSet {
-    pub pin: String,
+pub struct AccessCheck {
+    pub secret: String,
 }
 
 impl Policy {
@@ -424,9 +439,7 @@ impl Policy {
             && self.record_activity == o.record_activity
             && self.detail == o.detail
             && self.keep_days == o.keep_days
-            && self.unlock == o.unlock
-            && self.master_min_length == o.master_min_length
-            && self.pin == o.pin
+            && self.access == o.access
     }
 }
 
@@ -436,7 +449,6 @@ impl Default for Policy {
             code_required: false,
             remember_days: 30,
             methods: [Method::AuthenticatorApp].into_iter().collect(),
-            lock_after_mins: None,
             offline_days: 14,
             min_length: 12,
             max_age_days: 365,
@@ -446,9 +458,7 @@ impl Default for Policy {
             fill_fields: true,
             type_keys: true,
             read_addresses: true,
-            unlock: UnlockRule::Any,
-            master_min_length: 0,
-            pin: PinRule::default(),
+            access: AccessRule::default(),
         }
     }
 }
@@ -789,6 +799,27 @@ pub struct OrgInfo {
     /// (D-61).
     #[serde(with = "b64::opt", default)]
     pub super_public: Option<Vec<u8>>,
+    /// The organization's logo (PNG, square, at most `LOGO_MAX` bytes), shown when it asks for
+    /// authentication (D-98).
+    #[serde(with = "b64::opt", default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<Vec<u8>>,
+}
+
+/// Largest logo kept (the app sends a 128 px PNG).
+pub const LOGO_MAX: usize = 96 * 1024;
+
+/// Sets or removes the organization's logo (`/v1/org/logo`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LogoSet {
+    #[serde(with = "b64::opt", default)]
+    pub png: Option<Vec<u8>>,
+}
+
+/// Deletes the organization and its server's data (`/v1/org/delete`, Super Admin, D-98): the
+/// name typed again.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OrgDelete {
+    pub name: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -822,6 +853,10 @@ pub struct MemberView {
     /// Locked out by wrong PINs, until an admin unlocks (D-79).
     #[serde(default)]
     pub pin_locked: bool,
+    /// When an admin last unlocked this member (D-98): in a shared folder, a computer that
+    /// locked itself after wrong tries opens again once this is later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_reset: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -912,9 +947,13 @@ pub struct State {
     pub methods: Vec<Method>,
     #[serde(default)]
     pub providers: Vec<Provider>,
-    /// The organization's PIN has been set (D-79; the PIN itself never leaves the server).
+    /// The organization's password or PIN has been set (D-79, D-98; never sent by a server).
     #[serde(default)]
     pub pin_set: bool,
+    /// Shared folder only (D-98): the digest every computer checks the password or PIN against
+    /// (it is in the folder anyway). A server never sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_secret: Option<AccessSecret>,
 }
 
 /// A record as stored on the server: the same sealed row as in the vault file.
@@ -1236,6 +1275,9 @@ pub struct ApiError {
     /// The organization PIN's length, with `pin_required`, `wrong_pin` and `pin_locked` (D-79).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin_length: Option<u8>,
+    /// With the same codes: a password is asked, not a PIN (D-98).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub password: bool,
 }
 
 #[cfg(test)]

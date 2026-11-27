@@ -29,8 +29,9 @@ type Group = (String, Option<String>, Vec<(&'static str, &'static str)>);
 
 fn groups(s: &Session) -> Vec<Group> {
     let mut account: Vec<_> = ACCOUNT.to_vec();
+    // D-99: the personal vault's Import & export stays here; each organization has its own.
+    account.push(("upload", "Import & export"));
     if s.org.is_none() {
-        account.push(("upload", "Import & export"));
         account.push(("server", "Organization"));
         return vec![(tr("My account").into(), None, account)];
     }
@@ -46,7 +47,7 @@ fn groups(s: &Session) -> Vec<Group> {
                 ("key", "Encryption"),
             ]);
         }
-        org.extend([("server", "Server"), ("upload", "Import & export")]);
+        org.extend([("server", "Server"), ("upload", super::import::ORG_PAGE)]);
         out.push((o.m.name.clone(), Some(o.m.key()), org));
     }
     out
@@ -110,7 +111,11 @@ pub fn page(
                         16.,
                         if active { t.accent_text } else { t.text_muted },
                     ))
-                    .child(crate::i18n::tr_owned(name))
+                    .child(crate::i18n::tr_owned(if name == super::import::ORG_PAGE {
+                        "Import & export"
+                    } else {
+                        name
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(k) = &key {
                             this.activate_org(k);
@@ -166,6 +171,7 @@ pub fn page(
         "Autofill" => autofill(s, t, cx),
         "Shortcuts" => super::keys::page(s, af, t, cx),
         "Import & export" => super::import::page(s, t, cx),
+        p if p == super::import::ORG_PAGE => super::import::page(s, t, cx),
         "Security" | "Profile" => super::account::page(s, t, cx),
         "Sync & backups" if manage => {
             let org_view = s.org.as_ref().is_some_and(|o| o.ui.org_backups);
@@ -780,10 +786,8 @@ fn swatches(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>
         std::iter::once((None, "None")).chain(ACCENTS.iter().map(|&(hex, name)| (Some(hex), name)));
     for (i, (hex, name)) in items.enumerate() {
         let on = current.as_deref() == hex && s.wheel.is_none();
-        // Shown as the current theme will draw it (the light theme deepens pale accents).
-        let fill = hex
-            .and_then(parse_hex)
-            .map(|c| fit_contrast(c, t.bg.into(), MIN_ACCENT_CONTRAST));
+        // As the buttons will be filled: the colour itself (D-99).
+        let fill = hex.and_then(parse_hex);
         let tip: SharedString = if i == 1 {
             crate::trf!("{} (default)", name).into()
         } else {

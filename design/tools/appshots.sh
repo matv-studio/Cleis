@@ -46,6 +46,11 @@ for theme in ${THEMES:-dark}; do
   shot "account-page-$theme" --demo --unlocked --tab settings --page account --theme $theme
   shot "welcome-local-$theme" --vault "/tmp/cleis-none-$RANDOM/vault.cleis" --welcome-local --theme $theme
   shot "org-pin-setup-$theme" --demo --unlocked --tab settings --page policy --menu org-pin-setup --theme $theme
+  # 27/11/2026 (mockups 42, D-98): organization access, logo, deleting the server.
+  shot "policy-access-$theme" --demo --unlocked --tab settings --page policy --menu policy-access --theme $theme
+  shot "org-password-$theme" --demo --unlocked --menu org-password --theme $theme
+  shot "server-logo-$theme" --demo --unlocked --tab settings --page server --theme $theme
+  shot "delete-org-$theme" --demo --unlocked --tab settings --page server --menu delete-org --theme $theme
   shot "ctx-password-$theme" --demo --unlocked --menu ctx-password --theme $theme
   shot "shortcuts-$theme" --demo --unlocked --tab settings --page shortcuts --theme $theme
   shot "account-$theme" --demo --unlocked --tab settings --page account --theme $theme

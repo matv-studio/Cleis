@@ -186,7 +186,15 @@ fn ways_in(u: &Unlock, t: &Tokens, window: &Window, cx: &mut Context<CleisApp>) 
     }
     // This computer's way first: one click.
     let quick = match u.mode {
-        Mode::Hello => Some(("unlock-hello", "fingerprint", "Unlock with Windows Hello")),
+        Mode::Hello => Some((
+            "unlock-hello",
+            "fingerprint",
+            if cfg!(target_os = "macos") {
+                "Unlock with Touch ID"
+            } else {
+                "Unlock with Windows Hello"
+            },
+        )),
         Mode::Nothing => Some(("unlock-device", "laptop", "Open")),
         Mode::Password | Mode::Pin => None,
     };

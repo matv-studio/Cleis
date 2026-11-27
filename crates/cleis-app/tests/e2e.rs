@@ -2327,9 +2327,10 @@ fn opening_without_password(cx: &mut TestAppContext) {
     app.read_with(cx, |a, _| assert!(matches!(a.phase, Phase::Main(_))));
 }
 
-/// D-76: an organization that wants the master password takes "nothing" away on this computer.
+/// D-98: an organization no longer rules how Cleis opens: joining one leaves "Nothing" as it was,
+/// and Settings › Account offers every way.
 #[gpui_kit::test]
-fn organization_rule_for_opening(cx: &mut TestAppContext) {
+fn organization_does_not_rule_opening(cx: &mut TestAppContext) {
     use cleis_app::opening::Mode;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("demo.cleis");
@@ -2344,22 +2345,20 @@ fn organization_rule_for_opening(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("opening-Nothing", cx));
-    assert_eq!(cleis_app::opening::mode(&path), Mode::Nothing);
     app.update(cx, |a, _| {
         let Phase::Main(s) = &mut a.phase else {
             panic!()
         };
         cleis_app::demo::org(s);
         if let Some(st) = s.org.as_mut().and_then(|o| o.state.as_mut()) {
-            st.policy.unlock = cleis_core::org::UnlockRule::PasswordOnly;
-            st.policy.master_min_length = 40;
+            st.policy.access.on = true;
         }
-        s.typed_len = Some(cleis_app::demo::PASSWORD.chars().count());
-        s.enforce_opening(&path);
-        assert_eq!(s.opening, Mode::Password);
-        assert!(s.password_due, "a longer password is asked for");
+        assert_eq!(s.opening, Mode::Nothing);
+        assert_eq!(s.lock_after(), s.prefs.lock_after_mins);
     });
-    assert_eq!(cleis_app::opening::mode(&path), Mode::Password);
+    cx.run_until_parked();
+    assert_eq!(cleis_app::opening::mode(&path), Mode::Nothing);
+    assert!(!window_has(cx, h, "unlock-rule"));
 }
 
 /// Scenario (mockup 36): the last swatch opens the wheel; a click on the wheel picks a colour

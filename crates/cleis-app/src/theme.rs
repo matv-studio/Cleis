@@ -150,16 +150,21 @@ impl Tokens {
     /// Applies an accent following the charter (tokens.css): the accent replaces the primary
     /// action, focus, stage outline and selection; Extended also tints tabs, choices and active
     /// rows; Minimal keeps the primary action in inverse contrast.
+    ///
+    /// D-99: the filled parts (primary buttons) keep the colour chosen, whose ink
+    /// is black or white by contrast; lines and text (focus, outline, accent text) are lifted to
+    /// 3.6:1 against the page, so a muted dark colour stays readable in the dark theme.
     pub fn with_accent(mut self, accent: Option<Rgba>, scope: AccentScope) -> Self {
-        let Some(a) = accent else { return self };
-        let a = fit_contrast(a, self.bg.into(), MIN_ACCENT_CONTRAST);
+        let Some(raw) = accent else { return self };
+        let a = fit_contrast(raw, self.bg.into(), MIN_ACCENT_CONTRAST);
         let ah: Hsla = a.into();
+        let fill: Hsla = raw.into();
         let text: Rgba = self.text.into();
         self.focus = ah;
         self.stage_line = ah;
         if scope != AccentScope::Minimal {
-            self.primary = ah;
-            self.primary_ink = ink_for(a);
+            self.primary = fill;
+            self.primary_ink = ink_for(raw);
             self.selection = ah.opacity(0.14);
         }
         if scope == AccentScope::Extended {
@@ -377,6 +382,22 @@ mod tests {
         assert!((deep.r - want.r).abs() < 0.03 && (deep.g - want.g).abs() < 0.03);
         assert_eq!(ink_for(a), gpui_kit::black());
         assert_eq!(ink_for(deep), gpui_kit::black());
+    }
+
+    #[test]
+    fn muted_accent_fills_as_chosen() {
+        // D-99: the violet the user gave keeps its fill in the dark theme (white ink); focus
+        // and outline are lifted to stay readable on the page.
+        let a = parse_hex("#494a6a").unwrap();
+        let t = Tokens::dark().with_accent(Some(a), AccentScope::Extended);
+        assert_eq!(t.primary, Hsla::from(a));
+        assert_eq!(t.primary_ink, gpui_kit::white());
+        let bg: Rgba = t.bg.into();
+        assert!(contrast(t.focus.into(), bg) >= MIN_ACCENT_CONTRAST);
+        assert!(contrast(t.stage_line.into(), bg) >= MIN_ACCENT_CONTRAST);
+        // Light theme: dark enough as is.
+        let l = Tokens::light().with_accent(Some(a), AccentScope::Extended);
+        assert_eq!(l.focus, Hsla::from(a));
     }
 
     #[test]

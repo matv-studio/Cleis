@@ -107,6 +107,49 @@ pub fn hello_available() -> bool {
     cleis_autofill::unlock::hello_available()
 }
 
+/// The system's own way to check who is there: Windows Hello on Windows, Touch ID on a Mac,
+/// none elsewhere (the choice is then not offered).
+pub fn hello_name() -> Option<&'static str> {
+    if cfg!(windows) {
+        Some("Windows Hello")
+    } else if cfg!(target_os = "macos") {
+        Some("Touch ID")
+    } else {
+        None
+    }
+}
+
+/// The tooltip of that choice: what it asks, or why it cannot be chosen here.
+pub fn hello_tip(available: bool) -> &'static str {
+    match (cfg!(target_os = "macos"), available) {
+        (false, true) => "Face, fingerprint or PIN of this Windows account",
+        (false, false) => "Windows Hello is not set up on this computer",
+        (true, true) => "Your fingerprint, or this Mac's password",
+        (true, false) => "Touch ID is not set up on this Mac",
+    }
+}
+
+/// The tooltip of "Nothing".
+pub fn nothing_tip() -> &'static str {
+    if cfg!(windows) {
+        "Anyone using this Windows account opens Cleis"
+    } else if cfg!(target_os = "macos") {
+        "Anyone using this Mac account opens Cleis"
+    } else {
+        "Anyone using this account opens Cleis"
+    }
+}
+
+/// Windows Hello or Touch ID asked to check who is there (an organization's access, D-98): no
+/// key comes out of it. Blocks: run it off the interface thread.
+pub fn hello_check() -> Result<(), String> {
+    if !hello_available() {
+        return Err(hello_tip(false).into());
+    }
+    let challenge: [u8; 32] = cleis_crypto::random_bytes().map_err(|e| e.to_string())?;
+    cleis_autofill::unlock::hello_sign("Cleis organization access", &challenge).map(|_| ())
+}
+
 /// The key Windows Hello gives for `challenge` (the prompt is shown). Blocks: run it off the
 /// interface thread.
 pub fn hello_key(challenge: &[u8]) -> Result<Zeroizing<[u8; 32]>, String> {

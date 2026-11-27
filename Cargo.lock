@@ -1287,6 +1287,7 @@ name = "cleis-autofill"
 version = "0.2.3"
 dependencies = [
  "arboard",
+ "block2 0.6.2",
  "cleis-core",
  "cleis-crypto",
  "enigo",
@@ -1294,6 +1295,7 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "objc2-local-authentication",
  "security-framework",
  "thiserror 2.0.21",
  "uiautomation",
@@ -6188,6 +6190,17 @@ dependencies = [
  "bitflags 2.13.2",
  "objc2 0.6.5",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-local-authentication"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48e0b8b339e0d9d2ed4416b7f93f9d4daadff7d4dd797f89867cde11aeac607"
+dependencies = [
+ "block2 0.6.2",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]

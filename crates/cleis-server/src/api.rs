@@ -31,7 +31,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/session", post(session).layer(small()))
         .route("/v1/members/reset-step", post(reset_step))
         .route("/v1/members/reset-pin", post(reset_pin))
-        .route("/v1/policy/pin", post(set_pin))
+        .route("/v1/policy/access", post(set_access))
+        .route("/v1/access/check", post(check_access))
+        .route("/v1/org/logo", post(set_logo))
+        .route("/v1/org/delete", post(delete_org))
         .route("/v1/members/sign-out", post(sign_out_member))
         .route("/v1/state", get(state))
         .route("/v1/pull", post(pull))
@@ -188,6 +191,7 @@ fn view(conn: &Connection, m: &Member) -> rusqlite::Result<MemberView> {
         verify_key: m.verify_key,
         factor: m.factor,
         pin_locked: pin_locked(&db::policy(conn), m.pin_fails),
+        pin_reset: db::meta_json(conn, &format!("pin_reset:{}", m.id)),
     })
 }
 
@@ -248,6 +252,7 @@ impl FromRequestParts<Arc<App>> for Caller {
     type Rejection = ApiErr;
 
     async fn from_request_parts(parts: &mut Parts, app: &Arc<App>) -> Result<Self, ApiErr> {
+        gone(&app.db.lock().unwrap_or_else(|e| e.into_inner()))?;
         // D-78: an operation replayed from a shared folder is the member who signed it.
         if let Some((member, device)) = crate::local::replaying() {
             let id =
@@ -293,11 +298,8 @@ impl FromRequestParts<Arc<App>> for Caller {
         let id = MemberId(member.parse().unwrap_or_default());
         // D-79: past "Ask again after", the PIN is asked again before anything else.
         if pin_due(&conn, id, &device, now())? {
-            return Err(ApiErr::pin(
-                "pin_required",
-                "Enter the organization's PIN.",
-                db::policy(&conn).pin.length,
-            ));
+            let rule = db::policy(&conn).access;
+            return Err(ApiErr::access("pin_required", asked(&rule), &rule));
         }
         let role_id: String =
             conn.query_row("SELECT role FROM members WHERE id = ?1", [&member], |r| {
@@ -407,7 +409,21 @@ fn org_info(conn: &Connection, cert: &[u8; 32]) -> rusqlite::Result<OrgInfo> {
         recovery_public: db::meta_get(conn, "recovery_public")?,
         recovery_saved: db::meta_json(conn, "recovery_saved"),
         super_public: db::meta_get(conn, "super_public")?,
+        logo: db::meta_get(conn, "logo")?,
     })
+}
+
+/// The organization was deleted by its Super Admin (D-98): every request gets this.
+fn gone(conn: &Connection) -> Result<(), ApiErr> {
+    if db::meta_get(conn, "deleted")?.is_some() {
+        return Err(ApiErr(
+            axum::http::StatusCode::GONE,
+            "deleted",
+            "This organization was deleted.".into(),
+            None,
+        ));
+    }
+    Ok(())
 }
 
 // ---------- Sign-in ----------
@@ -678,6 +694,7 @@ async fn join(
 async fn challenge(State(app): State<Arc<App>>) -> Res<Challenge> {
     let nonce: [u8; 32] = random_bytes().map_err(|_| ApiErr::bad("random"))?;
     let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    gone(&conn)?;
     conn.execute("DELETE FROM challenges WHERE expires < ?1", [now()])?;
     conn.execute(
         "INSERT INTO challenges(nonce, expires) VALUES (?1, ?2)",
@@ -720,6 +737,7 @@ async fn session(
     Json(req): Json<SessionRequest>,
 ) -> Res<SessionReply> {
     throttle(&app, &peer, false)?;
+    gone(&app.db.lock().unwrap_or_else(|e| e.into_inner()))?;
     let t = now();
     let (m, checked) = match session_check(&app, &peer, &req, t)? {
         Next::Open(m, checked) => (m, checked),
@@ -1196,46 +1214,29 @@ async fn reset_step(
     Ok(Json(PushReply::default()))
 }
 
-// ---------- Organization PIN (D-79) ----------
+// ---------- Accessing the organization (D-79, D-98) ----------
 
-/// Argon2id of the PIN with its salt, kept in `meta` under "pin" (never sent to the apps).
-#[derive(serde::Serialize, serde::Deserialize)]
-struct PinHash {
-    salt: String,
-    hash: String,
-    params: cleis_crypto::KdfParams,
-}
-
-/// Cost of the PIN's hash: OWASP's floor for Argon2id. A PIN is short: what protects it is the
-/// server counting wrong tries, the hash only keeps it out of a copied database.
-const PIN_KDF: cleis_crypto::KdfParams = cleis_crypto::KdfParams {
-    memory_kib: cleis_crypto::KdfParams::FLOOR_MEMORY_KIB,
-    iterations: cleis_crypto::KdfParams::FLOOR_ITERATIONS,
-    parallelism: 1,
-};
-
-fn pin_digest(
-    pin: &str,
-    salt: &[u8; 16],
-    params: cleis_crypto::KdfParams,
-) -> Result<String, ApiErr> {
-    let k = cleis_crypto::derive_master_key(pin, salt, params)
-        .map_err(|_| ApiErr::bad("PIN not hashed."))?;
-    Ok(hex(k.authentication.as_bytes()))
+/// What the member is asked, for the `pin_*` refusals.
+fn asked(rule: &cleis_core::org::AccessRule) -> &'static str {
+    match rule.with {
+        cleis_core::org::AccessWith::Pin => "Enter the organization's PIN.",
+        _ => "Enter the organization's password.",
+    }
 }
 
 fn pin_locked(policy: &Policy, fails: u32) -> bool {
-    policy.pin.on && policy.pin.tries > 0 && fails >= policy.pin.tries
+    policy.access.has_secret() && policy.access.tries > 0 && fails >= policy.access.tries
 }
 
-/// The PIN is on and set, and this device has no PIN given recently enough.
+/// The password or PIN is on and set, and this device has not given it recently enough. Windows
+/// Hello is checked by the member's own computer (D-98).
 fn pin_due(conn: &Connection, member: MemberId, device: &str, t: i64) -> Result<bool, ApiErr> {
-    // Shared folder (D-78): no server to count wrong PINs; the app asks it locally.
+    // Shared folder (D-78): no server to count wrong tries; each app asks and counts.
     if crate::local::replaying().is_some() {
         return Ok(false);
     }
     let policy = db::policy(conn);
-    if !policy.pin.on || db::meta_get(conn, "pin")?.is_none() {
+    if !policy.access.has_secret() || db::meta_get(conn, "pin")?.is_none() {
         return Ok(false);
     }
     let ok = conn
@@ -1244,8 +1245,9 @@ fn pin_due(conn: &Connection, member: MemberId, device: &str, t: i64) -> Result<
     Ok(!ok)
 }
 
-/// Sign-in: the PIN asked, checked, counted; a right one opens this device for "Ask again
-/// after" hours.
+/// The password or PIN asked, checked, counted; a right one opens this device for "Ask again
+/// after" hours. One given is always checked, even before it is due (the app asks again after
+/// inactivity, D-98).
 fn pin_check(
     conn: &Connection,
     m: &Member,
@@ -1253,32 +1255,23 @@ fn pin_check(
     pin: Option<&str>,
     t: i64,
 ) -> Result<(), ApiErr> {
-    if !pin_due(conn, m.id, device, t)? {
+    if pin.is_none() && !pin_due(conn, m.id, device, t)? {
         return Ok(());
     }
     let policy = db::policy(conn);
+    let rule = policy.access;
+    let Some(stored) = db::meta_json::<cleis_core::org::AccessSecret>(conn, "pin")
+        .filter(|_| rule.has_secret() && crate::local::replaying().is_none())
+    else {
+        return Ok(());
+    };
     if pin_locked(&policy, m.pin_fails) {
-        return Err(ApiErr::pin(
-            "pin_locked",
-            "Too many wrong PINs. Ask an admin to unlock your access.",
-            policy.pin.length,
-        ));
+        return Err(ApiErr::access("pin_locked", LOCKED, &rule));
     }
     let Some(pin) = pin else {
-        return Err(ApiErr::pin(
-            "pin_required",
-            "Enter the organization's PIN.",
-            policy.pin.length,
-        ));
+        return Err(ApiErr::access("pin_required", asked(&rule), &rule));
     };
-    let stored: PinHash = db::meta_json(conn, "pin").ok_or_else(|| ApiErr::bad("No PIN set."))?;
-    let salt: [u8; 16] = data_encoding::HEXLOWER
-        .decode(stored.salt.as_bytes())
-        .ok()
-        .and_then(|v| v.try_into().ok())
-        .ok_or_else(|| ApiErr::bad("PIN unreadable."))?;
-    let right = policy.pin.accepts(pin) && pin_digest(pin, &salt, stored.params)? == stored.hash;
-    if !right {
+    if !(rule.accepts(pin) && crate::access_matches(&stored, pin)) {
         let fails = m.pin_fails + 1;
         conn.execute(
             "UPDATE members SET pin_fails = ?2 WHERE id = ?1",
@@ -1286,20 +1279,21 @@ fn pin_check(
         )?;
         if pin_locked(&policy, fails) {
             end_sessions(conn, m.id)?;
-            return Err(ApiErr::pin(
-                "pin_locked",
-                "Too many wrong PINs. Ask an admin to unlock your access.",
-                policy.pin.length,
-            ));
+            return Err(ApiErr::access("pin_locked", LOCKED, &rule));
         }
-        let left = policy.pin.tries.saturating_sub(fails);
-        return Err(ApiErr::pin(
+        let left = rule.tries.saturating_sub(fails);
+        let what = if rule.with == cleis_core::org::AccessWith::Pin {
+            "PIN"
+        } else {
+            "password"
+        };
+        return Err(ApiErr::access(
             "wrong_pin",
             &format!(
-                "Wrong PIN. {left} {} left.",
+                "Wrong {what}. {left} {} left.",
                 if left == 1 { "try" } else { "tries" }
             ),
-            policy.pin.length,
+            &rule,
         ));
     }
     conn.execute(
@@ -1312,47 +1306,121 @@ fn pin_check(
         params![
             m.id.to_string(),
             device,
-            t + i64::from(policy.pin.again_hours.max(1)) * 3600
+            t + i64::from(rule.again_hours.max(1)) * 3600
         ],
     )?;
     Ok(())
 }
 
-/// An admin sets the PIN: every device is asked the new one.
-async fn set_pin(
+const LOCKED: &str = "Too many wrong tries. Ask an admin to unlock your access.";
+
+/// An admin sets the password or PIN: only its digest comes (D-98), every device is asked the
+/// new one.
+async fn set_access(
     State(app): State<Arc<App>>,
     caller: Caller,
-    Json(req): Json<PinSet>,
+    Json(req): Json<cleis_core::org::AccessSecret>,
 ) -> Res<PushReply> {
     caller.can(Perm::Rules)?;
     let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
-    let policy = db::policy(&conn);
-    if !policy.pin.accepts(&req.pin) {
-        return Err(ApiErr::bad(&format!(
-            "The PIN has {} digits.",
-            policy.pin.length
-        )));
-    }
-    let salt: [u8; 16] = random_bytes().map_err(|_| ApiErr::bad("No randomness."))?;
-    let stored = PinHash {
-        salt: hex(&salt),
-        hash: pin_digest(&req.pin, &salt, PIN_KDF)?,
-        params: PIN_KDF,
+    let hex_len = |v: &str, n: usize| {
+        v.len() == n
+            && v.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     };
-    db::meta_set_json(&conn, "pin", &stored)?;
+    if !hex_len(&req.salt, 32) || !hex_len(&req.hash, 64) || !req.params.meets_floor() {
+        return Err(ApiErr::bad("Password or PIN unreadable."));
+    }
+    db::meta_set_json(&conn, "pin", &req)?;
     conn.execute("DELETE FROM pin_ok", [])?;
     // The one who set it is not asked it right away on this device.
+    let hours = db::policy(&conn).access.again_hours.max(1);
     conn.execute(
         "INSERT INTO pin_ok(member, device, expires) VALUES (?1, ?2, ?3)",
         params![
             caller.id.to_string(),
             caller.device,
-            now() + i64::from(policy.pin.again_hours.max(1)) * 3600
+            now() + i64::from(hours) * 3600
         ],
     )?;
     let mut e = caller.event(Action::PolicyChanged);
-    e.note = "Organization PIN changed".into();
+    e.note = "Organization password or PIN changed".into();
     app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+/// A member types the password or PIN again (after inactivity, D-98): checked and counted as at
+/// sign-in.
+async fn check_access(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<cleis_core::org::AccessCheck>,
+) -> Res<PushReply> {
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let m = member(&conn, caller.id)?.ok_or_else(|| ApiErr::not_found("member"))?;
+    pin_check(&conn, &m, &caller.device, Some(&req.secret), now())?;
+    Ok(Json(PushReply::default()))
+}
+
+/// Sets or removes the organization's logo (D-98).
+async fn set_logo(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<cleis_core::org::LogoSet>,
+) -> Res<PushReply> {
+    caller.can(Perm::Rules)?;
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    match &req.png {
+        Some(png) if png.len() > cleis_core::org::LOGO_MAX || !png.starts_with(b"\x89PNG") => {
+            return Err(ApiErr::bad("The logo is a PNG of at most 96 KB."));
+        }
+        Some(png) => db::meta_set(&conn, "logo", png)?,
+        None => db::meta_del(&conn, "logo")?,
+    }
+    let mut e = caller.event(Action::PolicyChanged);
+    e.note = "Organization logo changed".into();
+    app.record(&conn, e)?;
+    Ok(Json(PushReply::default()))
+}
+
+/// The Super Admin deletes the organization (D-98): everything the server holds is erased (its
+/// backups too), and every request then answers `deleted`, so the members' apps forget it.
+async fn delete_org(
+    State(app): State<Arc<App>>,
+    caller: Caller,
+    Json(req): Json<cleis_core::org::OrgDelete>,
+) -> Res<PushReply> {
+    if !caller.role.is_super() {
+        return Err(ApiErr::forbidden(
+            "Only a Super Admin deletes the organization.",
+        ));
+    }
+    let conn = app.db.lock().unwrap_or_else(|e| e.into_inner());
+    let name =
+        String::from_utf8(db::meta_get(&conn, "org_name")?.unwrap_or_default()).unwrap_or_default();
+    if req.name.trim() != name.trim() {
+        return Err(ApiErr::bad("Type the organization's name to confirm."));
+    }
+    let tables: Vec<String> = conn
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+    for t in tables {
+        conn.execute(&format!("DELETE FROM \"{}\"", t.replace('"', "")), [])?;
+    }
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    db::meta_set(&conn, "deleted", &now().to_be_bytes())?;
+    db::meta_set(&conn, "org_name", name.as_bytes())?;
+    // A copy of the server file, kept by the server's own backups, goes too.
+    if crate::local::replaying().is_none()
+        && let Some(dir) = app.config.backups_dir(&app.dir)
+    {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    let _ = conn.execute_batch("VACUUM;");
     Ok(Json(PushReply::default()))
 }
 
@@ -1370,6 +1438,8 @@ async fn reset_pin(
         "UPDATE members SET pin_fails = 0 WHERE id = ?1",
         [id.to_string()],
     )?;
+    // D-98: a shared folder's computers count their own wrong tries; this tells them.
+    db::meta_set_json(&conn, &format!("pin_reset:{}", id), &now())?;
     let mut e = caller.event(Action::MemberChanged);
     e.note = format!("PIN unlocked for {}", m.name);
     app.record(&conn, e)?;
@@ -1623,6 +1693,11 @@ async fn state(State(app): State<Arc<App>>, caller: Caller) -> Res<cleis_core::o
         methods: app.config.methods(),
         providers: providers(&app),
         pin_set: db::meta_get(&conn, "pin")?.is_some(),
+        access_secret: if crate::local::replaying().is_some() {
+            db::meta_json(&conn, "pin")
+        } else {
+            None
+        },
     }))
 }
 
@@ -2453,8 +2528,9 @@ async fn set_policy(
         caller.can(Perm::Rules)?;
     }
     db::meta_set_json(&conn, "policy", &req)?;
-    // D-79: a PIN of another length is no longer the PIN: set again before it is asked.
-    if req.pin.length != before.pin.length {
+    // D-79, D-98: a PIN of another length, or a password in place of a PIN, is no longer the
+    // secret: set again before it is asked.
+    if req.access.length != before.access.length || req.access.with != before.access.with {
         db::meta_del(&conn, "pin")?;
         conn.execute("DELETE FROM pin_ok", [])?;
     }

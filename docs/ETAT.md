@@ -35,11 +35,14 @@
   survolée en entier quand elle peut l'être (boutons des fournisseurs gardant leur clic), trait d'accent
   de la poignée de colonne posé sur le trait gris. Maquettes 41 validées (code en attente de la GitHub
   App). Dépôt `cleis-vault` supprimé par l'utilisateur.
-- Maquettes 42a à 42j envoyées, à valider avant le code : l'organisation ne règle plus l'ouverture de
-  Cleis, seulement son propre accès (« Accessing <org> » : accès hors ligne, « Ask for password »,
-  mot de passe / PIN fixé par l'admin ou Windows Hello · Touch ID du membre, redemandé après un délai ou
-  l'inactivité, essais faux) ; PIN grisé pour une organisation en dossier partagé ; suppression du
-  serveur par le Super Admin (nom à retaper, export d'abord).
+- D-98, D-99 codés (maquettes 42a à 42l validées) : accès à l'organisation (« Accessing <org> » :
+  mot de passe, PIN ou Windows Hello / Touch ID, redemandé après un délai ou l'inactivité ; dossier
+  partagé vérifié par chaque appli), plus aucune règle de l'organisation sur l'ouverture de Cleis, logo
+  de l'organisation (carte d'authentification, haut à droite dans son coffre), suppression du serveur par
+  le Super Admin, Touch ID sur Mac, couleurs d'accent atténuées, Import & export et Encryption séparés
+  entre coffre personnel et organisation.
+- À essayer sur Windows : Windows Hello pour l'accès à l'organisation ; sur Mac (quand l'appli Mac sera
+  construite) : Touch ID.
 - Notes pour plus tard (demandes du 27/11) : calendrier pour gestionnaires de prod et employés (tâches,
   disponibilités) synchronisé avec Outlook (adresses et calendriers Outlook → Cleis) ; section « pages
   privées » pour construire pages et notes comme Notion ; changelog en anglais seulement sur les brouillons.

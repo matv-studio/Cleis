@@ -312,28 +312,23 @@ fn opening_choice(
         .border_1()
         .border_color(t.line_strong)
         .rounded(RADIUS_MD);
-    for (mode, label, why) in [
+    let mut modes = vec![
         (Mode::Password, "Password", None),
         (
             Mode::Pin,
             "PIN",
             Some("Digits only, on this computer; the recovery key after too many wrong tries"),
         ),
-        (
-            Mode::Hello,
-            "Windows Hello",
-            Some(if hello_ok {
-                "Face, fingerprint or PIN of this Windows account"
-            } else {
-                "Windows Hello is not set up on this computer"
-            }),
-        ),
-        (
-            Mode::Nothing,
-            "Nothing",
-            Some("Anyone using this Windows account opens Cleis"),
-        ),
-    ] {
+    ];
+    if let Some(name) = crate::opening::hello_name() {
+        modes.push((Mode::Hello, name, Some(crate::opening::hello_tip(hello_ok))));
+    }
+    modes.push((
+        Mode::Nothing,
+        "Nothing",
+        Some(crate::opening::nothing_tip()),
+    ));
+    for (mode, label, why) in modes {
         let on = now == mode;
         let allowed = mode != Mode::Hello || hello_ok;
         seg = seg.child(

@@ -317,7 +317,7 @@ function preferences() {
     <div class="page-head"><h1>Preferences</h1></div>
     <div class="section">${sectionTitle('Appearance')}
       <div class="row"><span class="row-label">Theme</span><div class="segmented" role="radiogroup" aria-label="Theme"><button role="radio" aria-checked="true">Dark</button><button role="radio" aria-checked="false">Light</button><button role="radio" aria-checked="false" title="Follow Windows or macOS">System</button></div></div>
-      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', true, 'Ochre (default)')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#14b8a6', false, 'Teal')}${sw('#ef4444', false, 'Red')}</div></div>
+      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', true, 'Ochre (default)')}${sw('#3f5a75', false, 'Blue')}${sw('#494a6a', false, 'Violet')}${sw('#48664f', false, 'Green')}${sw('#3f6766', false, 'Teal')}${sw('#7a4646', false, 'Red')}</div></div>
       <div class="row"><span class="row-label" title="Where the accent color is used">Accent scope</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="false" title="Focus and window outline">Minimal</button><button role="radio" aria-checked="false" title="Also the main button, switches and selection">Standard</button><button role="radio" aria-checked="true" title="Also tabs, choices and active rows">Extended</button></div></div>
     </div>
     <div class="section">${sectionTitle('Tabs', 'Hidden tabs keep their data.')}
@@ -1318,7 +1318,7 @@ function roueCouleur() {
     <div class="section">${sectionTitle('Appearance')}
       <div class="row"><span class="row-label">Theme</span><div class="segmented"><button role="radio" aria-checked="true">Dark</button><button role="radio" aria-checked="false">Light</button><button role="radio" aria-checked="false">System</button></div></div>
       <div class="row"><span class="row-label">Logo</span><div class="segmented"><button role="radio" aria-checked="true">Light</button><button role="radio" aria-checked="false">Dark</button></div></div>
-      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', false, 'Ochre (default)')}${sw('#3b82f6', false, 'Blue')}${sw('#8b5cf6', false, 'Violet')}${sw('#10b981', false, 'Green')}${sw('#14b8a6', false, 'Teal')}${sw('#ef4444', false, 'Red')}<button class="swatch on" style="background:conic-gradient(red,#ff0,lime,cyan,blue,#f0f,red)" title="Your own color"></button></div></div>
+      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', false, 'Ochre (default)')}${sw('#3f5a75', false, 'Blue')}${sw('#494a6a', false, 'Violet')}${sw('#48664f', false, 'Green')}${sw('#3f6766', false, 'Teal')}${sw('#7a4646', false, 'Red')}<button class="swatch on" style="background:conic-gradient(red,#ff0,lime,cyan,blue,#f0f,red)" title="Your own color"></button></div></div>
       <div class="row"><span class="row-label">Accent scope</span><div class="segmented"><button role="radio" aria-checked="false">Minimal</button><button role="radio" aria-checked="false">Standard</button><button role="radio" aria-checked="true">Extended</button></div></div>
     </div>`, wheel);
 }
@@ -1791,14 +1791,14 @@ function accesOrg({ on = true, how = 'Password', set = true } = {}) {
     : `<div class="row"><span class="row-label" title="Give it to the members; every device is asked the new one">Password</span>${set ? '' : '<span class="chip chip--warn"><span class="dot"></span>Not set yet</span>'}<button class="btn">${set ? 'Change' : 'Set'}</button></div>`;
   const tries = how === 'Windows Hello' ? '' : `<div class="row"><span class="row-label" title="The member's access is suspended until an admin resets it">Wrong tries before locking</span>${sel160('5')}</div>`;
   const more = on ? `
-      <div class="row"><span class="row-label">With</span>${sel160(how === 'Windows Hello' ? 'Windows Hello · Touch ID' : how, 220)}</div>
+      <div class="row"><span class="row-label">With</span>${sel160(how === 'Windows Hello' ? 'Windows Hello' : how, 220)}</div>
       ${secret}
       <div class="row"><span class="row-label" title="Since it was last given on the device">Ask again after</span>${sel160('8 hours')}</div>
       <div class="row"><span class="row-label" title="Without using Cleis">After inactivity</span>${sel160('15 minutes')}</div>
       ${tries}` : '';
   return `<div class="section">${sectionTitle('Accessing Example Studio', 'Asked before the organization’s spaces show. How each member opens Cleis and their own vault stays their choice.')}
       <div class="row"><span class="row-label" title="How long the organization's spaces stay readable without reaching the server">Offline access</span>${sel160('14 days')}</div>
-      <div class="row"><span class="row-label">Ask for password</span><span class="switch ${on ? 'on' : ''}"></span></div>${more}
+      <div class="row"><span class="row-label">Ask for authentication</span><span class="switch ${on ? 'on' : ''}"></span></div>${more}
     </div>`;
 }
 const politique42 = (acc) => `
@@ -1813,9 +1813,9 @@ function accesOrgOff() { return settingsPol('Security policy', politique42(acces
 // 42b. A password set by the admin: asked again after 8 hours, or 15 minutes without use.
 function accesOrgMotDePasse() { return settingsPol('Security policy', politique42(accesOrg())); }
 // 42c. "With": password, PIN, or the member's Windows Hello / Touch ID. In an organization kept in a
-// shared folder, the PIN is greyed: without a server, nobody counts the wrong tries.
+// shared folder, each computer counts the wrong tries.
 function accesOrgMenu() {
-  const m = `<div class="menu" style="left:1069px;top:296px;width:220px">${mi('check', 'Password')}<div class="menu-item" style="color:var(--text-faint)" title="Needs a server: it counts the wrong tries. In a shared folder, a PIN of a few digits would be found by trying them all."><span style="width:16px"></span><span>PIN</span></div>${mi('', 'Windows Hello · Touch ID')}</div>`;
+  const m = `<div class="menu" style="left:1069px;top:296px;width:220px">${mi('check', 'Password')}${mi('', 'PIN')}<div class="menu-item" title="Touch ID on a Mac"><span style="width:16px"></span><span>Windows Hello</span></div></div>`;
   return settingsPol('Security policy', politique42(accesOrg()), m);
 }
 // 42d. PIN: its length, then the PIN typed twice (37q's dialog).
@@ -1828,11 +1828,13 @@ function accesOrgDefinir() {
       <div class="field"><span class="label">Confirm</span><div class="input"><span class="grow"></span><span class="act">${i('eye')}</span></div></div>
       <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Save</button></div>`));
 }
+// A fictional organization logo (Example Studio), as an admin would upload it.
+const orgLogo = (size = 48) => `<span title="Example Studio" style="width:${size}px;height:${size}px;border-radius:var(--radius-lg);display:inline-grid;place-items:center;background:#1f3b4d;flex:none"><svg width="${size * 0.6}" height="${size * 0.6}" viewBox="0 0 24 24"><circle cx="9" cy="12" r="6" fill="#4fb3bf"/><rect x="11" y="6" width="10" height="12" rx="2" fill="#f2c14e" opacity=".9"/></svg></span>`;
 // 42g. A member: the organization's section shows its lock and asks its password; the personal
 // vault and everything else stay open.
 function accesOrgMembre() {
   const center = `<div class="center-stage" style="height:100%"><div class="card" style="width:340px">
-      <div class="card-head"><span class="logo logo--lg">${i('lock')}</span><h1>Example Studio</h1><span style="color:var(--text-muted)" title="Set by Example Studio's admins">Organization password</span></div>
+      <div class="card-head"><span style="position:relative;display:inline-grid">${orgLogo()}<span style="position:absolute;right:-6px;bottom:-6px;width:20px;height:20px;border-radius:999px;display:grid;place-items:center;background:var(--surface-raised);border:1px solid var(--line-strong)">${i('lock')}</span></span><h1>Example Studio</h1><span style="color:var(--text-muted)" title="Set by Example Studio's admins">Organization password</span></div>
       <div class="input is-focus"><span class="grow dots">•••••</span><span class="act">${i('eye')}</span></div>
       <button class="btn btn--primary" style="justify-content:center;height:32px">Open</button>
     </div></div>`;
@@ -1842,16 +1844,17 @@ function accesOrgMembre() {
 // button opens Windows' settings, its tooltip says so.
 function accesOrgMembreHello() {
   const center = `<div class="center-stage" style="height:100%"><div class="card" style="width:340px">
-      <div class="card-head"><span class="logo logo--lg">${i('lock')}</span><h1>Example Studio</h1></div>
+      <div class="card-head"><span style="position:relative;display:inline-grid">${orgLogo()}<span style="position:absolute;right:-6px;bottom:-6px;width:20px;height:20px;border-radius:999px;display:grid;place-items:center;background:var(--surface-raised);border:1px solid var(--line-strong)">${i('lock')}</span></span><h1>Example Studio</h1></div>
       <button class="btn btn--primary" style="justify-content:center;height:32px" title="Face, fingerprint or PIN of this Windows account">${i('fingerprint')}Open with Windows Hello</button>
     </div></div>`;
   return frameB(center, { side: sidebarB({ active: 'Example Studio' }) });
 }
 
 // Server: the Super Admin deletes it. Shown to the Super Admin only, at the bottom.
-const serveur42 = `
+const serveur42 = (logoRow = `<span title="Change" style="position:relative;display:inline-grid;cursor:pointer">${orgLogo(32)}</span><button class="icon-btn icon-btn--sm" aria-label="Remove" title="Remove">${i('x')}</button>`) => `
     <div class="page-head"><h1>Server</h1></div>
     <div class="section">${sectionTitle('Example Studio')}
+      <div class="row"><span class="row-label" title="Shown to the members when Example Studio asks for authentication. PNG or JPEG, square.">Logo</span>${logoRow}</div>
       <div class="row"><span class="row-label">Hosted</span><span>This computer</span><span class="chip chip--ok"><span class="dot"></span>Running</span></div>
       <div class="row"><span class="row-label" title="Give one of these with each invitation code">Addresses for members</span><span class="code" style="color:var(--text-muted)">192.168.1.24:8443 · 10.8.0.3:8443</span><button class="icon-btn" title="Copy">${i('copy')}</button></div>
       <div class="row"><span class="row-label" title="Otherwise it runs while Cleis runs">Start with the system</span><button class="btn">Install</button></div>
@@ -1862,10 +1865,17 @@ const serveur42 = `
       <div class="row"><span class="row-label" title="Its spaces, members, log and backups. Members' copies go at their next sync.">Server and its data</span><button class="btn btn--danger btn--sm">${i('trash')}Delete server</button></div>
     </div>`;
 // 42i. Server › Delete (Super Admin only).
-function serveurSupprimer() { return settingsPol('Server', serveur42); }
+function serveurSupprimer() { return settingsPol('Server', serveur42()); }
+// 42k. Server › Logo: none yet ("Add"), or the logo itself as the button (hover: outlined, an upload
+// sign over it) and ×. Admins with the Rules right.
+function serveurLogoSurvol() {
+  const hover = `<span title="Change" style="position:relative;display:inline-grid;cursor:pointer">${orgLogo(32)}<span style="position:absolute;inset:0;border-radius:var(--radius-lg);border:1px solid var(--focus);background:rgb(0 0 0 / .55);display:grid;place-items:center;color:#fff">${i('upload')}</span></span><button class="icon-btn icon-btn--sm" aria-label="Remove" title="Remove">${i('x')}</button>`;
+  return settingsPol('Server', serveur42(hover));
+}
+function serveurLogo() { return settingsPol('Server', serveur42(`<button class="btn btn--sm">${i('plus')}Add</button>`)); }
 // 42j. Confirmed by typing the organization's name; an encrypted export first, ticked.
 function serveurSupprimerConfirmer() {
-  return settingsPol('Server', serveur42, dlg('Delete the server?', `<span style="color:var(--text-muted)" title="Server on another machine: its data is erased, the program stays installed there">Example Studio, 14 members, 6 spaces. It cannot be undone.</span>
+  return settingsPol('Server', serveur42(), dlg('Delete the server?', `<span style="color:var(--text-muted)" title="Server on another machine: its data is erased, the program stays installed there">Example Studio, 14 members, 6 spaces. It cannot be undone.</span>
       <label class="row" style="padding:0"><span class="check on">${i('check')}</span><span class="row-label" title="Encrypted, opened by the recovery key of the organization">Export the spaces first</span></label>
       <div class="field"><span class="label">Type Example Studio to confirm</span><div class="input is-focus"><span class="grow">Example Stu</span></div></div>
       <div class="dialog-actions"><button class="btn">Cancel</button><button class="btn btn--danger" disabled>Delete server</button></div>`));
@@ -2023,6 +2033,8 @@ export const SCREENS = {
   '42h-acces-org-membre-hello': ['A member — the organization asks Windows Hello', accesOrgMembreHello],
   '42i-serveur-supprimer': ['Server — delete (Super Admin)', serveurSupprimer],
   '42j-serveur-supprimer-confirmer': ['Server — delete, confirmed', serveurSupprimerConfirmer],
+  '42k-logo-organisation': ['Server — organization logo, none yet', serveurLogo],
+  '42l-logo-survol': ['Server — organization logo under the pointer', serveurLogoSurvol],
   '40a-parcours-code': ['First launch — GitHub chosen, code to type', parcoursCode],
   '40b-parcours-creer': ['First launch — signed in, vault made here', parcoursCreer],
   '40c-parcours-ouvrir': ['First launch — signed in, vault opened here', parcoursOuvrir],

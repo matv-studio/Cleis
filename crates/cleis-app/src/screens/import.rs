@@ -126,21 +126,43 @@ fn select_box(t: &Tokens, label: impl Into<SharedString>, faint: bool) -> Div {
         .child(icon("chevron", 14., t.text_muted))
 }
 
+/// The organization's own Import & export page (D-99: never mixed with the personal vault's).
+pub const ORG_PAGE: &str = "Organization import & export";
+
+/// This page imports into the organization shown, not the personal vault.
+fn for_org(s: &Session) -> Option<String> {
+    (s.settings_page == ORG_PAGE)
+        .then(|| s.org.as_ref().map(|o| o.m.key()))
+        .flatten()
+}
+
+/// Spaces this page imports into: the personal vault's, or the organization's this member may
+/// write in.
 fn spaces(s: &Session) -> Vec<(SpaceId, String)> {
+    let org = for_org(s);
     s.spaces
         .iter()
         .filter(|sp| !sp.for_contacts)
+        .filter(|sp| match (&org, s.org_of(sp.id)) {
+            (None, None) => true,
+            (Some(k), Some(o)) => o.m.key() == *k && o.can(cleis_core::org::Perm::Edit),
+            _ => false,
+        })
         .map(|sp| (sp.id, crate::i18n::space(&sp.name)))
         .collect()
 }
 
 fn chosen_space(s: &Session) -> SpaceId {
+    let allowed = spaces(s);
+    let ok = |sp: &SpaceId| allowed.iter().any(|(id, _)| id == sp);
     s.import
         .space
+        .filter(ok)
         .or(match s.filter {
-            crate::app::Filter::Space(sp) => Some(sp),
+            crate::app::Filter::Space(sp) if ok(&sp) => Some(sp),
             _ => None,
         })
+        .or_else(|| for_org(s).and(allowed.first().map(|x| x.0)))
         .unwrap_or_else(|| s.vault.home_space())
 }
 
@@ -195,14 +217,16 @@ pub fn review(s: &Session, l: &Loaded) -> Review {
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let st = &s.import;
     match &st.file {
-        None => step_file(st, t, cx),
+        None => step_file(s, st, t, cx),
         Some(l) if st.step >= 3 => step_review(s, l, t, cx),
         Some(l) => step_columns(s, l, t, cx),
     }
 }
 
-fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+fn step_file(s: &Session, st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let drop_bg = t.surface_hover;
+    let org = for_org(s).and(s.org.as_ref());
+    let backups = org.is_some_and(|o| o.can(cleis_core::org::Perm::Backups));
     div()
         .flex()
         .flex_col()
@@ -248,7 +272,32 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .when_some(st.error.clone().map(|e| crate::i18n::tr_dynamic(&e)), |d, e| {
             d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
         })
-        .child(
+        // The organization's export is its backup (sealed with the backup key), for those who
+        // hold the Backups right.
+        .when(org.is_some() && backups, |d| {
+            d.child(
+                section(t).child(section_title(t, tr("Export"))).child(
+                    row(t, true)
+                        .child(
+                            div()
+                                .id("org-export-label")
+                                .flex_1()
+                                .child(tr("Encrypted export"))
+                                .tooltip(tip(tr(
+                                    "A sealed copy of the organization, opened with its backup key",
+                                ))),
+                        )
+                        .child(
+                            button("org-export", t, BtnKind::Default, true)
+                                .child(icon("download", 14., t.text))
+                                .child(tr("Export"))
+                                .on_click(cx.listener(|this, _, _, cx| this.org_backup_now(cx)))
+                                .test_support(),
+                        ),
+                ),
+            )
+        })
+        .when(org.is_none(), |d| d.child(
             section(t)
                 .child(section_title(t, tr("Export")))
                 .child(
@@ -269,7 +318,7 @@ fn step_file(st: &ImportState, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 .test_support(),
                         ),
                 ),
-        )
+        ))
 }
 
 fn tip(

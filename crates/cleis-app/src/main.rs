@@ -233,6 +233,7 @@ fn main() {
                                     "sync" | "org-backups" => "Sync & backups",
                                     "security" | "profile" => "Account",
                                     "import" => "Import & export",
+                                    "org-import" => cleis_app::screens::import::ORG_PAGE,
                                     "members" => "Members",
                                     "policy" => "Security policy",
                                     "encryption" => "Encryption",

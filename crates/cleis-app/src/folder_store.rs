@@ -17,6 +17,7 @@ pub trait Store: Send {
     fn list(&mut self, rel: &str) -> Result<Vec<String>, String>;
     /// Writes a whole file at once (folders made as needed): others never see half of it.
     fn write(&mut self, rel: &str, bytes: &[u8]) -> Result<(), String>;
+    /// A file, or an empty folder.
     fn remove(&mut self, rel: &str);
 }
 
@@ -53,8 +54,12 @@ impl Store for LocalStore {
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
 
+    /// A file, or an empty folder.
     fn remove(&mut self, rel: &str) {
-        let _ = std::fs::remove_file(self.0.join(rel));
+        let p = self.0.join(rel);
+        if std::fs::remove_file(&p).is_err() {
+            let _ = std::fs::remove_dir(&p);
+        }
     }
 }
 
@@ -326,7 +331,13 @@ impl Store for SftpStore {
     fn remove(&mut self, rel: &str) {
         let path = self.full(rel);
         let _ = self.with(|s, rt| {
-            rt.block_on(async { s.remove_file(path.clone()).await.map_err(|e| e.to_string()) })
+            rt.block_on(async {
+                if s.remove_file(path.clone()).await.is_err() {
+                    s.remove_dir(path.clone()).await.map_err(|e| e.to_string())
+                } else {
+                    Ok(())
+                }
+            })
         });
     }
 }

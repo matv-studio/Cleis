@@ -154,6 +154,26 @@ pub struct OrgUi {
     /// Server hosted on this computer: running, and the addresses members can reach.
     pub host: Option<(bool, Vec<String>)>,
     pub host_busy: bool,
+    /// Security policy › Accessing › Password › Set (mockup 42f): typed twice.
+    pub access_pw: Option<AccessPwForm>,
+    /// Server › Delete (mockup 42j, Super Admin).
+    pub delete_org: Option<DeleteOrgForm>,
+}
+
+/// The organization's password typed twice (mockup 42f, D-98).
+pub struct AccessPwForm {
+    pub first: Entity<InputState>,
+    pub confirm: Entity<InputState>,
+    pub error: Option<SharedString>,
+    pub busy: bool,
+}
+
+/// Deleting the organization: its name typed again, an export first (mockup 42j, D-98).
+pub struct DeleteOrgForm {
+    pub name: Entity<InputState>,
+    pub export: bool,
+    pub busy: bool,
+    pub error: Option<SharedString>,
 }
 
 impl OrgUi {
@@ -169,7 +189,9 @@ impl OrgUi {
             || self.rekey.is_some()
             || self.restore.is_some()
             || self.rename.is_some()
-            || self.delete_space.is_some();
+            || self.delete_space.is_some()
+            || self.access_pw.is_some()
+            || self.delete_org.as_ref().is_some_and(|d| !d.busy);
         self.invite = None;
         self.invite_code = None;
         self.new_space = None;
@@ -178,6 +200,10 @@ impl OrgUi {
         self.restore = None;
         self.rename = None;
         self.delete_space = None;
+        self.access_pw = None;
+        if self.delete_org.as_ref().is_some_and(|d| !d.busy) {
+            self.delete_org = None;
+        }
         open
     }
 
@@ -998,14 +1024,6 @@ const REMEMBER: [(u32, &str); 4] = [
     (30, "30 days"),
     (90, "90 days"),
 ];
-const LOCK_AFTER: [(Option<u32>, &str); 6] = [
-    (None, "Never"),
-    (Some(1), "1 min"),
-    (Some(5), "5 min"),
-    (Some(15), "15 min"),
-    (Some(30), "30 min"),
-    (Some(60), "1 hour"),
-];
 const OFFLINE: [(u32, &str); 4] = [
     (1, "1 day"),
     (7, "7 days"),
@@ -1023,23 +1041,33 @@ const PIN_AGAIN: [(u32, &str); 5] = [
 ];
 const PIN_TRIES: [u32; 3] = [3, 5, 10];
 const PIN_LENGTHS: [u8; 3] = [4, 6, 8];
-/// Mockup 35k (D-76).
-const UNLOCK_RULES: [(cleis_core::org::UnlockRule, &str); 3] = [
-    (cleis_core::org::UnlockRule::PasswordOnly, "Password only"),
-    (
-        cleis_core::org::UnlockRule::PasswordOrHello,
-        "Password or Windows Hello",
-    ),
-    (cleis_core::org::UnlockRule::Any, "Anything, also nothing"),
+/// Mockup 42c (D-98): what the organization asks.
+const ACCESS_WITH: [AccessWith; 3] = [AccessWith::Password, AccessWith::Pin, AccessWith::Hello];
+/// Mockup 42b: asked again after this long without using Cleis.
+const ACCESS_IDLE: [(Option<u32>, &str); 6] = [
+    (None, "Never"),
+    (Some(5), "5 minutes"),
+    (Some(15), "15 minutes"),
+    (Some(30), "30 minutes"),
+    (Some(60), "1 hour"),
+    (Some(240), "4 hours"),
 ];
-/// The members' master password (0: Cleis' own minimum, 10).
-const MASTER_MIN: [(u32, &str); 5] = [
-    (0, "10 characters"),
-    (12, "12 characters"),
-    (14, "14 characters"),
-    (16, "16 characters"),
-    (20, "20 characters"),
-];
+
+/// The name of an access way in the list (Windows Hello is Touch ID on a Mac).
+pub fn access_label(w: AccessWith) -> &'static str {
+    match w {
+        AccessWith::Password => "Password",
+        AccessWith::Pin => "PIN",
+        AccessWith::Hello => {
+            if cfg!(target_os = "macos") {
+                "Touch ID"
+            } else {
+                "Windows Hello"
+            }
+        }
+    }
+}
+
 const MAX_AGE: [(u32, &str); 4] = [
     (182, "6 months"),
     (365, "1 year"),
@@ -1195,19 +1223,19 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         .child(method(Method::Microsoft, cx)),
                 ),
         );
-    let locking = section(t)
-        .child(titled(t, tr("Locking"), None))
-        .child(
-            row(t, true).child(div().flex_1().child(tr("After inactivity"))).child(sel(
-                "pol-lock",
-                160.,
-                LOCK_AFTER.iter().map(|(m, l)| ((*l).into(), *m == p.lock_after_mins)).collect(),
-                Rc::new(|app, i, cx| app.org_set_policy(|p| p.lock_after_mins = LOCK_AFTER[i].0, cx)),
-                cx,
+    // Mockups 42a-42f (D-98): what the organization asks before its spaces show. How each
+    // member opens Cleis and their own vault stays theirs.
+    let acc = p.access;
+    let mut access = section(t)
+        .child(titled(
+            t,
+            &crate::trf!("Accessing {}", o.m.name),
+            Some(tr(
+                "Asked before the organization's spaces show. How each member opens Cleis and their own vault stays their choice.",
             )),
-        )
+        ))
         .child(
-            row(t, false)
+            row(t, true)
                 .child(
                     div()
                         .id("offline-l")
@@ -1222,106 +1250,41 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                     Rc::new(|app, i, cx| app.org_set_policy(|p| p.offline_days = OFFLINE[i].0, cx)),
                     cx,
                 )),
-        );
-    let opening = section(t)
-        .child(titled(
-            t,
-            tr("Opening Cleis"),
-            Some(tr("Applies to every member whose vault holds this organization")),
-        ))
-        .child(
-            row(t, true).child(div().flex_1().child(tr("Unlock with"))).child(sel(
-                "pol-unlock",
-                280.,
-                UNLOCK_RULES
-                    .iter()
-                    .map(|(r, l)| ((*l).into(), *r == p.unlock))
-                    .collect(),
-                Rc::new(|app, i, cx| app.org_set_policy(|p| p.unlock = UNLOCK_RULES[i].0, cx)),
-                cx,
-            )),
         )
         .child(
             row(t, false)
+                .child(div().flex_1().child(tr("Ask for authentication")))
                 .child(
-                    div()
-                        .id("master-min-l")
-                        .flex_1()
-                        .child(tr("Password: at least"))
-                        .tooltip(tip(tr("Asked when a member sets or changes it, and at the next unlock with a shorter one"))),
-                )
-                .child(sel(
-                    "pol-master-min",
-                    160.,
-                    MASTER_MIN
-                        .iter()
-                        .map(|(n, l)| ((*l).into(), *n == p.master_min_length))
-                        .collect(),
-                    Rc::new(|app, i, cx| {
-                        app.org_set_policy(|p| p.master_min_length = MASTER_MIN[i].0, cx)
-                    }),
-                    cx,
-                )),
-        );
-    // Mockup 36g (D-79): one PIN for the organization, asked before its spaces open.
-    let pin = p.pin;
-    let mut pin_sec = section(t)
-        .child(titled(
-            t,
-            tr("Organization PIN"),
-            Some(tr(
-                "Asked before the organization's spaces open, on top of the vault's own unlock",
-            )),
-        ))
-        .child(
-            row(t, true)
-                .child(div().flex_1().child(tr("Ask a PIN")))
-                .child(
-                    switch("pol-pin", t, pin.on)
+                    switch("pol-access", t, acc.on)
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.org_set_policy(|p| p.pin.on = !p.pin.on, cx)
+                            this.org_set_policy(|p| p.access.on = !p.access.on, cx)
                         }))
                         .test_support(),
                 ),
         );
-    if pin.on {
-        let len_ix = PIN_LENGTHS
-            .iter()
-            .position(|l| *l == pin.length)
-            .unwrap_or(1);
-        pin_sec = pin_sec
-            .child(
-                row(t, false)
-                    .child(
-                        div()
-                            .id("pin-new-l")
-                            .flex_1()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .child(tr("PIN"))
-                            .when(!st.pin_set, |d| {
-                                d.child(
-                                    div()
-                                        .text_size(TEXT_SM)
-                                        .text_color(t.warning_text)
-                                        .child(tr("Not set yet")),
-                                )
-                            })
-                            .tooltip(tip(tr(
-                                "Give it to the members; every device is asked the new one",
-                            ))),
-                    )
-                    .child(
-                        button("pin-set", t, BtnKind::Default, false)
-                            .child(tr(if st.pin_set { "Change" } else { "Set" }))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_org_pin_setup(window, cx)
-                            }))
-                            .test_support(),
-                    ),
-            )
-            .child(
+    if acc.on {
+        access = access.child(
+            row(t, false)
+                .child(div().flex_1().child(tr("With")))
+                .child(sel(
+                    "pol-access-with",
+                    220.,
+                    ACCESS_WITH
+                        .iter()
+                        .map(|w| (access_label(*w).into(), *w == acc.with))
+                        .collect(),
+                    Rc::new(|app, i, cx| {
+                        app.org_set_policy(|p| p.access.with = ACCESS_WITH[i], cx)
+                    }),
+                    cx,
+                )),
+        );
+        if acc.with == AccessWith::Pin {
+            let len_ix = PIN_LENGTHS
+                .iter()
+                .position(|l| *l == acc.length)
+                .unwrap_or(1);
+            access = access.child(
                 row(t, false)
                     .child(
                         div()
@@ -1336,7 +1299,66 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         &["4", "6", "8"],
                         len_ix,
                         Rc::new(|app, i, cx| {
-                            app.org_set_policy(|p| p.pin.length = PIN_LENGTHS[i], cx)
+                            app.org_set_policy(|p| p.access.length = PIN_LENGTHS[i], cx)
+                        }),
+                        cx,
+                    )),
+            );
+        }
+        if acc.with != AccessWith::Hello {
+            let what = if acc.with == AccessWith::Pin {
+                "PIN"
+            } else {
+                "Password"
+            };
+            access =
+                access.child(
+                    row(t, false)
+                        .child(
+                            div()
+                                .id("pin-new-l")
+                                .flex_1()
+                                .child(tr(what))
+                                .tooltip(tip(tr(
+                                    "Give it to the members; every device is asked the new one",
+                                ))),
+                        )
+                        .when(!st.pin_set && st.access_secret.is_none(), |d| {
+                            d.child(chip(t, Tone::Warn, tr("Not set yet"), true))
+                        })
+                        .child(
+                            button("pin-set", t, BtnKind::Default, false)
+                                .child(tr(if st.pin_set || st.access_secret.is_some() {
+                                    "Change"
+                                } else {
+                                    "Set"
+                                }))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_access_setup(window, cx)
+                                }))
+                                .test_support(),
+                        ),
+                );
+        }
+        access = access
+            .child(
+                row(t, false)
+                    .child(
+                        div()
+                            .id("pin-again-l")
+                            .flex_1()
+                            .child(tr("Ask again after"))
+                            .tooltip(tip(tr("Since it was last given on the device"))),
+                    )
+                    .child(sel(
+                        "pol-pin-again",
+                        160.,
+                        PIN_AGAIN
+                            .iter()
+                            .map(|(h, l)| ((*l).into(), *h == acc.again_hours))
+                            .collect(),
+                        Rc::new(|app, i, cx| {
+                            app.org_set_policy(|p| p.access.again_hours = PIN_AGAIN[i].0, cx)
                         }),
                         cx,
                     )),
@@ -1345,25 +1367,26 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 row(t, false)
                     .child(
                         div()
-                            .id("pin-again-l")
+                            .id("pin-idle-l")
                             .flex_1()
-                            .child(tr("Ask again after"))
-                            .tooltip(tip(tr("Then the PIN is asked again"))),
+                            .child(tr("After inactivity"))
+                            .tooltip(tip(tr("Without using Cleis"))),
                     )
                     .child(sel(
-                        "pol-pin-again",
+                        "pol-pin-idle",
                         160.,
-                        PIN_AGAIN
+                        ACCESS_IDLE
                             .iter()
-                            .map(|(h, l)| ((*l).into(), *h == pin.again_hours))
+                            .map(|(m, l)| ((*l).into(), *m == acc.idle_mins))
                             .collect(),
                         Rc::new(|app, i, cx| {
-                            app.org_set_policy(|p| p.pin.again_hours = PIN_AGAIN[i].0, cx)
+                            app.org_set_policy(|p| p.access.idle_mins = ACCESS_IDLE[i].0, cx)
                         }),
                         cx,
                     )),
-            )
-            .child(
+            );
+        if acc.with != AccessWith::Hello {
+            access = access.child(
                 row(t, false)
                     .child(
                         div()
@@ -1379,14 +1402,15 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         160.,
                         PIN_TRIES
                             .iter()
-                            .map(|n| (n.to_string(), *n == pin.tries))
+                            .map(|n| (n.to_string(), *n == acc.tries))
                             .collect(),
                         Rc::new(|app, i, cx| {
-                            app.org_set_policy(|p| p.pin.tries = PIN_TRIES[i], cx)
+                            app.org_set_policy(|p| p.access.tries = PIN_TRIES[i], cx)
                         }),
                         cx,
                     )),
             );
+        }
     }
     let passwords = section(t)
         .child(titled(
@@ -1529,11 +1553,9 @@ pub fn policy(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .flex_col()
         .gap(px(16.))
         .child(head(t, tr("Security policy")))
+        .child(rules_lock("pol-lock-access", rules, access))
         .child(rules_lock("pol-lock-signing", rules, signing))
         .child(rules_lock("pol-lock-methods", rules, methods))
-        .child(rules_lock("pol-lock-opening", rules, opening))
-        .child(rules_lock("pol-lock-pin", rules, pin_sec))
-        .child(locking)
         .child(passwords)
         .child(rules_lock("pol-lock-log", rules, log))
         .child(autofill)
@@ -1582,47 +1604,7 @@ pub fn encryption(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
             .child(div().w(px(80.)).flex().justify_end().child(tr("Members")))
             .child(div().w(px(320.)).child(tr("Mode"))),
     );
-    table = table.child(
-        cols(div())
-            .h(px(40.))
-            .border_b_1()
-            .border_color(t.line)
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(icon("user", 16., t.text_muted))
-                    .child(tr("Personal vaults")),
-            )
-            .child(
-                div()
-                    .w(px(80.))
-                    .flex()
-                    .justify_end()
-                    .text_color(t.text_muted)
-                    .child("—"),
-            )
-            .child(
-                div()
-                    .w(px(80.))
-                    .flex()
-                    .justify_end()
-                    .text_color(t.text_muted)
-                    .child(st.members.len().to_string()),
-            )
-            .child(
-                div()
-                    .id("personal-mode")
-                    .w(px(320.))
-                    .flex()
-                    .tooltip(tip(
-                        "Always end-to-end: personal vaults never reach the server",
-                    ))
-                    .child(chip(t, Tone::Ok, tr("End-to-end"), false)),
-            ),
-    );
+    // D-99: only the organization's spaces; the personal vaults are not the organization's.
     for sv in &st.spaces {
         let id = sv.id;
         let pending = o.ui.changes.iter().find(|c| c.0 == id).map(|c| c.1);
@@ -1915,10 +1897,11 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .child(
             section(t)
                 .child(titled(t, &o.m.name, None))
+                .child(logo_row(o, t, cx))
                 .when(hosted, |d| {
                     let copy = addr_text.clone();
                     d.child(
-                        row(t, true)
+                        row(t, false)
                             .child(div().flex_1().child(tr("Hosted")))
                             .child(tr("This computer"))
                             .child(if o.ui.host.is_none() {
@@ -1979,7 +1962,7 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                 })
                 .when(!hosted, |d| {
                     d.child(
-                        row(t, true)
+                        row(t, false)
                             .child(div().flex_1().child(tr("Address")))
                             .child(match &o.ui.address {
                                 Some((input, _)) => div()
@@ -2051,6 +2034,100 @@ pub fn server(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                         ),
                 ),
         )
+        // Mockups 42i, 42j (D-98): the Super Admin deletes the organization.
+        .when(o.role().is_some_and(|r| r.is_super()), |d| {
+            d.child(
+                section(t).child(titled(t, tr("Delete"), None)).child(
+                    row(t, true)
+                        .child(
+                            div()
+                                .id("del-org-l")
+                                .flex_1()
+                                .child(tr("Server and its data"))
+                                .tooltip(tip(tr(
+                                    "Its spaces, members, log and backups. Members' copies go at their next sync.",
+                                ))),
+                        )
+                        .child(
+                            button("del-org", t, BtnKind::Danger, true)
+                                .child(icon("trash", 14., gpui_kit::white()))
+                                .child(tr("Delete server"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_delete_org(window, cx)
+                                }))
+                                .test_support(),
+                        ),
+                ),
+            )
+        })
+}
+
+/// Server › Logo (mockups 42i, 42k, D-98): the logo itself is the button (its hover says so);
+/// × takes it away. Admins with the Rules right; the others see it.
+fn logo_row(o: &OrgSession, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+    let rules = o.can(Perm::Rules);
+    let logo = o.local.logo.clone();
+    let mut r = row(t, true).child(
+        div()
+            .id("logo-l")
+            .flex_1()
+            .child(tr("Logo"))
+            .tooltip(tip(tr(
+                "Shown to the members when the organization asks for authentication. PNG or JPEG, square.",
+            ))),
+    );
+    match (&logo, rules) {
+        (None, false) => r = r.child(div().text_color(t.text_muted).child(tr("None"))),
+        (None, true) => {
+            r = r.child(
+                button("logo-add", t, BtnKind::Default, true)
+                    .child(icon("plus", 14., t.text))
+                    .child(tr("Add"))
+                    .on_click(cx.listener(|this, _, _, cx| this.org_pick_logo(cx)))
+                    .test_support(),
+            )
+        }
+        (Some(b), _) => {
+            r = r.child(
+                div()
+                    .id("logo-change")
+                    .relative()
+                    .rounded(px(6.))
+                    .child(org_logo(t, Some(b), &o.m.name, 32.))
+                    .when(rules, |d| {
+                        d.cursor_pointer()
+                            .group("logo")
+                            .child(
+                                div()
+                                    .absolute()
+                                    .inset_0()
+                                    .rounded(px(6.))
+                                    .border_1()
+                                    .border_color(t.focus)
+                                    .bg(t.overlay)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .invisible()
+                                    .group_hover("logo", |d| d.visible())
+                                    .child(icon("upload", 14., gpui_kit::white())),
+                            )
+                            .tooltip(tip(tr("Change")))
+                            .on_click(cx.listener(|this, _, _, cx| this.org_pick_logo(cx)))
+                    })
+                    .test_support(),
+            );
+            if rules {
+                r = r.child(
+                    icon_button("logo-remove", t, "x", true)
+                        .tooltip(tip(tr("Remove")))
+                        .on_click(cx.listener(|this, _, _, cx| this.org_set_logo(None, cx)))
+                        .test_support(),
+                );
+            }
+        }
+    }
+    r
 }
 
 /// Settings › Organization without one: the server address and invitation code (as on the first
@@ -3135,6 +3212,20 @@ fn method_short(m: Method) -> &'static str {
     }
 }
 
+/// The organization the vault shows (its tab, or its section in the sidebar), if any (D-98: its
+/// logo then takes the profile's place at the top right).
+pub fn org_in_view(s: &Session) -> Option<&OrgSession> {
+    use crate::app::{Filter, Scope};
+    if s.tab != crate::app::Tab::Vault {
+        return None;
+    }
+    s.all_orgs().find(|o| match (&s.scope, &s.filter) {
+        (Scope::Org(k), _) => *k == o.m.key(),
+        (_, Filter::Org(h)) => *h == crate::app::org_hash(&o.m.key()),
+        _ => false,
+    })
+}
+
 /// The organization whose PIN is asked, when the vault shows it (its tab, or its section in the
 /// sidebar) (D-79).
 pub fn pin_shown(s: &Session) -> Option<&OrgSession> {
@@ -3149,13 +3240,19 @@ pub fn pin_shown(s: &Session) -> Option<&OrgSession> {
     })
 }
 
-/// Mockup 36h: the organization's PIN, in the place of its items.
+/// Mockups 36h, 42g, 42h (D-98): what the organization asks, in the place of its items, under
+/// its logo.
 pub fn pin_card(o: &OrgSession, t: &Tokens, window: &Window, cx: &mut Context<CleisApp>) -> Div {
     let Some(p) = o.pin.as_ref() else {
         return div();
     };
     let key = o.m.key();
     let busy = p.busy;
+    let label = match p.with {
+        AccessWith::Pin => Some(tr("Organization PIN")),
+        AccessWith::Password => Some(tr("Organization password")),
+        AccessWith::Hello => None,
+    };
     let mut body = section(t).gap(px(12.)).child(
         div()
             .flex()
@@ -3164,31 +3261,45 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, window: &Window, cx: &mut Context<Cl
             .gap(px(8.))
             .child(
                 div()
-                    .size(px(40.))
-                    .rounded(RADIUS_LG)
-                    .bg(t.surface_active)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(icon("lock", 20., t.text)),
+                    .relative()
+                    .child(org_logo(t, o.local.logo.as_deref(), &o.m.name, 48.))
+                    .child(
+                        div()
+                            .absolute()
+                            .right(px(-6.))
+                            .bottom(px(-6.))
+                            .size(px(20.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(t.surface_raised)
+                            .border_1()
+                            .border_color(t.line_strong)
+                            .child(icon("lock", 11., t.text)),
+                    ),
             )
             .child(
                 div()
+                    .pt(px(4.))
                     .text_size(TEXT_XL)
                     .line_height(px(26.))
                     .font_weight(W_STRONG)
                     .child(o.m.name.clone()),
             )
-            .child(
-                div()
-                    .id("pin-label")
-                    .text_color(t.text_muted)
-                    .child(tr("Organization PIN"))
-                    .tooltip(tip(crate::trf!(
-                        "Set by your organization · {} digits",
-                        p.len
-                    ))),
-            ),
+            .when_some(label, |d, l| {
+                d.child(
+                    div()
+                        .id("pin-label")
+                        .text_color(t.text_muted)
+                        .child(l)
+                        .tooltip(tip(if p.with == AccessWith::Pin {
+                            crate::trf!("Set by your organization · {} digits", p.len)
+                        } else {
+                            tr("Set by your organization").into()
+                        })),
+                )
+            }),
     );
     if p.locked {
         body = body.child(
@@ -3197,13 +3308,13 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, window: &Window, cx: &mut Context<Cl
                 .text_align(gpui_kit::TextAlign::Center)
                 .text_color(t.danger_text)
                 .child(tr(
-                    "Too many wrong PINs. Ask an admin to unlock your access.",
+                    "Too many wrong tries. Ask an admin to unlock your access.",
                 )),
         );
     } else {
-        body = body
-            .when_some(p.boxes.as_ref(), |d, b| {
-                // The boxes of the organization shown (only one PIN card at a time).
+        body = match p.with {
+            AccessWith::Pin => body.when_some(p.boxes.as_ref(), |d, b| {
+                // The boxes of the organization shown (only one card at a time).
                 let get: super::pin::Get = |app| {
                     let s = app.session()?;
                     let key = pin_shown(s)?.m.key();
@@ -3222,10 +3333,32 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, window: &Window, cx: &mut Context<Cl
                     app.in_org(&key, |app| app.org_pin_submit(cx));
                 };
                 d.child(super::pin::boxes("org-pin", b, t, window, get, done, cx))
-            })
+            }),
+            AccessWith::Password => body.when_some(p.field.as_ref(), |d, f| {
+                d.child(Input::new(f).id("org-password"))
+            }),
+            AccessWith::Hello => body,
+        };
+        let ready = match p.with {
+            AccessWith::Pin => p.boxes.as_ref().is_some_and(|b| b.full()),
+            _ => true,
+        };
+        let (open_label, ico) = match p.with {
+            AccessWith::Hello => (
+                if cfg!(target_os = "macos") {
+                    tr("Open with Touch ID")
+                } else {
+                    tr("Open with Windows Hello")
+                },
+                Some("fingerprint"),
+            ),
+            _ => (tr("Open"), None),
+        };
+        body = body
             .when_some(p.error.clone(), |d, e| {
                 d.child(
                     div()
+                        .id("pin-error")
                         .text_size(TEXT_SM)
                         .text_color(t.danger_text)
                         .child(crate::i18n::tr_dynamic(&e)),
@@ -3235,10 +3368,14 @@ pub fn pin_card(o: &OrgSession, t: &Tokens, window: &Window, cx: &mut Context<Cl
                 button("pin-open", t, BtnKind::Primary, false)
                     .h(px(32.))
                     .w_full()
-                    .when(busy || !p.boxes.as_ref().is_some_and(|b| b.full()), |b| {
-                        b.opacity(0.6)
+                    .when(busy || !ready, |b| b.opacity(0.6))
+                    .when_some(ico, |b, i| b.child(icon(i, 16., t.primary_ink)))
+                    .child(open_label)
+                    .when(p.with == AccessWith::Hello, |b| {
+                        b.tooltip(tip(tr(crate::opening::hello_tip(
+                            crate::opening::hello_available(),
+                        ))))
                     })
-                    .child(tr("Open"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let key = key.clone();
                         this.in_org(&key, |app| app.org_pin_submit(cx));
@@ -3700,6 +3837,159 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
             ));
         return Some(overlay(t, body));
     }
+    if let Some(f) = &o.ui.access_pw {
+        let body = card(t, &crate::trf!("{} password", o.m.name))
+            .child(
+                div()
+                    .id("access-pw-l")
+                    .tooltip(tip(crate::trf!(
+                        "At least {} characters",
+                        ACCESS_PASSWORD_MIN
+                    )))
+                    .child(field(
+                        t,
+                        tr("Password"),
+                        Input::new(&f.first).id("access-pw"),
+                    )),
+            )
+            .child(field(
+                t,
+                tr("Confirm"),
+                Input::new(&f.confirm).id("access-pw-confirm"),
+            ))
+            .when_some(f.error.clone(), |d, e| {
+                d.child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.danger_text)
+                        .child(crate::i18n::tr_dynamic(&e)),
+                )
+            })
+            .child(
+                div()
+                    .pt(px(8.))
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        button("access-pw-cancel", t, BtnKind::Default, false)
+                            .child(tr("Cancel"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(o) = org_mut(this) {
+                                    o.ui.access_pw = None;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .child(
+                        button("access-pw-save", t, BtnKind::Primary, false)
+                            .when(f.busy, |b| b.opacity(0.6))
+                            .child(tr("Save"))
+                            .on_click(cx.listener(|this, _, _, cx| this.save_access_password(cx)))
+                            .test_support(),
+                    ),
+            );
+        return Some(overlay(t, body));
+    }
+    if let Some(f) = &o.ui.delete_org {
+        let members = st.map_or(0, |x| x.members.iter().filter(|m| !m.revoked).count());
+        let spaces = st.map_or(0, |x| x.spaces.len());
+        let typed = f.name.read(cx).value().trim() == o.m.name.trim();
+        let export = f.export;
+        let body = card(t, tr("Delete the server?"))
+            .child(
+                div()
+                    .id("del-org-what")
+                    .text_color(t.text_muted)
+                    .tooltip(tip(tr(if o.local.host_dir.is_some() || o.m.in_folder() {
+                        "Its members' copies are removed at their next sync"
+                    } else {
+                        "Server on another machine: its data is erased, the program stays installed there"
+                    })))
+                    .child(crate::trf!(
+                        "{}, {} members, {} spaces. It cannot be undone.",
+                        o.m.name,
+                        members,
+                        spaces
+                    )),
+            )
+            .child(
+                div()
+                    .id("del-org-export")
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .h(px(32.))
+                    .cursor_pointer()
+                    .child(check_box(t, export))
+                    .child(
+                        div()
+                            .id("del-org-export-l")
+                            .child(tr("Export the spaces first"))
+                            .tooltip(tip(tr(
+                                "A backup of the organization, sealed, kept on this computer",
+                            ))),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(d) = org_mut(this).and_then(|o| o.ui.delete_org.as_mut()) {
+                            d.export = !d.export;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(field(
+                t,
+                &crate::trf!("Type {} to confirm", o.m.name),
+                Input::new(&f.name).id("del-org-name"),
+            ))
+            .when_some(f.error.clone(), |d, e| {
+                d.child(
+                    div()
+                        .text_size(TEXT_SM)
+                        .text_color(t.danger_text)
+                        .child(crate::i18n::tr_dynamic(&e)),
+                )
+            })
+            .child(
+                div()
+                    .pt(px(8.))
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        button("del-org-cancel", t, BtnKind::Default, false)
+                            .when(f.busy, |b| b.opacity(0.45))
+                            .child(tr("Cancel"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(o) = org_mut(this)
+                                    && !o.ui.delete_org.as_ref().is_some_and(|d| d.busy)
+                                {
+                                    o.ui.delete_org = None;
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .child(
+                        button("del-org-go", t, BtnKind::Danger, false)
+                            .when(!typed || f.busy, |b| b.opacity(0.45))
+                            .child(if f.busy {
+                                tr("Deleting…")
+                            } else {
+                                tr("Delete server")
+                            })
+                            .when(typed && !f.busy, |b| {
+                                b.on_click(
+                                    cx.listener(|this, _, _, cx| this.org_delete_server(cx)),
+                                )
+                            })
+                            .test_support(),
+                    ),
+            );
+        return Some(overlay(t, body));
+    }
     if let (Some(id), Some(st)) = (o.ui.delete_space, st) {
         let n = st.spaces.iter().find(|x| x.id == id).map_or(0, |x| x.items);
         let body = card(t, &crate::trf!("Delete “{}”?", o.space_name(id)))
@@ -3853,16 +4143,50 @@ impl CleisApp {
             if p.locked {
                 continue;
             }
-            if p.boxes.is_none() {
-                p.boxes = Some(super::pin::PinBoxes::new(usize::from(p.len), cx));
-                p.focused = false;
-            }
-            if here
-                && !p.focused
-                && let Some(b) = p.boxes.as_ref()
-            {
-                window.focus(&b.focus, cx);
-                p.focused = true;
+            match p.with {
+                AccessWith::Pin => {
+                    if p.boxes.is_none() {
+                        p.boxes = Some(super::pin::PinBoxes::new(usize::from(p.len), cx));
+                        p.focused = false;
+                    }
+                    if here
+                        && !p.focused
+                        && let Some(b) = p.boxes.as_ref()
+                    {
+                        window.focus(&b.focus, cx);
+                        p.focused = true;
+                    }
+                }
+                // Mockup 42g: one field; Enter opens.
+                AccessWith::Password => {
+                    if p.field.is_none() {
+                        let f = cx.new(|cx| InputState::new(window, cx).masked(true));
+                        let key = o.m.key();
+                        let sub = cx.subscribe_in(
+                            &f,
+                            window,
+                            move |this, _, ev: &gpui_kit::component::input::InputEvent, _, cx| {
+                                if matches!(
+                                    ev,
+                                    gpui_kit::component::input::InputEvent::PressEnter { .. }
+                                ) {
+                                    this.in_org(&key, |app| app.org_pin_submit(cx));
+                                }
+                            },
+                        );
+                        o.ui.subs.push(sub);
+                        p.field = Some(f);
+                        p.focused = false;
+                    }
+                    if here
+                        && !p.focused
+                        && let Some(f) = p.field.as_ref()
+                    {
+                        f.update(cx, |i, cx| i.focus(window, cx));
+                        p.focused = true;
+                    }
+                }
+                AccessWith::Hello => {}
             }
         }
         let Some(s) = self.session() else { return };
@@ -4475,7 +4799,8 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 .and_then(|s| s.org.as_mut())
                 .and_then(|o| o.state.as_mut())
             {
-                st.policy.pin.on = true;
+                st.policy.access.on = true;
+                st.policy.access.with = AccessWith::Pin;
             }
             app.open_org_pin_setup(window, cx);
         }
@@ -4630,8 +4955,39 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 .and_then(|s| s.org.as_mut())
                 .and_then(|o| o.state.as_mut())
             {
-                st.policy.pin.on = true;
+                st.policy.access.on = true;
+                st.policy.access.with = AccessWith::Pin;
             }
+        }
+        // Mockups 42b, 42g (D-98): a password set by the admin; asked of a member.
+        "policy-access" => {
+            if let Some(st) = app
+                .session()
+                .and_then(|s| s.org.as_mut())
+                .and_then(|o| o.state.as_mut())
+            {
+                st.policy.access.on = true;
+                st.policy.access.with = AccessWith::Password;
+                st.policy.access.idle_mins = Some(15);
+                st.pin_set = true;
+            }
+        }
+        "org-password" => {
+            if let Some(s) = app.session() {
+                let key = s.org.as_ref().map(|o| o.m.key());
+                if let (Some(o), Some(k)) = (s.org.as_mut(), key) {
+                    o.pin = Some(crate::org::PinPrompt::asking(
+                        AccessWith::Password,
+                        crate::org::PIN_DEFAULT_LEN,
+                        false,
+                    ));
+                    s.filter = crate::app::Filter::Org(crate::app::org_hash(&k));
+                }
+                crate::org::hide_org_entries(s);
+            }
+        }
+        "delete-org" => {
+            app.open_delete_org(window, cx);
         }
         "wheel" => {
             if let Some(s) = app.session() {
@@ -5253,5 +5609,118 @@ impl CleisApp {
             },
             cx,
         );
+    }
+}
+
+impl CleisApp {
+    /// Security policy › Accessing › Set / Change (D-98): PIN boxes (37q) or the password typed
+    /// twice (42f).
+    pub fn open_access_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(with) =
+            org_mut(self).and_then(|o| o.state.as_ref().map(|st| st.policy.access.with))
+        else {
+            return;
+        };
+        match with {
+            AccessWith::Pin => self.open_org_pin_setup(window, cx),
+            AccessWith::Password => {
+                let first = cx.new(|cx| InputState::new(window, cx).masked(true));
+                let confirm = cx.new(|cx| InputState::new(window, cx).masked(true));
+                first.update(cx, |i, cx| i.focus(window, cx));
+                if let Some(o) = org_mut(self) {
+                    o.ui.access_pw = Some(AccessPwForm {
+                        first,
+                        confirm,
+                        error: None,
+                        busy: false,
+                    });
+                }
+                cx.notify();
+            }
+            AccessWith::Hello => {}
+        }
+    }
+
+    /// The password typed twice (42f): the same, long enough, then kept (only its digest goes).
+    pub fn save_access_password(&mut self, cx: &mut Context<Self>) {
+        let Some(o) = org_mut(self) else { return };
+        let Some(f) = o.ui.access_pw.as_mut() else {
+            return;
+        };
+        if f.busy {
+            return;
+        }
+        let a = zeroize::Zeroizing::new(f.first.read(cx).value().to_string());
+        let b = zeroize::Zeroizing::new(f.confirm.read(cx).value().to_string());
+        if *a != *b {
+            f.error = Some(tr("The two passwords differ").into());
+            cx.notify();
+            return;
+        }
+        if a.chars().count() < ACCESS_PASSWORD_MIN {
+            f.error = Some(crate::trf!("At least {} characters", ACCESS_PASSWORD_MIN).into());
+            cx.notify();
+            return;
+        }
+        f.busy = true;
+        f.error = None;
+        cx.notify();
+        self.org_set_access(a, cx);
+    }
+
+    /// Server › Delete (42j): the dialog, its name box focused.
+    pub fn open_delete_org(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = cx.new(|cx| InputState::new(window, cx));
+        name.update(cx, |i, cx| i.focus(window, cx));
+        let sub = cx.observe(&name, |_, _, cx| cx.notify());
+        if let Some(o) = org_mut(self) {
+            o.ui.subs.push(sub);
+            o.ui.delete_org = Some(DeleteOrgForm {
+                name,
+                export: true,
+                busy: false,
+                error: None,
+            });
+        }
+        cx.notify();
+    }
+
+    /// Picks a picture for the logo: the centred square at 128 px, as PNG.
+    pub fn org_pick_logo(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.toast(tr("Not in the demo"), cx);
+            return;
+        }
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        let Some(key) = self.active_org_key() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let png = cx
+                .background_spawn(async move {
+                    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+                    crate::org::logo_png(&bytes)
+                })
+                .await;
+            this.update(cx, |app, cx| {
+                app.in_org(&key, |app| match png {
+                    Ok(png) => app.org_set_logo(Some(png), cx),
+                    Err(e) => app.toast(crate::i18n::tr_dynamic(&e), cx),
+                });
+            })
+            .ok();
+        })
+        .detach();
     }
 }

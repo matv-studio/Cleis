@@ -414,6 +414,27 @@ fn sample_photo() -> String {
     crate::screens::contacts::portrait(png.get_ref()).expect("demo photo")
 }
 
+/// A drawn logo for the demo organization (D-98): two shapes on a dark square, no real brand.
+pub fn sample_logo() -> Vec<u8> {
+    let n = 128u32;
+    let img = image::RgbaImage::from_fn(n, n, |x, y| {
+        let (fx, fy) = (x as f32 / n as f32, y as f32 / n as f32);
+        let circle = ((fx - 0.38).powi(2) + (fy - 0.5).powi(2)).sqrt() < 0.18;
+        let rect = (0.46..0.78).contains(&fx) && (0.32..0.68).contains(&fy);
+        if rect {
+            image::Rgba([242, 193, 78, 255])
+        } else if circle {
+            image::Rgba([79, 179, 191, 255])
+        } else {
+            image::Rgba([31, 59, 77, 255])
+        }
+    });
+    let mut png = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut png, image::ImageFormat::Png)
+        .expect("PNG in memory");
+    png.into_inner()
+}
+
 /// Item for trying autofill against `design/tools/autofill-form.hta` (`--try-autofill`): its name
 /// matches the form's window title. Fictitious values.
 pub fn add_autofill_sample(path: &Path) -> anyhow::Result<()> {
@@ -476,6 +497,7 @@ pub fn org(s: &mut crate::app::Session) {
         verify_key: key(),
         factor: two_fa.then_some(Method::AuthenticatorApp),
         pin_locked: false,
+        pin_reset: None,
     };
     let all: Vec<SpaceId> = spaces.iter().map(|x| x.0).collect();
     let today = now - now.rem_euclid(86_400);
@@ -720,6 +742,7 @@ pub fn org(s: &mut crate::app::Session) {
             recovery_public: Some(key().to_vec()),
             recovery_saved: Some(now - 11 * 86_400),
             super_public: Some(super_kp.public().0.to_vec()),
+            logo: Some(sample_logo()),
         },
         me,
         roles: Role::defaults(),
@@ -751,6 +774,7 @@ pub fn org(s: &mut crate::app::Session) {
         methods: vec![Method::AuthenticatorApp, Method::Email, Method::Google],
         providers: vec![],
         pin_set: false,
+        access_secret: None,
     };
     // The organization's contact folders belong to it too (audit L-13).
     let names = spaces
@@ -806,6 +830,8 @@ pub fn org(s: &mut crate::app::Session) {
             pin_len: None,
             pin_until: None,
             folder: None,
+            logo: Some(data_encoding::BASE64.encode(&sample_logo())),
+            ..Default::default()
         },
         state: Some(st),
         busy: false,

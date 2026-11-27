@@ -352,6 +352,21 @@ pub fn contact_avatar(t: &Tokens, c: &cleis_core::Contact, size: f32) -> Div {
     }
 }
 
+/// An organization's logo (PNG, base64), rounded like a site icon; its initials when it has none
+/// (D-98).
+pub fn org_logo(t: &Tokens, png_b64: Option<&str>, name: &str, size: f32) -> Div {
+    let radius = px(if size > 30. { 10. } else { 6. });
+    match png_b64.and_then(|b| photo_image(&format!("data:image/png;base64,{b}"))) {
+        Some(img) => div()
+            .flex_none()
+            .size(px(size))
+            .rounded(radius)
+            .overflow_hidden()
+            .child(gpui_kit::img(img).size(px(size)).rounded(radius)),
+        None => site_icon(t, name.chars().next().unwrap_or('?'), size).rounded(radius),
+    }
+}
+
 /// The image of a photo's `data:` URL, decoded once per photo (several avatars show it).
 pub fn photo_image(url: &str) -> Option<std::sync::Arc<gpui_kit::Image>> {
     use std::collections::HashMap;

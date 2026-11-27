@@ -758,15 +758,50 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 
 - **D-98 L'organisation ne règle que son propre accès** (27/11/2026, demande de l'utilisateur : « un admin
   d'org ne peut pas forcer l'app Cleis à se verrouiller avec son mdp, surtout quand on a des vaults
-  personnels »). Le libellé personnel devient « Unlock Cleis with ». À coder après validation des
-  maquettes 42 : la règle « Opening Cleis » (D-76 : façons d'ouvrir permises, longueur du mot de passe
-  maître) et le verrouillage après inactivité imposé à l'appli disparaissent ; « Accessing <org> »
-  regroupe l'accès hors ligne et le PIN de D-79 étendu (mot de passe ou PIN fixé par l'admin, ou
-  Windows Hello · Touch ID de l'ordinateur du membre), redemandé après un délai ou une inactivité, qui ne
-  masque que les espaces de l'organisation. Suppression du serveur par le Super Admin (42i, 42j).
-  - En suspens : PIN d'une organisation en dossier partagé (sans serveur, personne ne compte les essais
-    faux et l'empreinte d'un PIN de 4 à 8 chiffres se retrouve par essais) : grisé dans 42c, choix à
-    confirmer par l'utilisateur.
+  personnels » ; maquettes 42a à 42l validées). Le libellé personnel devient « Unlock Cleis with » ; la
+  règle « Opening Cleis » (D-76 : façons d'ouvrir permises, longueur du mot de passe) et le verrouillage
+  après inactivité imposé à l'appli sont retirés (`UnlockRule`, `master_min_length`, `lock_after_mins`
+  de la politique, `enforce_opening`).
+  - « Accessing <org> » (Security policy) : accès hors ligne, « Ask for authentication », puis « With » :
+    mot de passe (10 caractères au moins) ou PIN (4, 6, 8 chiffres) fixés par un administrateur (droit
+    Règles), ou Windows Hello / Touch ID de l'ordinateur du membre ; « Ask again after » (heures depuis la
+    dernière saisie), « After inactivity » (minutes sans utiliser Cleis), « Wrong tries before locking ».
+    `PinRule` devient `AccessRule` (`#[serde(alias = "pin")]`, ancien PIN lu comme `with: pin`).
+  - Seule l'empreinte Argon2id (paramètres par défaut, 64 Mio) quitte l'appli de l'administrateur
+    (`/v1/policy/access`, `cleis_server::new_access_secret`) : un dossier partagé ne contient jamais le
+    secret en clair. Serveur : il vérifie à la connexion et à `/v1/access/check` (après inactivité), compte
+    les erreurs, bloque ; un secret donné est toujours vérifié, même avant l'échéance. Changer de longueur
+    ou de façon efface le secret. Windows Hello / Touch ID : vérifié par l'ordinateur du membre (le serveur
+    ne demande rien), invite sans clé produite (`opening::hello_check`).
+  - Dossier partagé : chaque appli vérifie contre l'empreinte reçue dans l'état (`State.access_secret`,
+    jamais envoyée par un serveur) et compte ses propres erreurs ; « Débloquer » d'un administrateur
+    date le déblocage (`MemberView.pin_reset`), qui rouvre l'ordinateur bloqué avant. Limite consignée :
+    l'empreinte d'un PIN de 4 à 8 chiffres se trouve par essais (Argon2id ralentit : environ 6 jours
+    par cœur pour 6 chiffres) ; l'accès reste un masquage, la copie locale se déchiffre par la clé du
+    coffre (comme D-79).
+  - Logo de l'organisation (Server › Logo : l'image elle-même est le bouton, survol avec signe
+    d'envoi, × pour retirer) : PNG carré de 128 px (96 Ko au plus, `/v1/org/logo`), montré sur la
+    carte d'authentification avec un cadenas, et en haut à droite à la place du profil quand le coffre
+    de l'organisation est affiché.
+  - Suppression du serveur par le Super Admin (Server › Delete, nom retapé, export d'abord coché) :
+    `/v1/org/delete` efface toutes les tables et les sauvegardes du serveur, puis toute requête répond
+    `deleted` (410) ; les applis des membres oublient l'organisation. Serveur sur cet ordinateur : arrêté
+    et son dossier supprimé ; serveur ailleurs : ses données effacées, le programme y reste ; dossier
+    partagé : les opérations retirées, seule la marque `deleted.json` reste.
+  - Unlock Cleis : « Windows Hello » sous Windows, « Touch ID » sur Mac (LocalAuthentication + secret
+    du trousseau, clé par HKDF dans `cleis-crypto::derive_device_key`), rien sous Linux.
+
+- **D-99 Couleurs d'accent atténuées ; organisation et coffre personnel séparés** (27/11/2026, demandes
+  de l'utilisateur). Les couleurs proposées deviennent atténuées (violet `#494A6A` donné par
+  l'utilisateur, les autres à sa saturation et sa luminosité : bleu `#3F5A75`, vert `#48664F`, sarcelle
+  `#3F6766`, rouge `#7A4646`) ; une couleur de l'ancienne liste passe à la nouvelle. Les aplats
+  (boutons principaux) gardent la couleur choisie, avec l'encre noire ou blanche selon le contraste ;
+  les traits et textes d'accent restent relevés à 3,6:1 sur la page (sinon le violet foncé serait
+  illisible en thème sombre). Import & export : celui du coffre personnel reste dans My account, chaque
+  organisation a le sien (import dans ses espaces, export = sa sauvegarde scellée) ; Encryption de
+  l'organisation ne montre plus la ligne « Personal vaults ».
+  - En suspens : la charte n'est pas modifiée (aplat tel que choisi) ; « Sync & backups » garde son
+    sélecteur « Mine / <org> » (D-67, audit U-15).
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

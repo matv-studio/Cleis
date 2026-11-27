@@ -278,6 +278,7 @@ fn decode<R: DeserializeOwned>(r: Response) -> Result<R, NetError> {
             error: "http".into(),
             message: format!("HTTP {}", r.status),
             pin_length: None,
+            password: false,
         });
         Err(NetError::Api(r.status, e))
     }
