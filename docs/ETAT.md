@@ -1,5 +1,17 @@
 # Cleis — état
 
+## 28/11/2026 (retours sur la 0.2.4, avant brouillon)
+- Remplissage : le focus lu trop tôt après Tab (navigateur) faisait croire à une connexion en deux pages
+  (Maj+Tab, Entrée, formulaire envoyé sans mot de passe). Désormais : focus relu jusqu'à 600 ms, puis
+  recherche du champ mot de passe de la page (UI Automation, `focus_password_field`) ; seule une page
+  sans champ mot de passe est en deux pages ; sans recherche possible, rien n'est envoyé. Un seul
+  remplissage à la fois : un second appui interrompt l'attente du premier et reprend là où il s'est
+  arrêté (les deux tapaient la même adresse lettre à lettre).
+- Raccourcis globaux : `global-hotkey` ne garde que le premier gestionnaire d'événements (`OnceCell`) ;
+  changer un raccourci le rendait muet jusqu'au redémarrage. Un seul gestionnaire, une route mise à jour.
+- Maquettes 49a à 49m envoyées (filtres Show, lignes de dossier, Préférences réordonnées, places de
+  synchro principale + copies, sauvegardes, dossier Drive / OneDrive, départ refusé du seul invitant).
+
 ## 28/11/2026 (branche unique)
 - D-106 : tout le travail sur `main` (feat/full-app fusionnée) ; étiquette, notes et build d'essai par
   déclenchement des flux sur `main`. Branches `feat/full-app` et `build/full-app` : à supprimer par

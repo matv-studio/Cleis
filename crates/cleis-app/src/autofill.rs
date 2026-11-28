@@ -41,6 +41,11 @@ pub struct AutofillState {
     _listener: Option<Task<()>>,
     /// Tests and screenshots: fills are recorded here instead of reaching the system.
     pub dry_run: Option<Vec<(EntryId, Option<FillMethod>)>>,
+    /// A fill is typing or waiting for a password page: never two at once (0.2.4 fix, two
+    /// presses typed the same email into one field, letter by letter in turn).
+    pub running: bool,
+    /// "Fill best match" pressed during a fill: handled once that fill ends.
+    pub queued: Option<Foreground>,
 }
 
 /// Empty plan: [`CleisApp::start_fill`] then uses the standard sign-in sequence of the item.
@@ -156,6 +161,13 @@ impl CleisApp {
     }
 
     fn fill_best(&mut self, fg: Foreground, cx: &mut Context<Self>) {
+        // A fill still running (waiting for a password page): it stops waiting and keeps its
+        // password for this press, which goes on once it has ended.
+        if self.autofill.running {
+            cleis_autofill::interrupt();
+            self.autofill.queued = Some(fg);
+            return;
+        }
         // A password page or 2FA prompt following a previous fill on this window.
         if let Some(p) = self.autofill.pending.take()
             && p.window == fg.window
@@ -227,6 +239,10 @@ impl CleisApp {
             }
             return;
         }
+        if self.autofill.running {
+            self.toast_for(tr("A fill is already running").to_string(), 4, cx);
+            return;
+        }
         let o = self.plan_options();
         let Some(s) = self.session() else { return };
         let Some(e) = s.entries.iter().find(|e| e.id == entry) else {
@@ -246,6 +262,7 @@ impl CleisApp {
         let method = method.unwrap_or(s.prefs.autofill.method);
         let speed = s.prefs.autofill.typing_speed;
         let window = fg.window;
+        self.autofill.running = true;
         let result = cx.background_spawn(async move {
             let (has_user, has_totp) = (job.has_username, job.has_totp);
             let r = cleis_autofill::fill(window, &job.values, method, speed, move |focus| {
@@ -276,6 +293,11 @@ impl CleisApp {
         r: Result<(Outcome, Vec<Action>), FillError>,
         cx: &mut Context<Self>,
     ) {
+        self.autofill.running = false;
+        // A press made during this fill goes on only from where this one stopped waiting (the
+        // password page); after a complete fill or an error it is dropped, never typed again.
+        let queued = self.autofill.queued.take();
+        let resume = matches!(r, Ok((Outcome::Waiting(_), _)));
         match r {
             Ok((outcome, later)) => {
                 // Stopped before the password (two-page sign-in): the password waits for the
@@ -299,6 +321,11 @@ impl CleisApp {
                 self.autofill.pending = None;
                 self.toast_for(crate::trf!("Not filled: {}", e), 10, cx);
             }
+        }
+        if let Some(fg) = queued
+            && resume
+        {
+            self.fill_best(fg, cx);
         }
     }
 

@@ -430,6 +430,8 @@ textarea.input { height: auto; padding: 6px var(--s-2); resize: none; }
 .grp-name { display: inline-flex; align-items: center; gap: 2px; color: var(--text); }
 .grp-name svg.i { width: 12px; height: 12px; }
 .grp-n { margin-left: auto; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.grp-vault { color: var(--text-muted); margin-right: var(--s-3); }
+.row.is-hover { background: var(--surface-hover); margin: 0 calc(-1 * var(--s-2)); padding-left: var(--s-2); padding-right: var(--s-2); border-radius: var(--r-sm); }
 .star-slot { width: 12px; display: inline-flex; flex: none; }
 .vbar { position: absolute; top: 0; right: 0; bottom: 0; width: 10px; background: linear-gradient(var(--range-track-bg), var(--range-track-bg)) center / var(--range-track) 100% no-repeat; }
 .vbar-thumb { position: absolute; left: 3px; right: 3px; border-radius: 99px; background: var(--text-faint); }

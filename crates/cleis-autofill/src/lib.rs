@@ -230,6 +230,42 @@ pub trait Driver {
     fn press(&mut self, key: Key) -> Result<(), FillError>;
     fn paste(&mut self, value: &str) -> Result<(), FillError>;
     fn pause(&mut self, d: Duration);
+    /// Gives the keyboard to the window's visible password field: `Some(true)` done,
+    /// `Some(false)` the window shows none, `None` the system cannot search it.
+    fn focus_password_field(&mut self) -> Option<bool> {
+        None
+    }
+    /// Another press asked this fill to stop waiting ([`interrupt`]).
+    fn interrupted(&self) -> bool {
+        INTERRUPT.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+static INTERRUPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Asks the fill in progress to stop waiting (for the password page): its remaining steps are
+/// returned as [`Outcome::Waiting`]. Another press of "Fill best match" does this, so two fills
+/// never type at the same time.
+pub fn interrupt() {
+    INTERRUPT.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The focus after a move (Tab): read again until it is a password field or the system cannot
+/// tell, for up to [`FOCUS_SETTLE_MS`](cleis_core::autofill::FOCUS_SETTLE_MS).
+fn settled_focus<D: Driver>(driver: &mut D) -> Result<Focus, FillError> {
+    const STEP: u64 = 50;
+    let mut focus = driver.focus();
+    for _ in 0..(cleis_core::autofill::FOCUS_SETTLE_MS / STEP) {
+        if matches!(focus, Focus::Password | Focus::Unknown) {
+            break;
+        }
+        driver.pause(Duration::from_millis(STEP));
+        if !driver.still_target()? {
+            return Err(FillError::WindowChanged);
+        }
+        focus = driver.focus();
+    }
+    Ok(focus)
 }
 
 /// Runs a plan's actions against `driver`.
@@ -268,29 +304,48 @@ pub fn run<D: Driver>(
                 }
             }
             Action::Press(k) => driver.press(*k)?,
-            Action::ExpectPassword => match driver.focus() {
+            Action::ExpectPassword => match settled_focus(driver)? {
                 Focus::Password | Focus::Unknown => {}
                 other => {
-                    log(&format!(
-                        "run: two-page sign-in? found {other:?} after the username"
-                    ));
                     let rest = actions[i + 1..].to_vec();
-                    // Back to the username field: Enter there sends the username page, never
-                    // the link or button that Tab reached ("Forgot email?").
-                    driver.press(Key::BackTab)?;
-                    driver.pause(Duration::from_millis(60));
-                    if !matches!(driver.focus(), Focus::Text | Focus::Unknown) {
-                        log("run: the username field did not take the focus back");
-                        return Ok(Outcome::Waiting(rest));
+                    match driver.focus_password_field() {
+                        // A classic form whose password field is not next in tab order.
+                        Some(true) => {
+                            log(&format!(
+                                "run: found {other:?} after Tab, password field focused"
+                            ));
+                            driver.pause(Duration::from_millis(60));
+                        }
+                        // No password field on this page: a two-page sign-in.
+                        Some(false) => {
+                            log(&format!(
+                                "run: two-page sign-in, {other:?} after the username"
+                            ));
+                            // Back to the username field: Enter there sends the username page,
+                            // never the link or button that Tab reached ("Forgot email?").
+                            driver.press(Key::BackTab)?;
+                            driver.pause(Duration::from_millis(60));
+                            if !matches!(driver.focus(), Focus::Text | Focus::Unknown) {
+                                log("run: the username field did not take the focus back");
+                                return Ok(Outcome::Waiting(rest));
+                            }
+                            driver.press(Key::Enter)?;
+                            if !wait_password(driver)? {
+                                log("run: no password field came, the rest waits");
+                                return Ok(Outcome::Waiting(rest));
+                            }
+                            log("run: password page, going on");
+                            // The rest runs on the password page (it may stop again: 2FA in a
+                            // third).
+                            return run(driver, &rest, values, method, speed);
+                        }
+                        // Nothing sent on a guess: the user puts the keyboard in the password
+                        // field and presses the shortcut again.
+                        None => {
+                            log(&format!("run: {other:?} after Tab, page not searchable"));
+                            return Ok(Outcome::Waiting(rest));
+                        }
                     }
-                    driver.press(Key::Enter)?;
-                    if !wait_password(driver)? {
-                        log("run: no password field came, the rest waits");
-                        return Ok(Outcome::Waiting(rest));
-                    }
-                    log("run: password page, going on");
-                    // The rest runs on the password page (it may stop again: 2FA in a third).
-                    return run(driver, &rest, values, method, speed);
                 }
             },
             Action::IfEmptyText { then, otherwise } => {
@@ -316,12 +371,20 @@ pub fn run<D: Driver>(
 /// same window. `false` after [`TWO_PAGE_WAIT_MS`]; an error when another window comes in front.
 fn wait_password<D: Driver>(driver: &mut D) -> Result<bool, FillError> {
     const STEP: u64 = 200;
-    for _ in 0..(cleis_core::autofill::TWO_PAGE_WAIT_MS / STEP) {
+    for n in 0..(cleis_core::autofill::TWO_PAGE_WAIT_MS / STEP) {
         driver.pause(Duration::from_millis(STEP));
+        if driver.interrupted() {
+            log("run: interrupted while waiting for the password page");
+            return Ok(false);
+        }
         if !driver.still_target()? {
             return Err(FillError::WindowChanged);
         }
-        if driver.focus() == Focus::Password {
+        // The page put the keyboard there itself, or (searched every 600 ms) shows a password
+        // field without focusing it.
+        if driver.focus() == Focus::Password
+            || (n % 3 == 2 && driver.focus_password_field() == Some(true))
+        {
             // Let the page finish showing it before typing.
             driver.pause(Duration::from_millis(150));
             return Ok(true);
@@ -343,6 +406,7 @@ pub fn fill(
     if !platform::accessibility_allowed() {
         return Err(FillError::NotAllowed);
     }
+    INTERRUPT.store(false, std::sync::atomic::Ordering::SeqCst);
     log(&format!("fill: window {:x}, method {method:?}", window.0));
     if let Err(e) = platform::activate(window) {
         log(&format!("fill: {e}"));
@@ -389,6 +453,12 @@ mod tests {
         next_page: Option<(usize, Vec<Focus>, usize)>,
         /// Counting down to the next page while it loads.
         loading: Option<usize>,
+        /// Whether the page can be searched for its password field (UI Automation).
+        search: bool,
+        /// Pauses a Tab takes to move the focus (browsers move it a moment later).
+        lag: usize,
+        /// A Tab on its way: pauses left before the focus moves.
+        moving: Option<usize>,
     }
 
     impl Driver for Form {
@@ -414,6 +484,7 @@ mod tests {
         fn press(&mut self, k: Key) -> Result<(), FillError> {
             self.log.push(format!("{k:?}"));
             match k {
+                Key::Tab if self.lag > 0 => self.moving = Some(self.lag),
                 Key::Tab => self.at += 1,
                 Key::BackTab => self.at = self.at.saturating_sub(1),
                 Key::Enter => {
@@ -430,7 +501,32 @@ mod tests {
             self.log.push(format!("paste:{v}"));
             Ok(())
         }
+        /// Tests run in parallel: the process-wide flag is not theirs.
+        fn interrupted(&self) -> bool {
+            false
+        }
+        fn focus_password_field(&mut self) -> Option<bool> {
+            if !self.search {
+                return None;
+            }
+            let Some(at) = self.fields.iter().position(|f| *f == Focus::Password) else {
+                return Some(false);
+            };
+            if at != self.at {
+                self.log.push("focus:password".into());
+                self.at = at;
+            }
+            Some(true)
+        }
         fn pause(&mut self, _: Duration) {
+            match self.moving {
+                Some(1) => {
+                    self.at += 1;
+                    self.moving = None;
+                }
+                Some(n) => self.moving = Some(n - 1),
+                None => {}
+            }
             match self.loading {
                 Some(0) => {
                     if let Some((_, fields, at)) = self.next_page.take() {
@@ -455,6 +551,9 @@ mod tests {
             accept_set: false,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         }
     }
 
@@ -481,6 +580,9 @@ mod tests {
             accept_set: false,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         };
         let p = plan(true, true, f.focus(), O);
         let r = run(
@@ -513,6 +615,9 @@ mod tests {
             accept_set: true,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         };
         let p = plan(true, false, f.focus(), O);
         run(
@@ -546,6 +651,9 @@ mod tests {
             accept_set: false,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         };
         let p = plan(true, false, f.focus(), O);
         run(
@@ -570,6 +678,9 @@ mod tests {
             accept_set: false,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         };
         let r = run(
             &mut f,
@@ -668,6 +779,9 @@ mod tests {
             fn pause(&mut self, d: Duration) {
                 self.0.pause(d)
             }
+            fn focus_password_field(&mut self) -> Option<bool> {
+                self.0.focus_password_field()
+            }
         }
         let mut f = form(vec![Focus::EmptyText, Focus::Other], 0);
         f.next_page = Some((2, vec![Focus::Password], 0));
@@ -694,6 +808,9 @@ mod tests {
             accept_set: false,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         };
         let p = plan(true, false, Focus::Unknown, O);
         assert_eq!(
@@ -709,6 +826,165 @@ mod tests {
         assert!(f.log.is_empty(), "nothing may be typed: {:?}", f.log);
     }
 
+    /// 0.2.4 bug: the browser moves the focus a moment after Tab; it was read too early (still
+    /// the email field) and the form was sent with the email only. Now the focus settles first.
+    #[test]
+    fn classic_form_with_a_slow_focus() {
+        let mut f = form(vec![Focus::EmptyText, Focus::Password], 0);
+        f.lag = 4;
+        let p = plan(true, false, f.focus(), O);
+        let r = run(
+            &mut f,
+            &p.now,
+            &values(),
+            FillMethod::Type,
+            TypingSpeed::Fast,
+        );
+        assert_eq!(r, Ok(Outcome::Done));
+        assert_eq!(
+            f.log,
+            [
+                "type:ines@example-studio.com",
+                "Tab",
+                "type:Bk-2026!",
+                "Enter"
+            ]
+        );
+    }
+
+    /// A link between the two fields ("Forgot your email?"): the page has a password field, so
+    /// it is not a two-page sign-in; the password field gets the keyboard and nothing is sent
+    /// early.
+    #[test]
+    fn classic_form_with_a_link_between_the_fields() {
+        let mut f = form(vec![Focus::EmptyText, Focus::Other, Focus::Password], 0);
+        let p = plan(true, false, f.focus(), O);
+        let r = run(
+            &mut f,
+            &p.now,
+            &values(),
+            FillMethod::Type,
+            TypingSpeed::Fast,
+        );
+        assert_eq!(r, Ok(Outcome::Done));
+        assert_eq!(
+            f.log,
+            [
+                "type:ines@example-studio.com",
+                "Tab",
+                "focus:password",
+                "type:Bk-2026!",
+                "Enter"
+            ]
+        );
+    }
+
+    /// The page cannot be searched and the focus is not in a password field: nothing is sent
+    /// on a guess, the password waits for the next press.
+    #[test]
+    fn unsearchable_page_waits_without_sending() {
+        let mut f = form(vec![Focus::EmptyText, Focus::Text], 0);
+        f.search = false;
+        let p = plan(true, false, f.focus(), O);
+        let r = run(
+            &mut f,
+            &p.now,
+            &values(),
+            FillMethod::Type,
+            TypingSpeed::Fast,
+        )
+        .unwrap();
+        assert_eq!(f.log, ["type:ines@example-studio.com", "Tab"]);
+        assert_eq!(
+            r,
+            Outcome::Waiting(vec![
+                Action::Fill(Field::Password),
+                Action::Press(Key::Enter)
+            ])
+        );
+    }
+
+    /// The password page shows its field without focusing it: found by the search, filled.
+    #[test]
+    fn two_page_sign_in_finds_an_unfocused_password_field() {
+        let mut f = form(vec![Focus::EmptyText, Focus::Other], 0);
+        f.next_page = Some((2, vec![Focus::Other, Focus::Password], 0));
+        let p = plan(true, false, f.focus(), O);
+        let r = run(
+            &mut f,
+            &p.now,
+            &values(),
+            FillMethod::Type,
+            TypingSpeed::Fast,
+        )
+        .unwrap();
+        assert_eq!(r, Outcome::Done);
+        assert_eq!(
+            f.log,
+            [
+                "type:ines@example-studio.com",
+                "Tab",
+                "BackTab",
+                "Enter",
+                "page",
+                "focus:password",
+                "type:Bk-2026!",
+                "Enter"
+            ]
+        );
+    }
+
+    /// A second press while the first fill waits for the password page: the first stops
+    /// waiting (its password kept for the next press) instead of typing alongside the second.
+    #[test]
+    fn a_second_press_interrupts_the_wait() {
+        struct Pressed(Form, bool);
+        impl Driver for Pressed {
+            fn still_target(&mut self) -> Result<bool, FillError> {
+                self.0.still_target()
+            }
+            fn focus(&mut self) -> Focus {
+                self.0.focus()
+            }
+            fn set_value(&mut self, v: &str) -> bool {
+                self.0.set_value(v)
+            }
+            fn type_text(&mut self, v: &str, s: TypingSpeed) -> Result<(), FillError> {
+                self.0.type_text(v, s)
+            }
+            fn press(&mut self, k: Key) -> Result<(), FillError> {
+                self.0.press(k)
+            }
+            fn paste(&mut self, v: &str) -> Result<(), FillError> {
+                self.0.paste(v)
+            }
+            fn pause(&mut self, d: Duration) {
+                if self.0.log.last().is_some_and(|l| l == "Enter") {
+                    self.1 = true;
+                }
+                self.0.pause(d)
+            }
+            fn focus_password_field(&mut self) -> Option<bool> {
+                self.0.focus_password_field()
+            }
+            fn interrupted(&self) -> bool {
+                self.1
+            }
+        }
+        let mut d = Pressed(form(vec![Focus::EmptyText, Focus::Other], 0), false);
+        let p = plan(true, false, Focus::EmptyText, O);
+        let r = run(
+            &mut d,
+            &p.now,
+            &values(),
+            FillMethod::Type,
+            TypingSpeed::Fast,
+        )
+        .unwrap();
+        assert!(matches!(r, Outcome::Waiting(_)));
+        assert!(!d.0.log.iter().any(|l| l.contains("Bk-2026!")));
+    }
+
     #[test]
     fn paste_method() {
         let mut f = Form {
@@ -719,6 +995,9 @@ mod tests {
             accept_set: true,
             next_page: None,
             loading: None,
+            search: true,
+            lag: 0,
+            moving: None,
         };
         let p = plan(false, false, Focus::Unknown, O);
         run(

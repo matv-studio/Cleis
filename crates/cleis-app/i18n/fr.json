@@ -1409,5 +1409,6 @@
   "Globe": "Monde",
   "Cloud": "Nuage",
   "Shield": "Bouclier",
-  "Leaf": "Feuille"
+  "Leaf": "Feuille",
+  "A fill is already running": "Un remplissage est déjà en cours"
 }

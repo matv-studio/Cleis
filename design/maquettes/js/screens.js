@@ -2463,6 +2463,201 @@ function preferencesLignesDossiers() {
     </div>`);
 }
 
+// ---------- 49. Lists, preferences, sync places (28/11/2026) ----------
+
+// 49a. Filter: a "Show" group first, Favorites and items with recovery keys, with their counts;
+// the button counts the filters on.
+function filtreAfficher() {
+  const opt = (label, on, count, tip = '') => `<div class="menu-item" ${tip ? `title="${tip}"` : ''}><span class="check ${on ? 'on' : ''}">${on ? i('check') : ''}</span><span>${label}</span><span class="kbd" style="margin-left:auto">${count}</span></div>`;
+  const menu = `<div class="menu" style="top:84px;left:527px;width:240px">
+    <div class="menu-head">Show</div>
+    ${opt('Favorites', true, 4)}${opt('With recovery keys', false, 3, 'Items holding recovery codes')}
+    <div class="menu-sep"></div>
+    <div class="menu-head">Subscription</div>
+    ${opt('Active', false, 7)}${opt('Renew soon', false, 1)}${opt('Pending', false, 1)}${opt('Free', false, 4)}${opt('Off', false, 2)}
+    <div class="menu-sep"></div>
+    <div class="menu-head">2FA</div>
+    ${opt('With a 2FA code', false, 7)}${opt('Without', false, 8)}
+    <div class="menu-sep"></div>
+    <div class="menu-item">${i('x')}<span>Clear filters</span></div>
+  </div>`;
+  const tb = toolbar48(search48()).replace('btn btn--ghost">' + i('filter') + 'Filter', 'btn" style="background:var(--surface-active)">' + i('filter') + 'Filter · 1');
+  const favOnly = vaultTable49({ keep: (r) => FAV48.includes(r.n) });
+  return frameB(`${tb}<div class="table-wrap" style="position:relative">${favOnly}</div>`, { side: side48('All items'), overlay: menu });
+}
+
+// 49b. A folder's line (no icon, 0.2.4): its name on the left; on the right the vault's name (only when
+// the list holds more than one vault) next to the count. No "›".
+const sepRow49 = (cols, vault, folder, n, { showVault = true } = {}) => {
+  const name = folder || vault;
+  const right = showVault && folder ? `<span class="grp-vault">${vault}</span>` : '';
+  return `<tr class="grp"><td colspan="${cols}"><span class="grp-in"><span class="grp-name">${name}</span><span class="grp-n">${right}${n}</span></span></td></tr>`;
+};
+// The star of a favorite after its name, full (0.2.4, as in Contacts).
+const name49 = (r) => `<span class="site"><span class="site-ico">${r.c}</span><span class="site-name">${r.n}</span>${FAV48.includes(r.n) ? `<span class="fav" title="Favorite" style="margin-left:6px">${i('starFill')}</span>` : ''}</span>`;
+function vaultTable49({ only = null, keep = null, showVault = true, selected = null } = {}) {
+  const head = `<tr><th style="width:214px" class="sorted">Name <span class="sort">↑</span></th><th>Username</th><th style="width:116px">Password</th><th style="width:100px">2FA code</th><th style="width:120px">Subscription</th><th class="num" style="width:120px">Price</th><th class="num" style="width:100px">Yearly cost</th></tr>`;
+  const order = [['My vault', ''], ['My vault', 'Banking'], ['My vault', 'Shopping'], ['Example Studio', 'General'], ['Example Studio', 'Design'], ['Example Studio', 'Accounting'], ['Example Studio', 'Dev']];
+  let body = '';
+  let count = 0;
+  for (const [v, f] of order) {
+    if (only && v !== only) continue;
+    const rows = ROWS.filter((r) => FOLDER48[r.n][0] === v && FOLDER48[r.n][1] === f && (!keep || keep(r)));
+    if (!rows.length) continue;
+    count += rows.length;
+    body += sepRow49(7, v, f, rows.length, { showVault: showVault && !only });
+    body += rows.map((r) => {
+      const totp = r.totp ? `<span class="totp"><span class="ring ${r.p < 25 ? 'low' : ''}" style="--p:${r.p}%"></span>${r.totp}</span>` : '<span style="color:var(--text-faint)">—</span>';
+      return `<tr class="${r.n === selected ? 'is-selected' : ''}"><td>${name49(r)}</td><td class="muted">${r.u}</td><td><span class="dots">••••••</span></td><td>${totp}</td><td>${statusChip(r.st)}</td><td class="num">${r.price}${r.per ? `<span style="color:var(--text-faint)"> /${r.per}</span>` : ''}</td><td class="num">${r.cost}</td></tr>`;
+    }).join('');
+  }
+  body += `<tr><td colspan="7" style="color:var(--text-muted);font-size:var(--text-sm);border-bottom:0">${count} items</td></tr>`;
+  return `<table class="table table--fixed"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+function lignesDossiers49() {
+  return frameB(`${toolbar48(search48())}<div class="table-wrap" style="position:relative">${vaultTable49()}${scrollbar48(0, 46)}</div>`, { side: side48('All items') });
+}
+// 49c. Without an organization (or a vault's own All items): one vault, so no vault name on the lines.
+function lignesUnCoffre49() {
+  const side = side48('All items');
+  return frameB(`${toolbar48(search48())}<div class="table-wrap" style="position:relative">${vaultTable49({ only: 'My vault' })}</div>`, { side });
+}
+
+// 49d. Preferences, reordered: Appearance first (with the folder lines, the language and the
+// currency), Startup second, then one "Navigation" card for the vaults, the tabs and the sidebar's
+// shortcuts.
+function pref49Body(start = 'All items') {
+  const sw = (c, on = false, label) => `<button class="swatch ${on ? 'on' : ''}" style="${c ? `background:${c}` : ''}" aria-label="${label}" title="${label}">${c ? '' : i('x')}</button>`;
+  const ck = (on) => `<span class="check ${on ? 'on' : ''}" style="margin:auto">${on ? i('check') : ''}</span>`;
+  const cols = [['user', 'My vault'], ['users', 'Example Studio']];
+  const head = (first) => `<div style="display:grid;grid-template-columns:1fr repeat(${cols.length},128px);align-items:center;height:32px;color:var(--text-muted);font-size:var(--text-xs);font-weight:var(--weight-medium);border-bottom:1px solid var(--line)"><span>${first}</span>${cols.map(([ic, n]) => `<span style="display:flex;align-items:center;justify-content:center;gap:6px">${i(ic)}${n}</span>`).join('')}</div>`;
+  const line = (ic, label, vals, tip = '') => `<div style="display:grid;grid-template-columns:1fr repeat(${vals.length},128px);align-items:center;height:36px;border-bottom:1px solid var(--line)" ${tip ? `title="${tip}"` : ''}><span style="display:flex;align-items:center;gap:8px">${i(ic)}${label}</span>${vals.map(ck).join('')}</div>`;
+  const headC = `<div style="display:grid;grid-template-columns:1fr 128px;align-items:center;height:32px;color:var(--text-muted);font-size:var(--text-xs);font-weight:var(--weight-medium);border-bottom:1px solid var(--line)"><span>Contacts</span><span style="display:flex;justify-content:center">Shown</span></div>`;
+  return `
+    <div class="page-head"><h1>Preferences</h1></div>
+    <div class="section">${sectionTitle('Appearance')}
+      <div class="row"><span class="row-label">Theme</span><div class="segmented" role="radiogroup" aria-label="Theme"><button role="radio" aria-checked="true">Dark</button><button role="radio" aria-checked="false">Light</button><button role="radio" aria-checked="false" title="Follow Windows or macOS">System</button></div></div>
+      <div class="row"><span class="row-label">Logo</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="true">Light</button><button role="radio" aria-checked="false">Dark</button></div></div>
+      <div class="row"><span class="row-label">Accent color</span><div class="swatches">${sw('', false, 'None')}${sw('var(--accent)', true, 'Ochre (default)')}${sw('#3f5a75', false, 'Blue')}${sw('#494a6a', false, 'Violet')}${sw('#48664f', false, 'Green')}${sw('#3f6766', false, 'Teal')}${sw('#7a4646', false, 'Red')}</div></div>
+      <div class="row"><span class="row-label" title="Where the accent color is used">Accent scope</span><div class="segmented" role="radiogroup"><button role="radio" aria-checked="false">Minimal</button><button role="radio" aria-checked="false">Standard</button><button role="radio" aria-checked="true">Extended</button></div></div>
+      <div class="row"><span class="row-label" title="In All items, a vault, All contacts: a line with each folder's name before its items">Folder lines</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label">Language</span><div class="input select" style="width:200px"><span class="grow">English</span></div></div>
+      <div class="row"><span class="row-label">Currency</span><div class="input select" style="width:200px"><span class="grow">Euro (€)</span></div></div>
+    </div>
+    <div class="section">${sectionTitle('Startup')}
+      <div class="row"><span class="row-label">Open at login</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label">Start in</span><div class="input select ${start === 'menu' ? 'is-focus' : ''}" style="width:200px"><span class="grow">${start === 'menu' ? 'My vault' : start}</span></div></div>
+    </div>
+    <div class="section">${sectionTitle('Navigation', 'Tabs at the top, shortcuts in the sidebar')}
+      <div class="row"><span class="row-label" title="Off: one Vault tab, every vault in its sidebar">Personal vault in its own tab</span><span class="switch"></span></div>
+      <div class="row"><span class="row-label">Personal vault name</span><div class="input" style="width:200px"><span class="grow">My vault</span></div></div>
+      <div class="row"><span class="row-label">${i('users')}Contacts tab</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label" title="Shown to administrators only">${i('shield')}Health tab</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label" title="Shown to administrators only · hiding the tab does not stop recording">${i('clock')}Activity tab</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label" title="At the top of the sidebar">Shortcuts</span><span style="color:var(--text-muted);font-size:var(--text-sm)">Same for every vault</span><span class="switch"></span></div>
+      <div style="padding-left:var(--s-4)">
+        ${head('Vault')}
+        ${line('list', 'All items', [true, true])}
+        ${line('star', 'Favorites', [true, false])}
+        ${line('clock', 'Renew soon', [false, true], 'Subscriptions renewing in the next 30 days')}
+        <div style="height:var(--s-3)"></div>
+        ${headC}
+        ${line('users', 'All contacts', [true])}
+        ${line('star', 'Favorites', [true])}
+        ${line('calendar', 'Birthdays soon', [true], 'Next 30 days')}
+        ${line('list', 'Uncategorized', [true], 'Contacts outside any folder')}
+      </div>
+    </div>`;
+}
+function preferences49() { return settings('Preferences', pref49Body()); }
+function preferences49bas() { return settings('Preferences', pref49Body(), '', 560); }
+// 49e. Start in, one Vault tab: My vault is offered (the personal vault's items) with the views.
+function demarrerDans49() {
+  return settings('Preferences', pref49Body('menu'), `<div class="menu" style="left:1089px;top:666px;width:200px">${mi('check', 'My vault')}${mi('', 'Example Studio')}${sep}${mi('', 'All items')}${mi('', 'Favorites')}${mi('', 'Contacts')}</div>`);
+}
+
+// 49f. Sync: the places in use, the first one leading (the others hold a copy of it), then one
+// line to add a place. Nothing listed that is not in use.
+const place49 = (ico, name, tip, right) => `<div class="row"><span class="site-ico" style="background:var(--surface-active)">${i(ico)}</span><span class="row-label" title="${tip}">${name}</span>${right}</div>`;
+function synchro49({ menu = false, empty = false } = {}) {
+  const places = empty
+    ? `<div class="row"><span class="site-ico" style="background:var(--surface-active)">${i('laptop')}</span><span class="row-label" title="This vault stays on this computer">Local</span><button class="btn btn--sm">${i('plus')}Add a place</button></div>`
+    : `${place49('cloud', 'Google Drive', 'Cleis / vault.cleis in your Google Drive · ines@example-studio.com', `<span class="chip chip--set" title="Merged with this computer at each sync; the other places hold a copy of it">Main</span><span class="chip chip--ok"><span class="dot"></span>Synced just now</span><button class="icon-btn icon-btn--sm" aria-label="More" title="Make main, disconnect">${i('more')}</button>`)}
+      ${place49('cloud', 'OneDrive', 'Cleis / vault.cleis in your OneDrive · ines@example-studio.com', `<span class="chip" title="Gets a copy of Google Drive at each sync">Copy</span><span class="chip chip--ok"><span class="dot"></span>Synced just now</span><button class="icon-btn icon-btn--sm" aria-label="More" title="Make main, disconnect">${i('more')}</button>`)}
+      ${place49('folder', 'Folder', 'D:\\Backups\\Cleis', `<span class="chip" title="Gets a copy of Google Drive at each sync">Copy</span><span class="chip chip--ok"><span class="dot"></span>Synced just now</span><button class="icon-btn icon-btn--sm" aria-label="More" title="Make main, disconnect">${i('more')}</button>`)}
+      <div class="row"><span class="row-label">Sync automatically</span><span class="switch on"></span></div>
+      <div class="row"><span class="row-label"></span><button class="btn btn--sm ${menu ? 'is-active' : ''}">${i('plus')}Add a place</button></div>`;
+  const addMenu = `<div class="menu" style="left:1069px;top:${empty ? 196 : 390}px;width:220px">${mi('cloud', 'Google Drive')}${mi('cloud', 'OneDrive')}${mi('folder', 'Folder')}${mi('repo', 'GitHub')}${mi('server', 'SFTP')}</div>`;
+  const backups = backupsSection49();
+  return settings('Sync & backups', `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1><span style="flex:1"></span>${empty ? '' : `<button class="btn btn--primary">${i('sync')}Sync now</button>`}</div>
+    <div class="section">${sectionTitle('Sync', 'Your encrypted vault, kept the same on every device using these places')}${places}</div>
+    ${backups}`, menu ? addMenu : '');
+}
+function synchroPlaces49() { return synchro49(); }
+function synchroAjouter49() { return synchro49({ menu: true }); }
+function synchroVide49() { return synchro49({ empty: true, menu: true }); }
+
+// 49g. Backups: the 5 latest, each one restorable or deleted (bin at the end of the line); the
+// older ones under "Show 7 more".
+function backupsSection49(open = false, hover = 1) {
+  const dates = ['2026-11-28 14-02', '2026-11-28 09-15', '2026-11-27 18-40', '2026-11-27 11-03', '2026-11-26 16-22', '2026-11-26 08-57', '2026-11-25 19-31', '2026-11-25 10-12', '2026-11-24 17-45', '2026-11-24 09-20', '2026-11-23 15-08', '2026-11-22 12-34'];
+  const shown = open ? dates : dates.slice(0, 5);
+  const rows = shown.map((d, n) => `<div class="row ${n === hover ? 'is-hover' : ''}"><span class="row-label">${d}</span><span style="color:var(--text-muted);font-size:var(--text-sm)">${148 - n} KB</span><button class="btn btn--sm" title="Brings back what this backup holds; nothing newer is lost">Restore</button><button class="icon-btn icon-btn--sm" aria-label="Delete" title="Delete this backup" style="${n === hover ? 'color:var(--danger-text)' : ''}">${i('trash')}</button></div>`).join('');
+  return `<div class="section">${sectionTitle('Backups', 'Dated copies on this computer you can go back to')}
+      <div class="row"><span class="row-label">Keep</span><div class="input select" style="width:160px"><span class="grow">30 versions</span></div><button class="btn btn--sm">${i('upload')}Back up now</button></div>
+      ${rows}
+      <div class="row"><span class="row-label"></span><button class="btn btn--ghost btn--sm"><span style="display:inline-grid;${open ? 'transform:rotate(180deg)' : ''}">${i('chevron')}</span>${open ? 'Show fewer' : 'Show 7 more'}</button></div>
+      <div class="row"><span class="row-label" title="Copy of your vault, opened with your password">Encrypted export</span><button class="btn btn--sm">${i('download')}Export</button></div>
+    </div>`;
+}
+function sauvegardes49() {
+  return settings('Sync & backups', `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1><span style="flex:1"></span><button class="btn btn--primary">${i('sync')}Sync now</button></div>
+    ${backupsSection49()}`);
+}
+
+// 49h. Google Drive or OneDrive added: where the vault goes. A "Cleis" folder at the top of the
+// drive by default; "Choose a folder" opens the drive's folders (Google: its own picker in the
+// browser). The vault file can also be moved later in the drive: Cleis finds it again.
+function dossierDrive49(google = true) {
+  const name = google ? 'Google Drive' : 'OneDrive';
+  const folders = ['Cleis', 'Documents', 'Documents / Admin', 'Personal', 'Pictures'];
+  const list = folders.map((f, n) => `<div class="menu-item ${n === 2 ? 'is-hover' : ''}" style="height:32px">${i('folder')}<span>${f}</span>${n === 0 ? '<span class="chip" style="margin-left:auto" title="Made by Cleis">New</span>' : ''}</div>`).join('');
+  // Google lets Cleis see only the files it made or that you pick in Google's own window: the
+  // folder is picked there (in the browser), Cleis never lists your Drive.
+  const where = google
+    ? `<div class="field"><span class="label">Folder</span>
+        <div class="row" style="padding:0"><div class="input" style="flex:1"><span class="grow">${i('folder')} Documents / Admin</span></div><button class="btn" title="Opens Google Drive's folder picker in your browser">${i('external')}Choose in Google Drive</button></div>
+      </div>`
+    : `<div class="field"><span class="label">Folder</span>
+        <div style="border:var(--border) solid var(--line-strong);border-radius:var(--r-md);padding:4px;max-height:200px;overflow:hidden;background:var(--bg)">${list}</div>
+      </div>`;
+  const body = `
+    <div class="field"><span class="label">Account</span><div class="input"><span class="grow">ines@example-studio.com</span></div></div>
+    ${where}
+    <div class="field"><span class="label">File</span><div class="input"><span class="grow" style="color:var(--text-muted)">Documents / Admin /</span><span>vault.cleis</span></div></div>
+    <div class="dialog-actions"><button class="btn btn--ghost">Cancel</button><button class="btn btn--primary">${i('check')}Use this folder</button></div>`;
+  return settings('Sync & backups', `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1></div>`, dlg(`${name} — where to keep the vault`, body));
+}
+function dossierDrive49g() { return dossierDrive49(true); }
+function dossierDrive49o() { return dossierDrive49(false); }
+
+// 49i. Leaving an organization: refused while you are the only one who can invite. Its spaces stay;
+// the dialog says what to do instead.
+function quitterOrg49() {
+  const body = `<p style="margin:0;color:var(--text-muted)">You are the only member who can invite people. After leaving, no one could let you back in.</p>
+    <div class="dialog-actions"><button class="btn btn--ghost">Cancel</button><button class="btn">${i('users')}Members</button><button class="btn btn--danger">${i('trash')}Delete the organization</button></div>`;
+  return settings('Server', serveurBody49(), dlg('Leave Example Studio?', body));
+}
+const serveurBody49 = () => `<div class="page-head"><h1>Organization</h1></div>
+  <div class="section">${sectionTitle('Example Studio')}
+    <div class="row"><span class="row-label">Where</span><span style="color:var(--text-muted)">Shared folder · D:\\Shared\\Example Studio</span></div>
+    <div class="row"><span class="row-label">Signed in as</span><span>Inès Martin · Super Admin</span></div>
+    <div class="row"><span class="row-label"></span><button class="btn btn--sm">${i('sync')}Sync now</button><button class="btn btn--danger-ghost btn--sm">Leave</button></div>
+  </div>`;
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -2616,4 +2811,17 @@ export const SCREENS = {
   '48j-defilement-molette': ['Middle click — scroll', defilementMolette],
   '48k-remplissage-site': ['Fill best match — most likely logins by the site', remplissageSite],
   '48l-preferences-lignes-dossiers': ['Preferences — folder lines in lists', preferencesLignesDossiers],
+  '49a-filtre-afficher': ['Filter — Show: favorites, recovery keys', filtreAfficher],
+  '49b-lignes-dossiers': ['All items — folder lines, vault at the right', lignesDossiers49],
+  '49c-lignes-un-coffre': ['All items — one vault, no vault name', lignesUnCoffre49],
+  '49d-preferences': ['Preferences — Appearance, Startup, Navigation', preferences49],
+  '49m-preferences-navigation': ['Preferences — Navigation card', preferences49bas],
+  '49e-demarrer-mon-coffre': ['Preferences — Start in My vault', demarrerDans49],
+  '49f-synchro-places': ['Sync — main place and copies', synchroPlaces49],
+  '49g-synchro-ajouter': ['Sync — add a place', synchroAjouter49],
+  '49h-synchro-vide': ['Sync — no place yet', synchroVide49],
+  '49i-sauvegardes': ['Backups — 5 latest, delete, show more', sauvegardes49],
+  '49j-drive-dossier': ['Google Drive — where to keep the vault', dossierDrive49g],
+  '49k-onedrive-dossier': ['OneDrive — where to keep the vault', dossierDrive49o],
+  '49l-quitter-org': ['Leave — refused for the only one who can invite', quitterOrg49],
 };

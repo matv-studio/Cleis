@@ -10,7 +10,8 @@ use cleis_core::autofill::{Context, Focus, Key};
 use cleis_core::settings::TypingSpeed;
 use std::time::{Duration, Instant};
 use uiautomation::patterns::UIValuePattern;
-use uiautomation::types::{ControlType, Handle};
+use uiautomation::types::{ControlType, Handle, TreeScope, UIProperty};
+use uiautomation::variants::Variant;
 use uiautomation::{UIAutomation, UIElement};
 use windows::Win32::Foundation::{CloseHandle, HWND};
 use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
@@ -243,6 +244,30 @@ impl SystemDriver {
     fn focused(&self) -> Option<UIElement> {
         self.ua.as_ref()?.get_focused_element().ok()
     }
+
+    /// The window's password fields that a person can see and type into: `None` when UI
+    /// Automation cannot search the window.
+    fn password_fields(&self) -> Option<Vec<UIElement>> {
+        let ua = self.ua.as_ref()?;
+        let root = ua
+            .element_from_handle(Handle::from(self.window.0 as isize))
+            .ok()?;
+        let password = ua
+            .create_property_condition(UIProperty::IsPassword, Variant::from(true), None)
+            .ok()?;
+        let found = root.find_all(TreeScope::Descendants, &password).ok()?;
+        Some(
+            found
+                .into_iter()
+                .filter(|e| {
+                    !e.is_offscreen().unwrap_or(false)
+                        && e.is_enabled().unwrap_or(true)
+                        && e.get_bounding_rectangle()
+                            .is_ok_and(|r| r.get_width() > 0 && r.get_height() > 0)
+                })
+                .collect(),
+        )
+    }
 }
 
 /// Frameworks whose edit boxes take a value set through UI Automation as if typed. Web pages
@@ -343,6 +368,26 @@ impl Driver for SystemDriver {
 
     fn pause(&mut self, d: Duration) {
         std::thread::sleep(d);
+    }
+
+    fn focus_password_field(&mut self) -> Option<bool> {
+        let fields = self.password_fields()?;
+        crate::log(&format!("password fields: {}", fields.len()));
+        let Some(field) = fields.first() else {
+            return Some(false);
+        };
+        if field.set_focus().is_err() {
+            return None;
+        }
+        // The page may take a moment to move its focus there.
+        for _ in 0..10 {
+            if self.focus() == Focus::Password {
+                return Some(true);
+            }
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        crate::log("password field: focus not taken");
+        None
     }
 }
 

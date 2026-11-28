@@ -260,11 +260,14 @@ pub enum Action {
     Fill(Field),
     Press(Key),
     /// Go on if the focused field (after Tab from the username) is a password field, or when
-    /// the system cannot tell (the classic auto-type sequence). Otherwise the sign-in asks for
-    /// the password on a next page (0.2.4): back to the username field (Shift+Tab, so Enter is
-    /// never pressed on the link or button Tab reached), Enter to send it, then wait up to
-    /// [`TWO_PAGE_WAIT_MS`] for the password page to put the keyboard in its password field,
-    /// and go on there. No password field in time, or another window in front: the rest waits
+    /// the system cannot tell (the classic auto-type sequence). The focus is read again for up
+    /// to [`FOCUS_SETTLE_MS`]: browsers move it a moment after Tab. Still elsewhere: the page's
+    /// own password field, when it has one, gets the keyboard and the fill goes on (a link
+    /// between the two fields, 0.2.4 fix). Only a page without any password field is a two-page
+    /// sign-in: back to the username field (Shift+Tab, so Enter is never pressed on the link or
+    /// button Tab reached), Enter to send it, then wait up to [`TWO_PAGE_WAIT_MS`] for the
+    /// password page, and go on there. When the system cannot search the page, or no password
+    /// field comes in time, or another window comes in front: nothing is sent, the rest waits
     /// for the next press of "Fill best match" on the same window.
     ExpectPassword,
     /// Branch on whether the focused field is an empty text field (unknown counts as no).
@@ -277,6 +280,10 @@ pub enum Action {
 /// How long a two-page sign-in may take to show its password page (see
 /// [`Action::ExpectPassword`]).
 pub const TWO_PAGE_WAIT_MS: u64 = 10_000;
+
+/// How long the focus may take to reach the next field after Tab (see
+/// [`Action::ExpectPassword`]).
+pub const FOCUS_SETTLE_MS: u64 = 600;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlanOptions {
