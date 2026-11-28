@@ -986,9 +986,21 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
 - **D-106 Une seule branche, `main`** (28/11/2026, demande de l'utilisateur). Plus de branches de
   travail, de PR ni de fusions : chaque lot est commité et poussé sur `main`. `main` a reçu tout
   `feat/full-app` (une fusion locale reprend le commit de fusion de la PR #2, sans changer un fichier) ;
-  les branches `feat/full-app` et `build/full-app` sont supprimées. Les flux qui demandaient une
+  les branches `feat/full-app` et `build/full-app` sont à supprimer par l'utilisateur (le proxy de la
+  session refuse la suppression d'une branche). Les flux qui demandaient une
   branche passent par un déclenchement à la main sur `main` : build d'essai (`release.yml`), étiquette
   (`tag.yml`, version + commit), notes (`notes.yml`, version). La CI ne tourne plus que sur `main`.
+- **D-107 macOS dans chaque version, Apple silicon et Intel** (28/11/2026, demande de l'utilisateur).
+  Le dépôt est public : les runners standard hébergés par GitHub, macOS compris, ne coûtent aucune
+  minute (la note « minutes payantes » datait du dépôt privé). `release.yml` construit, sur une
+  étiquette, dans l'ordre demandé : serveurs (Linux, QNAP) > Windows > macOS Apple silicon (`macos-15`)
+  > macOS Intel (`macos-15-intel`), un à la fois, et joint tout au brouillon :
+  `Cleis-<ver>-<sha>-macos-{arm64,x64}-unsigned.zip` (+ `.sha256`), l'architecture vérifiée par `lipo`.
+  Sur `main` (build d'essai), macOS reste sur demande (`inputs[macos]=true`) pour ne pas allonger
+  l'attente. Pourquoi un runner Intel plutôt qu'une compilation croisée sur Apple silicon : le binaire
+  est construit par la chaîne native de l'architecture. En suspens : `macos-15-intel` est la dernière
+  image Intel de GitHub (jusqu'à août 2027) ; ensuite, compiler `x86_64-apple-darwin` sur le runner
+  Apple silicon. Pas de signature Apple (adhésion payante, non demandée).
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

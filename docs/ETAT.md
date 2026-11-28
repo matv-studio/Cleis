@@ -1,8 +1,12 @@
 # Cleis — état
 
 ## 28/11/2026 (branche unique)
-- D-106 : tout le travail sur `main` (feat/full-app fusionnée, autres branches supprimées) ;
-  étiquette, notes et build d'essai par déclenchement des flux sur `main`.
+- D-106 : tout le travail sur `main` (feat/full-app fusionnée) ; étiquette, notes et build d'essai par
+  déclenchement des flux sur `main`. Branches `feat/full-app` et `build/full-app` : à supprimer par
+  l'utilisateur sur GitHub (suppression refusée par le proxy).
+- D-107 : macOS Apple silicon + Intel dans chaque version (dépôt public, minutes gratuites), ordre
+  serveurs > Windows > Apple silicon > Intel. Zips macOS de la 0.2.4 construits sur `main` (même code
+  que l'étiquette fc43e3d) et remis à l'utilisateur pour le brouillon.
 
 ## 28/11/2026 (version 0.2.4)
 - D-105 : maquettes 48a à 48l validées puis codées (lignes de dossier, recherche effaçable, menu de

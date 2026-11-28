@@ -1,9 +1,13 @@
 name: Build
 
 # Release builds of the desktop app.
-# - Run by hand on main (a dispatch): Windows installer (D-75) as a workflow artifact.
-# - Push a `v*` tag: same, attached to a DRAFT release that a person reviews and publishes.
-# macOS only on demand (macOS runners cost 10× the minutes; no Apple signing yet).
+# - Run by hand on main (a dispatch): Windows installer (D-75) as a workflow artifact; macOS too
+#   when asked (input `macos`).
+# - A `v*` tag (tag.yml dispatches this workflow on it): every build, attached to a DRAFT release
+#   that a person reviews and publishes.
+# Order (D-107): servers (Linux, QNAP) > Windows > macOS Apple silicon > macOS Intel. The repository
+# is public: standard GitHub-hosted runners, macOS included, cost no minutes. macOS builds are
+# unsigned (no Apple membership).
 
 on:
   push:
@@ -11,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       macos:
-        description: Also build for macOS (consumes 10× minutes, unsigned)
+        description: Also build for macOS (Apple silicon and Intel, unsigned)
         type: boolean
         default: false
 
@@ -158,31 +162,66 @@ jobs:
           path: dist/*.qpkg*
           retention-days: 30
 
+  # D-107: after Windows, Apple silicon then Intel (one at a time). macos-15-intel is GitHub's last
+  # Intel image (until August 2027); after it, Intel is to be cross-built on the Apple silicon runner.
   macos:
-    if: github.event_name == 'workflow_dispatch' && inputs.macos
-    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.macos
+    needs: windows
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-15 }
+          - { arch: x64, runner: macos-15-intel }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: ${{ matrix.arch }}
       - name: Build
         run: cargo build --release -p cleis-app -p cleis-server --locked
         env:
           # D-104: Google's desktop client secret (not confidential for an installed app, kept out
           # of git all the same); without it, Google sign-in shows "Not available in this build".
           CLEIS_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      - run: |
-          mkdir -p dist && cp target/release/cleis dist/Cleis && cp target/release/cleis-server dist/
-          cd dist && zip Cleis-macos-arm64-unsigned.zip Cleis cleis-server
+      - name: Package (zip)
+        run: |
+          sha=$(echo "${{ github.sha }}" | cut -c1-7)
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "${{ github.ref_type }}" = tag ] && [ "${{ github.ref_name }}" != "v$ver" ]; then
+            echo "::error::Tag ${{ github.ref_name }} does not match the workspace version $ver"
+            exit 1
+          fi
+          want=$([ "${{ matrix.arch }}" = arm64 ] && echo arm64 || echo x86_64)
+          for b in cleis cleis-server; do
+            got=$(lipo -archs "target/release/$b")
+            if [ "$got" != "$want" ]; then
+              echo "::error::$b is $got, expected $want"
+              exit 1
+            fi
+          done
+          name="Cleis-$ver-$sha-macos-${{ matrix.arch }}-unsigned"
+          mkdir -p "dist/$name"
+          cp target/release/cleis "dist/$name/Cleis"
+          cp target/release/cleis-server README.md THIRD_PARTY.md "dist/$name/"
+          python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
+          cp crates/cleis-app/assets/fonts/OFL.txt "dist/$name/OFL.txt"
+          cp deploy/README.md "dist/$name/SERVER.md"
+          (cd dist && zip -qry "$name.zip" "$name" && shasum -a 256 "$name.zip" > "$name.zip.sha256")
+          echo "NAME=$name" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Cleis-macos-arm64-unsigned
-          path: dist/Cleis-macos-arm64-unsigned.zip
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.zip
+            dist/${{ env.NAME }}.zip.sha256
           retention-days: 30
 
   draft-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, server-linux, server-qnap]
+    needs: [server-linux, server-qnap, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
