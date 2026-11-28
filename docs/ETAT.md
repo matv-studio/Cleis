@@ -1,5 +1,9 @@
 # Cleis — état
 
+## 28/11/2026 (branche unique)
+- D-106 : tout le travail sur `main` (feat/full-app fusionnée, autres branches supprimées) ;
+  étiquette, notes et build d'essai par déclenchement des flux sur `main`.
+
 ## 28/11/2026 (version 0.2.4)
 - D-105 : maquettes 48a à 48l validées puis codées (lignes de dossier, recherche effaçable, menu de
   type, téléphones au format du pays, calendrier des anniversaires, icônes de dossier, période du prix,

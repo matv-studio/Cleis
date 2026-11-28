@@ -1,20 +1,26 @@
 name: Tag
 
 # A version's tag, made by GitHub Actions (as in Revel): the session that prepares a version cannot
-# push a tag itself. Pushing the branch `release/vX.Y.Z` at the commit validated by the user tags that
-# commit `vX.Y.Z` (author Claude, D-41), starts the Build workflow on the tag (its DRAFT release,
-# published by a person), then removes the branch.
+# push a tag itself. Run by hand (a dispatch, on main) with the version and the commit validated by
+# the user: tags that commit `vX.Y.Z` (author Claude, D-41) and starts the Build workflow on the tag
+# (its DRAFT release, published by a person). One branch only (28/11/2026): no request branch.
 
 on:
-  push:
-    branches: ["release/v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to tag (vX.Y.Z), as in Cargo.toml at that commit
+        required: true
+      commit:
+        description: Commit of main validated by the user (full or short SHA)
+        required: true
 
 permissions:
   contents: write
   actions: write
 
 concurrency:
-  group: tag-${{ github.ref_name }}
+  group: tag-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -26,31 +32,35 @@ jobs:
           fetch-depth: 0
       - name: Tag the commit
         env:
-          BRANCH: ${{ github.ref_name }}
+          TAG: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
         run: |
-          tag="${BRANCH#release/}"
-          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          if [ "$tag" != "v$ver" ]; then
-            echo "::error::$tag does not match the workspace version $ver"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be vX.Y.Z"
             exit 1
           fi
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-            echo "::error::$tag already exists"
+          sha=$(git rev-parse --verify "$COMMIT^{commit}")
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::$COMMIT is not on main"
+            exit 1
+          fi
+          ver=$(git show "$sha:Cargo.toml" | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
+          if [ "$TAG" != "v$ver" ]; then
+            echo "::error::$TAG does not match the workspace version $ver at $sha"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG already exists"
             exit 1
           fi
           git -c user.name=Claude -c user.email=noreply@anthropic.com \
-            tag -a "$tag" "$GITHUB_SHA" -m "Cleis $ver"
-          git push origin "refs/tags/$tag"
-          echo "TAG=$tag" >> "$GITHUB_ENV"
+            tag -a "$TAG" "$sha" -m "Cleis $ver"
+          git push origin "refs/tags/$TAG"
       # A tag pushed with GITHUB_TOKEN starts no workflow; a dispatch does.
       - name: Build the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.version }}
         run: |
           gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" \
             -f ref="$TAG"
-      - name: Remove the request branch
-        if: always()
-        env:
-          BRANCH: ${{ github.ref_name }}
-        run: git push origin --delete "$BRANCH" || true

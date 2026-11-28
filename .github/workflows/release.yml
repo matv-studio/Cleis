@@ -1,13 +1,12 @@
 name: Build
 
 # Release builds of the desktop app.
-# - Push to a `build/**` branch or run by hand: Windows installer (D-75) as a workflow artifact.
+# - Run by hand on main (a dispatch): Windows installer (D-75) as a workflow artifact.
 # - Push a `v*` tag: same, attached to a DRAFT release that a person reviews and publishes.
 # macOS only on demand (macOS runners cost 10× the minutes; no Apple signing yet).
 
 on:
   push:
-    branches: ["build/**"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

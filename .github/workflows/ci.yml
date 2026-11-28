@@ -2,9 +2,8 @@ name: CI
 
 on:
   push:
-    # Audit X-2: the working branches too, not only main.
-    branches: [main, "feat/**", "fix/**"]
-  pull_request:
+    # One branch only (user's request, 28/11/2026): everything is pushed to main.
+    branches: [main]
   workflow_dispatch:
     inputs:
       macos:

@@ -983,6 +983,13 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
     (10 s) que la page suivante mette le clavier dans son champ mot de passe ; sinon le reste attend le
     raccourci suivant comme avant.
 
+- **D-106 Une seule branche, `main`** (28/11/2026, demande de l'utilisateur). Plus de branches de
+  travail, de PR ni de fusions : chaque lot est commité et poussé sur `main`. `main` a reçu tout
+  `feat/full-app` (une fusion locale reprend le commit de fusion de la PR #2, sans changer un fichier) ;
+  les branches `feat/full-app` et `build/full-app` sont supprimées. Les flux qui demandaient une
+  branche passent par un déclenchement à la main sur `main` : build d'essai (`release.yml`), étiquette
+  (`tag.yml`, version + commit), notes (`notes.yml`, version). La CI ne tourne plus que sur `main`.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

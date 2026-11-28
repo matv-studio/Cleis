@@ -1,12 +1,15 @@
 name: Notes
 
-# Writes a version's notes (docs/notes/vX.Y.Z.md, EN + FR) into its GitHub release, draft or
-# published, without touching anything else: push the branch `notes/vX.Y.Z` (the session cannot edit
-# a release itself). The branch is removed afterwards.
+# Writes a version's notes (docs/notes/vX.Y.Z.md on main) into its GitHub release, draft or
+# published, without touching anything else: run it by hand with the version (the session cannot
+# edit a release itself). One branch only (28/11/2026): no request branch.
 
 on:
-  push:
-    branches: ["notes/v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version whose notes to write (vX.Y.Z)
+        required: true
 
 permissions:
   contents: write
@@ -17,16 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: main
           sparse-checkout: docs/notes
       - name: Write the notes
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.ref_name }}
+          TAG: ${{ inputs.version }}
         run: |
-          tag="${BRANCH#notes/}"
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "docs/notes/$tag.md"
-      - name: Remove the request branch
-        if: always()
-        env:
-          BRANCH: ${{ github.ref_name }}
-        run: git push origin --delete "$BRANCH" || true
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be vX.Y.Z"
+            exit 1
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "docs/notes/$TAG.md"

@@ -35,16 +35,19 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt privé `matv-studio/c
   dans l'historique (D-41). Messages en anglais, à l'impératif, préfixés par la zone :
   `crypto: …`, `core: …`, `store: …`, `app: …`, `server: …`, `docs: …`, `ci: …`. Terminer par les
   lignes `Co-Authored-By` et `Claude-Session`.
-- Version (D-77, comme Revel) : la session ne pousse pas d'étiquette elle-même (proxy). Vérifier le
-  build Windows en poussant sur `build/full-app`, faire essayer l'installateur ; **quand l'utilisateur
-  valide**, pousser la branche `release/vX.Y.Z` sur le commit validé (`git push origin
-  <sha>:refs/heads/release/vX.Y.Z`) : `tag.yml` pose l'étiquette (auteur Claude), lance `release.yml` sur
-  elle (brouillon) et retire la branche. Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes **en anglais seulement** (D-86, depuis la 0.2.3)
-  dans `docs/notes/vX.Y.Z.md` avant l'étiquette : le brouillon les reprend ; l'utilisateur publie. Notes
-  à corriger après coup : pousser `notes/vX.Y.Z` (`notes.yml` les réécrit dans la version). Secours : script `etiquette-vX.Y.Z.bat` dans
-  `C:\MATV_LOCAL\_Interne\Cleis\` (modèle `etiquette-v0.2.0.ps1`).
-- Branches : `feat/<sujet>`, `fix/<sujet>`. Les choix validés sont poussés directement sur la
-  branche de travail (`feat/full-app`), sans PR (demande de l'utilisateur). `main` reste vert.
+- **Une seule branche : `main`** (demande du 28/11/2026, D-106). Tout est commité et poussé sur `main` ;
+  ni autre branche, ni PR, ni fusion. `main` reste vert (CI à chaque poussée).
+- Version (D-77, D-106) : la session ne pousse pas d'étiquette elle-même (proxy). Build Windows d'essai :
+  `gh api -X POST repos/matv-studio/Cleis/actions/workflows/release.yml/dispatches -f ref=main`
+  (`-F 'inputs[macos]=true'` seulement à la demande : minutes payantes), installateur dans les
+  artefacts du flux ; **quand l'utilisateur valide** : `gh api -X POST
+  repos/matv-studio/Cleis/actions/workflows/tag.yml/dispatches -f ref=main -f 'inputs[version]=vX.Y.Z'
+  -f 'inputs[commit]=<sha>'` : `tag.yml` pose l'étiquette (auteur Claude) et lance `release.yml` sur
+  elle (brouillon). Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes **en anglais seulement**
+  (D-86) dans `docs/notes/vX.Y.Z.md` avant l'étiquette : le brouillon les reprend ; l'utilisateur publie.
+  Notes à corriger après coup : `notes.yml` (dispatch, `inputs[version]`). Le proxy refuse l'envoi de
+  fichiers à une version (build macOS lancé à part : le donner à l'utilisateur, qui l'ajoute au
+  brouillon). Secours : script `etiquette-vX.Y.Z.bat` dans `C:\MATV_LOCAL\_Interne\Cleis\`.
 - Langue : anglais pour l'interface et le code (interface traduite par `i18n/fr.json`) ; notes de
   version en anglais seulement (D-86).
 - Chiffrement : aucune primitive écrite à la main ; tout passe par `cleis-crypto`, qui fixe les formats
