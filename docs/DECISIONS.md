@@ -1012,6 +1012,19 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   l'archive serveur, la vérifie et en sort le fichier (crate `zip`, deflate par flate2) ; pour une
   version d'avant (≤ 0.2.4 première édition), l'ancien chemin (`<fichier>` + `.sha256`) reste.
   Abandonné : les `.tar.gz` Linux et les binaires nus par version.
+- **D-109 macOS : Cleis.app dans une image disque** (28/11/2026). Les zips de la D-107 portaient un
+  programme nu (ouvert dans le Terminal, sans icône ni nom d'appli, rien à glisser dans Applications) :
+  repris tels quels d'un ancien flux sans les remettre en question. Désormais, par architecture,
+  `Cleis-<ver>-<sha>-macos-{apple-silicon,intel}.dmg` : `Cleis.app` (`packaging/macos/Info.plist`,
+  identifiant `studio.matv.cleis` comme l'agent de connexion et le trousseau, icône
+  `packaging/macos/Cleis.icns` tirée du logo clair par `design/tools/logo.sh`, `cleis-server` dans
+  `Contents/MacOS`, les serveurs d'un NAS dans `Contents/Resources/server`, que `nas.rs` lit), signée
+  ad hoc (`codesign -s -`, de l'intérieur vers l'extérieur, vérifiée aussi une fois l'image montée),
+  et le raccourci Applications. Système minimal : 11.0 (Apple silicon), 10.15 (Intel), aussi en
+  `MACOSX_DEPLOYMENT_TARGET`. Deux images plutôt qu'une universelle : choix de l'utilisateur.
+  `hdiutil` réessayé (« Resource busy » connu sur les Mac de GitHub). En suspens : sans Developer ID
+  ni notarisation (adhésion payante), la première ouverture passe par Réglages › Confidentialité et
+  sécurité › Ouvrir quand même ; aucun essai sur un vrai Mac de ce côté.
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

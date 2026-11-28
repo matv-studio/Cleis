@@ -20,4 +20,13 @@ rsvg-convert -w 80 -h 80 "$root/design/logo/cleis-light.svg" -o "$tmp/q80.png"
 convert "$tmp/q64.png" "$root/packaging/qnap/icons/CleisServer.gif"
 convert "$tmp/q80.png" "$root/packaging/qnap/icons/CleisServer_80.gif"
 convert "$tmp/q64.png" -colorspace Gray "$root/packaging/qnap/icons/CleisServer_gray.gif"
+# macOS (D-109): Cleis.icns, on Apple's 1024 px grid (the squircle, its shadow included, 832 px).
+rsvg-convert -w 832 -h 832 "$root/design/logo/cleis-light.svg" -o "$tmp/mac.png"
+python3 -c "
+from PIL import Image
+body = Image.open('$tmp/mac.png').convert('RGBA')
+icon = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
+icon.paste(body, (96, 96), body)
+icon.save('$root/packaging/macos/Cleis.icns',
+          sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)])"
 rm -rf "$tmp"

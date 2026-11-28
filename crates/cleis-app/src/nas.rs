@@ -329,8 +329,8 @@ rm -rf {tmp}"
 }
 
 /// The file to send (`Found::package`): from `CLEIS_SERVER_PACKAGES` (a folder, for tests and
-/// development builds), beside the app (`server/`, in the Windows installer and the macOS zip),
-/// or this version's release on GitHub: its server archive, checked against `SHA256SUMS` (D-108),
+/// development builds), beside the app (`server/`, Windows installer), in the app's resources
+/// (`Cleis.app/Contents/Resources/server`, D-109), or this version's release on GitHub: its server archive, checked against `SHA256SUMS` (D-108),
 /// or, for a version released before it, the file itself and its `.sha256`.
 pub fn package_bytes(file: &str) -> Result<Vec<u8>, String> {
     let local = std::env::var_os("CLEIS_SERVER_PACKAGES")
@@ -339,7 +339,9 @@ pub fn package_bytes(file: &str) -> Result<Vec<u8>, String> {
         .chain(
             std::env::current_exe()
                 .ok()
-                .and_then(|e| e.parent().map(|d| d.join("server"))),
+                .and_then(|e| e.parent().map(server_dirs))
+                .into_iter()
+                .flatten(),
         )
         .map(|d| d.join(file))
         .find(|p| p.is_file());
@@ -360,6 +362,18 @@ pub fn package_bytes(file: &str) -> Result<Vec<u8>, String> {
     let sums = crate::update::download(&format!("{base}{file}.sha256"))?;
     crate::update::verify(&bytes, &String::from_utf8_lossy(&sums))?;
     Ok(bytes)
+}
+
+/// Where the app keeps the servers of a NAS, from the program's folder: `server/` beside it, or
+/// the bundle's `Contents/Resources/server` when the program is `Contents/MacOS/Cleis`.
+fn server_dirs(exe_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut dirs = vec![exe_dir.join("server")];
+    if exe_dir.ends_with("Contents/MacOS")
+        && let Some(contents) = exe_dir.parent()
+    {
+        dirs.push(contents.join("Resources/server"));
+    }
+    dirs
 }
 
 /// The server archive of `version` in a `SHA256SUMS` file (`<hex>  <name>` lines): its name and
@@ -436,6 +450,20 @@ mod tests {
             zip.write_all(data).unwrap();
         }
         zip.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn servers_in_the_bundle_resources() {
+        let mac = std::path::Path::new("/Applications/Cleis.app/Contents/MacOS");
+        assert_eq!(
+            server_dirs(mac),
+            [
+                mac.join("server"),
+                std::path::PathBuf::from("/Applications/Cleis.app/Contents/Resources/server")
+            ]
+        );
+        let win = std::path::Path::new("/opt/cleis");
+        assert_eq!(server_dirs(win), [win.join("server")]);
     }
 
     #[test]

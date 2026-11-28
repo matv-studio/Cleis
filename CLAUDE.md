@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/Cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-108,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-109,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -92,7 +92,8 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
   `cloud.rs` + `screens/cloud.rs` (coffre dans OneDrive / Google Drive : connexion PKCE par le
   navigateur, jetons renouvelés, D-104), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
   (Paramètres › Shortcuts, D-85), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
-  copie, D-75), installateur `packaging/windows/` (NSIS),
+  copie, D-75), installateur `packaging/windows/` (NSIS), `packaging/macos/` (Info.plist et icône de
+  Cleis.app, image disque construite par `release.yml`, D-109),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
   `screens/` (un fichier par écran ; `org.rs` : Members, Security policy, Encryption,
   Server, Activity, dialogues), `demo.rs` (données fictives, organisation de démo), `tests/e2e.rs`,

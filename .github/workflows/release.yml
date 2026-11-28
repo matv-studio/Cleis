@@ -6,8 +6,11 @@ name: Build
 # - A `v*` tag (tag.yml dispatches this workflow on it): every build, attached to a DRAFT release
 #   that a person reviews and publishes.
 # Order (D-107): servers (Linux, QNAP) > Windows > macOS Apple silicon > macOS Intel. The repository
-# is public: standard GitHub-hosted runners, macOS included, cost no minutes. macOS builds are
-# unsigned (no Apple membership).
+# is public: standard GitHub-hosted runners, macOS included, cost no minutes.
+# A version holds few files (D-108): the Windows setup (+ its .sha256, read by the updater of
+# installed copies), a disk image per Mac (Cleis.app, ad-hoc signed, not notarized: D-109), one
+# server archive (Linux, QNAP, guide) and SHA256SUMS. The servers a NAS needs are inside the
+# Windows setup and Cleis.app (`Contents/Resources/server`).
 
 on:
   push:
@@ -180,6 +183,8 @@ jobs:
 
   # D-107: after Windows, Apple silicon then Intel (one at a time). macos-15-intel is GitHub's last
   # Intel image (until August 2027); after it, Intel is to be cross-built on the Apple silicon runner.
+  # D-109: a Cleis.app (Info.plist, icon, the NAS servers in its resources), ad-hoc signed (no
+  # Apple membership: not notarized), in a disk image with the Applications shortcut.
   macos:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.macos
     needs: windows
@@ -187,9 +192,11 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - { arch: arm64, runner: macos-15 }
-          - { arch: x64, runner: macos-15-intel }
+          - { arch: arm64, lipo: arm64, label: apple-silicon, runner: macos-15, minimum: "11.0" }
+          - { arch: x64, lipo: x86_64, label: intel, runner: macos-15-intel, minimum: "10.15" }
     runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
@@ -202,7 +209,7 @@ jobs:
           # D-104: Google's desktop client secret (not confidential for an installed app, kept out
           # of git all the same); without it, Google sign-in shows "Not available in this build".
           CLEIS_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      # D-108: the servers a NAS needs, beside the app (as in the Windows setup).
+      # D-108: the servers a NAS needs, inside the app (as in the Windows setup).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: server-bin-*
@@ -212,37 +219,65 @@ jobs:
         with:
           name: cleis-server-qnap
           path: server
-      - name: Package (zip)
+      - name: Cleis.app
         run: |
-          sha=$(echo "${{ github.sha }}" | cut -c1-7)
           ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           if [ "${{ github.ref_type }}" = tag ] && [ "${{ github.ref_name }}" != "v$ver" ]; then
             echo "::error::Tag ${{ github.ref_name }} does not match the workspace version $ver"
             exit 1
           fi
-          want=$([ "${{ matrix.arch }}" = arm64 ] && echo arm64 || echo x86_64)
           for b in cleis cleis-server; do
             got=$(lipo -archs "target/release/$b")
-            if [ "$got" != "$want" ]; then
-              echo "::error::$b is $got, expected $want"
+            if [ "$got" != "${{ matrix.lipo }}" ]; then
+              echo "::error::$b is $got, expected ${{ matrix.lipo }}"
               exit 1
             fi
           done
-          name="Cleis-$ver-$sha-macos-${{ matrix.arch }}-unsigned"
-          mkdir -p "dist/$name"
-          cp target/release/cleis "dist/$name/Cleis"
-          cp target/release/cleis-server README.md THIRD_PARTY.md "dist/$name/"
-          python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
-          cp crates/cleis-app/assets/fonts/OFL.txt "dist/$name/OFL.txt"
-          cp deploy/README.md "dist/$name/SERVER.md"
-          mkdir -p "dist/$name/server"
-          for f in server/*; do install -m 755 "$f" "dist/$name/server/"; done
-          (cd dist && zip -qry "$name.zip" "$name")
+          app=stage/Cleis.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/server"
+          cp target/release/cleis "$app/Contents/MacOS/Cleis"
+          cp target/release/cleis-server "$app/Contents/MacOS/cleis-server"
+          sed -e "s/@VERSION@/$ver/g" -e "s/@MINIMUM@/${{ matrix.minimum }}/g" \
+            packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+          printf 'APPL????' > "$app/Contents/PkgInfo"
+          cp packaging/macos/Cleis.icns "$app/Contents/Resources/"
+          for f in server/*; do install -m 755 "$f" "$app/Contents/Resources/server/"; done
+          cp README.md THIRD_PARTY.md crates/cleis-app/assets/fonts/OFL.txt "$app/Contents/Resources/"
+          cp deploy/README.md "$app/Contents/Resources/SERVER.md"
+          python3 tools/licenses.py -o "$app/Contents/Resources/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
+          # Ad-hoc signature, inside out: the helper, then the bundle (its program and resources).
+          codesign --force --sign - --timestamp=none "$app/Contents/MacOS/cleis-server"
+          codesign --force --sign - --timestamp=none "$app"
+          codesign --verify --strict --verbose=2 "$app"
+          echo "VER=$ver" >> "$GITHUB_ENV"
+      - name: Disk image
+        run: |
+          sha=$(echo "${{ github.sha }}" | cut -c1-7)
+          name="Cleis-$VER-$sha-macos-${{ matrix.label }}"
+          ln -s /Applications stage/Applications
+          mkdir -p dist
+          # hdiutil sometimes answers "Resource busy" on GitHub's Macs (XProtect): tried again.
+          for i in 1 2 3 4 5; do
+            if hdiutil create -volname "Cleis $VER" -srcfolder stage -fs HFS+ -format UDZO \
+              -imagekey zlib-level=9 -ov "dist/$name.dmg"; then
+              break
+            fi
+            [ "$i" = 5 ] && exit 1
+            sleep $((i * 5))
+          done
+          hdiutil verify "dist/$name.dmg"
+          # The image as a user gets it: mounted, the app's signature still holds.
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "dist/$name.dmg"
+          codesign --verify --strict --verbose=2 "$mnt/Cleis.app"
+          test -x "$mnt/Cleis.app/Contents/Resources/server/cleis-server-x86_64"
+          for i in 1 2 3 4 5; do hdiutil detach "$mnt" && break; sleep $((i * 3)); done
           echo "NAME=$name" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.NAME }}
-          path: dist/${{ env.NAME }}.zip
+          path: dist/${{ env.NAME }}.dmg
           retention-days: 30
 
   draft-release:
