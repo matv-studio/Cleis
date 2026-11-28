@@ -13,6 +13,7 @@ archive carries `THIRD_PARTY_LICENSES.txt` (the licence files of each crate buil
 | `rusqlite` + SQLite (bundled) | vault file | MIT / public domain |
 | `serde`, `serde_json`, `csv`, `uuid`, `url`, `data-encoding`, `thiserror`, `strsim` | data handling | MIT OR Apache-2.0 / MIT |
 | rlibphonenumber (crate, port of Google's libphonenumber and its metadata) | phone numbers in each country's format (0.2.4) | Apache-2.0 |
+| `zip` (zip-rs) | a NAS's server read from the version's server archive | MIT |
 | psl (crate, Mozilla's Public Suffix List) | the site of an address for Fill best match (0.2.4) | MIT / Apache-2.0 (list: MPL-2.0) |
 | Geist, Geist Mono (Vercel, `geist` npm 1.9.2) | interface typeface, embedded TTF (`crates/cleis-app/assets/fonts`, licence in `OFL.txt`) | SIL Open Font License 1.1 |
 | GPUI (`gpui-pre`, Zed Industries), gpui-kit / gpui-component / gpui-base (Longbridge) | desktop interface | Apache-2.0 |

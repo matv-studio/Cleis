@@ -155,11 +155,35 @@ jobs:
           ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           export PATH="$PATH:/usr/share/QDK/bin"
           packaging/qnap/build.sh "$ver" x86_64=bin/cleis-server-x86_64 arm_64=bin/cleis-server-arm_64
-          (cd dist && for f in *.qpkg; do sha256sum "$f" > "$f.sha256"; done)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cleis-server-qnap
-          path: dist/*.qpkg*
+          path: dist/*.qpkg
+          retention-days: 30
+      # D-108: the one server download of a version (installing without the app).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: server-licenses
+          path: licenses
+      - name: Server archive
+        run: |
+          sha=$(echo "${{ github.sha }}" | cut -c1-7)
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          name="Cleis-Server-$ver-$sha"
+          d="out/$name"
+          mkdir -p "$d/linux-x64" "$d/linux-arm64" "$d/qnap"
+          install -m 755 bin/cleis-server-x86_64 "$d/linux-x64/cleis-server"
+          install -m 755 bin/cleis-server-arm_64 "$d/linux-arm64/cleis-server"
+          cp dist/*.qpkg "$d/qnap/"
+          cp deploy/README.md "$d/README.md"
+          cp -r deploy "$d/deploy"
+          cp THIRD_PARTY.md licenses/THIRD_PARTY_LICENSES.txt "$d/"
+          (cd out && zip -qry "$name.zip" "$name")
+          echo "NAME=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.NAME }}
+          path: out/${{ env.NAME }}.zip
           retention-days: 30
 
   # D-107: after Windows, Apple silicon then Intel (one at a time). macos-15-intel is GitHub's last
@@ -186,6 +210,16 @@ jobs:
           # D-104: Google's desktop client secret (not confidential for an installed app, kept out
           # of git all the same); without it, Google sign-in shows "Not available in this build".
           CLEIS_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      # D-108: the servers a NAS needs, beside the app (as in the Windows setup).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: server-bin-*
+          path: server
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cleis-server-qnap
+          path: server
       - name: Package (zip)
         run: |
           sha=$(echo "${{ github.sha }}" | cut -c1-7)
@@ -209,14 +243,14 @@ jobs:
           python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-app cleis-server
           cp crates/cleis-app/assets/fonts/OFL.txt "dist/$name/OFL.txt"
           cp deploy/README.md "dist/$name/SERVER.md"
-          (cd dist && zip -qry "$name.zip" "$name" && shasum -a 256 "$name.zip" > "$name.zip.sha256")
+          mkdir -p "dist/$name/server"
+          for f in server/*; do install -m 755 "$f" "dist/$name/server/"; done
+          (cd dist && zip -qry "$name.zip" "$name")
           echo "NAME=$name" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.NAME }}
-          path: |
-            dist/${{ env.NAME }}.zip
-            dist/${{ env.NAME }}.zip.sha256
+          path: dist/${{ env.NAME }}.zip
           retention-days: 30
 
   draft-release:
@@ -230,10 +264,14 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           sparse-checkout: docs/notes
+      # D-108: the installers and the server archive only (the bare servers are inside them).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          pattern: Cleis-*
           path: dist
           merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum $(ls | grep -v '\.sha256$') > SHA256SUMS && cat SHA256SUMS
       - name: Draft release (published by a person)
         env:
           GH_TOKEN: ${{ github.token }}

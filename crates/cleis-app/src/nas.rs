@@ -329,8 +329,9 @@ rm -rf {tmp}"
 }
 
 /// The file to send (`Found::package`): from `CLEIS_SERVER_PACKAGES` (a folder, for tests and
-/// development builds), beside the app (`server/`), or this version's release on GitHub, checked
-/// against its published checksum.
+/// development builds), beside the app (`server/`, in the Windows installer and the macOS zip),
+/// or this version's release on GitHub: its server archive, checked against `SHA256SUMS` (D-108),
+/// or, for a version released before it, the file itself and its `.sha256`.
 pub fn package_bytes(file: &str) -> Result<Vec<u8>, String> {
     let local = std::env::var_os("CLEIS_SERVER_PACKAGES")
         .map(std::path::PathBuf::from)
@@ -345,14 +346,70 @@ pub fn package_bytes(file: &str) -> Result<Vec<u8>, String> {
     if let Some(p) = local {
         return std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()));
     }
-    let base = format!(
-        "https://github.com/matv-studio/Cleis/releases/download/v{}/",
-        env!("CARGO_PKG_VERSION")
-    );
+    let version = env!("CARGO_PKG_VERSION");
+    let base = format!("https://github.com/matv-studio/Cleis/releases/download/v{version}/");
+    if let Ok(sums) = crate::update::download(&format!("{base}SHA256SUMS")) {
+        let sums = String::from_utf8_lossy(&sums);
+        let (name, line) = archive_in(&sums, version).ok_or("no server archive in this version")?;
+        let entry = archive_entry(file).ok_or_else(|| format!("{file}: not a server file"))?;
+        let archive = crate::update::download(&format!("{base}{name}"))?;
+        crate::update::verify(&archive, line)?;
+        return extract(&archive, &entry);
+    }
     let bytes = crate::update::download(&format!("{base}{file}"))?;
     let sums = crate::update::download(&format!("{base}{file}.sha256"))?;
     crate::update::verify(&bytes, &String::from_utf8_lossy(&sums))?;
     Ok(bytes)
+}
+
+/// The server archive of `version` in a `SHA256SUMS` file (`<hex>  <name>` lines): its name and
+/// its line (D-108: `Cleis-Server-<version>-<commit>.zip`).
+fn archive_in<'a>(sums: &'a str, version: &str) -> Option<(&'a str, &'a str)> {
+    let prefix = format!("Cleis-Server-{version}-");
+    sums.lines().find_map(|line| {
+        let name = line.split_whitespace().nth(1)?.trim_start_matches('*');
+        (name.starts_with(&prefix) && name.ends_with(".zip") && !name.contains('/'))
+            .then_some((name, line))
+    })
+}
+
+/// Where a file to send (`Found::package`) sits in the server archive, under its top folder.
+fn archive_entry(file: &str) -> Option<String> {
+    if file.starts_with("CleisServer_") && file.ends_with(".qpkg") && !file.contains('/') {
+        return Some(format!("qnap/{file}"));
+    }
+    match file {
+        "cleis-server-x86_64" => Some("linux-x64/cleis-server".into()),
+        "cleis-server-arm_64" => Some("linux-arm64/cleis-server".into()),
+        _ => None,
+    }
+}
+
+/// Largest file taken out of the server archive (a server is a few megabytes).
+const MAX_ENTRY: u64 = 200 * 1024 * 1024;
+
+/// One file of the server archive (`entry`, under the archive's top folder or at its root).
+fn extract(archive: &[u8], entry: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let bad = |e: zip::result::ZipError| format!("server archive: {e}");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(archive)).map_err(bad)?;
+    let tail = format!("/{entry}");
+    let top =
+        |n: &str| n == entry || (n.ends_with(&tail) && !n[..n.len() - tail.len()].contains('/'));
+    let name = zip
+        .file_names()
+        .filter_map(|n| n.ok().map(|n| n.into_owned()))
+        .find(|n| top(n))
+        .ok_or_else(|| format!("{entry} is not in the server archive"))?;
+    let f = zip.by_name(&name).map_err(bad)?;
+    let mut out = Vec::new();
+    f.take(MAX_ENTRY + 1)
+        .read_to_end(&mut out)
+        .map_err(|e| format!("server archive: {e}"))?;
+    if out.len() as u64 > MAX_ENTRY {
+        return Err(format!("{entry} is too large"));
+    }
+    Ok(out)
 }
 
 /// Whether the server answers on the NAS (after its start).
@@ -367,6 +424,81 @@ pub fn answers(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server archive as the release workflow makes it (top folder, deflate).
+    fn archive(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, data) in files {
+            zip.start_file(*name, opts).unwrap();
+            zip.write_all(data).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn server_archive_is_found_in_the_sums() {
+        let sums = "aa11  Cleis-0.2.5-abc1234-windows-x64-setup.exe\n\
+                    bb22  Cleis-Server-0.2.5-abc1234.zip\n\
+                    cc33  Cleis-Server-0.2.6-abc1234.zip\n";
+        let (name, line) = archive_in(sums, "0.2.5").unwrap();
+        assert_eq!(name, "Cleis-Server-0.2.5-abc1234.zip");
+        assert!(line.starts_with("bb22"));
+        assert!(archive_in(sums, "0.2.4").is_none());
+        assert!(archive_in("dd44  ../Cleis-Server-0.2.5-x.zip\n", "0.2.5").is_none());
+    }
+
+    #[test]
+    fn package_names_map_to_the_archive() {
+        let q = Found {
+            system: System::Qnap,
+            arch: "arm_64",
+            root: true,
+            host_key: String::new(),
+        };
+        assert_eq!(
+            archive_entry(&q.package("0.2.5")).unwrap(),
+            "qnap/CleisServer_0.2.5_arm_64.qpkg"
+        );
+        assert_eq!(
+            archive_entry("cleis-server-x86_64").unwrap(),
+            "linux-x64/cleis-server"
+        );
+        assert_eq!(
+            archive_entry("cleis-server-arm_64").unwrap(),
+            "linux-arm64/cleis-server"
+        );
+        assert!(archive_entry("../cleis-server").is_none());
+        assert!(archive_entry("CleisServer_../x.qpkg").is_none());
+    }
+
+    #[test]
+    fn a_file_comes_out_of_the_archive() {
+        let zip = archive(&[
+            ("Cleis-Server-0.2.5-abc1234/README.md", b"guide"),
+            (
+                "Cleis-Server-0.2.5-abc1234/linux-x64/cleis-server",
+                b"x64 server",
+            ),
+            (
+                "Cleis-Server-0.2.5-abc1234/qnap/CleisServer_0.2.5_x86_64.qpkg",
+                b"qpkg",
+            ),
+            ("elsewhere/deeper/linux-arm64/cleis-server", b"not this one"),
+        ]);
+        assert_eq!(
+            extract(&zip, "linux-x64/cleis-server").unwrap(),
+            b"x64 server"
+        );
+        assert_eq!(
+            extract(&zip, "qnap/CleisServer_0.2.5_x86_64.qpkg").unwrap(),
+            b"qpkg"
+        );
+        assert!(extract(&zip, "linux-arm64/cleis-server").is_err());
+        assert!(extract(b"not a zip", "linux-x64/cleis-server").is_err());
+    }
 
     #[test]
     fn probe_is_read() {

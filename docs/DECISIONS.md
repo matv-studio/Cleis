@@ -1001,6 +1001,17 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   est construit par la chaîne native de l'architecture. En suspens : `macos-15-intel` est la dernière
   image Intel de GitHub (jusqu'à août 2027) ; ensuite, compiler `x86_64-apple-darwin` sur le runner
   Apple silicon. Pas de signature Apple (adhésion payante, non demandée).
+- **D-108 Peu de fichiers par version** (28/11/2026, demande de l'utilisateur : « bien trop
+  d'installateurs »). Une version porte : le setup Windows (+ son `.sha256`, lu par le programme de
+  mise à jour des copies installées, D-74), un zip macOS par architecture, une archive serveur
+  `Cleis-Server-<ver>-<sha>.zip` (Linux x64 et ARM, paquets QNAP, guide, licences) et `SHA256SUMS`
+  (empreintes de tous les fichiers ; choix de l'utilisateur plutôt que les seules empreintes affichées
+  par GitHub). Les serveurs qu'un NAS demande (`cleis-server-{x86_64,arm_64}`, `.qpkg`) sont dans le
+  setup Windows (déjà, D-78) et désormais dans le dossier `server/` des zips macOS. Si `server/`
+  manque (binaire macOS déplacé seul), `nas::package_bytes` lit `SHA256SUMS` de sa version, y trouve
+  l'archive serveur, la vérifie et en sort le fichier (crate `zip`, deflate par flate2) ; pour une
+  version d'avant (≤ 0.2.4 première édition), l'ancien chemin (`<fichier>` + `.sha256`) reste.
+  Abandonné : les `.tar.gz` Linux et les binaires nus par version.
 
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).

@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/Cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-105,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-108,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -45,7 +45,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
   -f 'inputs[commit]=<sha>'` : `tag.yml` pose l'étiquette (auteur Claude) et lance `release.yml` sur
   elle (brouillon). Suivi : `gh api repos/matv-studio/Cleis/releases`. Notes **en anglais seulement**
   (D-86) dans `docs/notes/vX.Y.Z.md` avant l'étiquette : le brouillon les reprend ; l'utilisateur publie.
-  Notes à corriger après coup : `notes.yml` (dispatch, `inputs[version]`). Une étiquette construit tout, macOS compris (D-107). Le proxy refuse l'envoi de
+  Notes à corriger après coup : `notes.yml` (dispatch, `inputs[version]`). Une étiquette construit tout, macOS compris (D-107) ; fichiers d'une version : D-108. Le proxy refuse l'envoi de
   fichiers à une version (build macOS lancé à part : le donner à l'utilisateur, qui l'ajoute au
   brouillon). Secours : script `etiquette-vX.Y.Z.bat` dans `C:\MATV_LOCAL\_Interne\Cleis\`.
 - Langue : anglais pour l'interface et le code (interface traduite par `i18n/fr.json`) ; notes de

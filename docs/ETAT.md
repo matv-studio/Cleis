@@ -7,6 +7,9 @@
 - D-107 : macOS Apple silicon + Intel dans chaque version (dépôt public, minutes gratuites), ordre
   serveurs > Windows > Apple silicon > Intel. Zips macOS de la 0.2.4 construits sur `main` (même code
   que l'étiquette fc43e3d) et remis à l'utilisateur pour le brouillon.
+- D-108 : version réduite à setup Windows (+ .sha256), 2 zips macOS (avec `server/`), archive
+  serveur, SHA256SUMS. Brouillon 0.2.4 à refaire : l'utilisateur supprime le brouillon et
+  l'étiquette `v0.2.4` sur GitHub (refusé par le proxy), puis `tag.yml` sur le dernier commit.
 
 ## 28/11/2026 (version 0.2.4)
 - D-105 : maquettes 48a à 48l validées puis codées (lignes de dossier, recherche effaçable, menu de

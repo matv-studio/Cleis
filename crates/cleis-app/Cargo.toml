@@ -46,6 +46,9 @@ tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # Updates (D-74): versions compared.
 semver = "1"
+# D-108: a NAS's server read from the version's server archive (deflate through flate2, already
+# in the tree).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 [target.'cfg(windows)'.dependencies]
 # Reads window handles: Quick Access brought in front without GPUI's simulated Alt, main window
