@@ -119,6 +119,7 @@ textarea.input { height: auto; padding: 6px var(--s-2); resize: none; }
 .chip--warn { color: var(--warning-text); background: var(--inherit-bg); }
 .chip--danger { color: var(--danger-text); background: var(--danger-bg); }
 .chip--set { color: var(--set-text); background: var(--set-bg); }
+.chip--google { color: #ec7c56; background: rgb(229 104 60 / .16); }
 .chip--auto { color: var(--auto-text); background: var(--auto-bg); }
 
 .menu {

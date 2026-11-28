@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/Cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-112,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-115,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -16,7 +16,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
    profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive|kind-menu|birthday-cal|ctx-space-icon|search-text|price-period|sync-places|add-place|backups|filter-show|leave-refused|onedrive-folders]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive|kind-menu|birthday-cal|ctx-space-icon|search-text|price-period|sync-places|add-place|backups|filter-show|leave-refused|onedrive-folders|sign-in|sign-new|sign-edit|health-find|health-none|org-backup-list]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
    [--quick-access] [--restore] [--welcome-local|--welcome-signin] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
@@ -91,7 +91,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
   PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84 ; GitHub App, D-101),
   `cloud.rs` + `screens/cloud.rs` (coffre dans OneDrive / Google Drive : connexion PKCE par le
   navigateur, jetons renouvelés, D-104 ; dossier choisi, D-110), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
-  (Paramètres › Shortcuts, D-85), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
+  (Paramètres › Shortcuts, D-85), `screens/sign_in.rs` (champ Sign in et étiquettes, D-113), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS), `packaging/macos/` (Info.plist et icône de
   Cleis.app, image disque construite par `release.yml`, D-109),
   `i18n.rs` + `i18n/fr.json` (traduction, D-73 : `tr`, `trf!`, `tr_owned`, `tr_dynamic`),
@@ -197,5 +197,11 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
 - Essais de connexion OneDrive / Google : ne jamais `run_until_parked` entre le clic qui lance la
   connexion et la réponse du navigateur (`click_now`, `browser_refuses`, `browser_returns` de
   `tests/cloud.rs`).
+- Voile d'un dialogue (`scrim`, confirmation…) : toujours `.occlude()`, sinon le clic sur un bouton
+  du dialogue atteint aussi la ligne dessous (corrigé le 28/11/2026).
+- Bouton montré au survol (`invisible()` + `group_hover`) : dans les essais, `w.hover(id de la
+  ligne)` avant `w.click` (corbeille des sauvegardes, « … » des étiquettes de connexion).
+- Roue chromatique (`screens/wheel.rs`) : `Wheel::target` (`WheelFor::Accent`, `NewLabel`,
+  `Label(nom)`) ; seul l'accent s'applique en direct au thème.
 - Dossier partagé supprimé (D-98) : seule `deleted.json` reste ; le registre `folder_org` a pour clé le
   chemin de la copie (`replica_dir(...).display()`), pas la clé de l'organisation.

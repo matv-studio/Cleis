@@ -179,6 +179,57 @@ pub fn chip(t: &Tokens, tone: Tone, label: impl Into<SharedString>, dot: bool) -
         .child(crate::i18n::tr_owned(&label.into()))
 }
 
+/// Text and background of a sign-in label's colour (D-113): a charter colour by name, or one's
+/// own `#rrggbb` (text in that colour on a tint of it; darker on the light theme).
+pub fn label_colors(t: &Tokens, color: &str) -> (Hsla, Hsla) {
+    match color {
+        "set" => (t.set_text, t.set_bg),
+        "auto" => (t.auto_text, t.auto_bg),
+        "ok" => (t.success_text, t.success_text.opacity(0.14)),
+        "warn" => (t.warning_text, t.warning_bg),
+        "danger" => (t.danger_text, t.danger_bg),
+        hex => match crate::theme::parse_hex(hex) {
+            Some(c) => {
+                let mut fg: Hsla = c.into();
+                if t.mode == crate::theme::Mode::Light {
+                    fg.l = fg.l.min(0.42);
+                } else {
+                    fg.l = fg.l.max(0.62);
+                }
+                (fg, Hsla::from(c).opacity(0.16))
+            }
+            None => (t.text_muted, t.surface_active),
+        },
+    }
+}
+
+/// A sign-in label (D-113, mockup 50b): the chip in the password's place, its link icon first.
+pub fn sign_in_chip(t: &Tokens, l: &cleis_core::SignIn) -> Div {
+    let (fg, bg) = label_colors(t, &l.color);
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.))
+        .h(px(20.))
+        .px(px(6.))
+        .max_w(px(150.))
+        .rounded(RADIUS_SM)
+        .bg(bg)
+        .text_color(fg)
+        .text_size(TEXT_XS)
+        .font_weight(W_MEDIUM)
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .child(icon("link", 11., fg))
+        .child(
+            div()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(l.label.clone()),
+        )
+}
+
 /// `.switch`: flat track with a thin handle (charter §6).
 pub fn switch(id: impl Into<ElementId>, t: &Tokens, on: bool) -> Stateful<Div> {
     let track = div()
@@ -541,6 +592,8 @@ pub fn scrim(t: &Tokens) -> Div {
     div()
         .absolute()
         .inset_0()
+        // What lies under the veil gets no click (28/11/2026).
+        .occlude()
         .flex()
         .items_center()
         .justify_center()

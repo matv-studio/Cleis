@@ -63,18 +63,8 @@ fn place_row(
         .child(action)
 }
 
+/// Settings › My account › Sync & backups; each organization has its own page (D-115).
 pub fn page(s: &Session, t: &Tokens, keep_open: bool, cx: &mut Context<CleisApp>) -> Div {
-    page_with(s, t, keep_open, true, cx)
-}
-
-/// `with_head: false` when Settings puts the title and the Mine / organization choice above.
-pub fn page_with(
-    s: &Session,
-    t: &Tokens,
-    keep_open: bool,
-    with_head: bool,
-    cx: &mut Context<CleisApp>,
-) -> Div {
     let c = &s.sync;
     let head = div()
         .flex()
@@ -445,8 +435,11 @@ pub fn page_with(
             .file_stem()
             .map(|n| n.to_string_lossy().trim_start_matches("vault-").to_owned())
             .unwrap_or_default();
+        let group = SharedString::from(format!("backup-row-{i}"));
         history = history.child(
             row(t, i == 0)
+                .id(group.clone())
+                .group(group.clone())
                 .child(div().flex_1().child(crate::i18n::tr_owned(&name)))
                 .child(
                     div()
@@ -468,51 +461,41 @@ pub fn page_with(
                     .on_click(cx.listener(move |this, _, _, cx| this.restore_backup(f.clone(), cx)))
                     .test_support(),
                 )
+                // Shown on the row's hover (mockups 49i, 50f).
                 .child(
-                    icon_button(
-                        SharedString::from(format!("del-backup-{i}")),
-                        t,
-                        "trash",
-                        true,
-                    )
-                    .tooltip(tip("Delete this backup"))
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.ask_delete_backup(gone.clone(), cx)),
-                    )
-                    .test_support(),
-                ),
+                    div()
+                        .invisible()
+                        .group_hover(group.clone(), |d| d.visible())
+                        .child(
+                            icon_button(
+                                SharedString::from(format!("del-backup-{i}")),
+                                t,
+                                "trash",
+                                true,
+                            )
+                            .tooltip(tip("Delete this backup"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.ask_delete_backup(gone.clone(), false, cx)
+                            }))
+                            .test_support(),
+                        ),
+                )
+                .test_support(),
         );
     }
     if more > 0 {
-        history = history.child(
-            row(t, false).child(div().flex_1()).child(
-                button("backups-more", t, BtnKind::Ghost, true)
-                    .child(
-                        gpui_kit::svg()
-                            .path("icons/chevron.svg")
-                            .size(px(14.))
-                            .flex_none()
-                            .text_color(t.text_muted)
-                            .when(s.backups_all, |d| {
-                                d.with_transformation(gpui_kit::Transformation::rotate(
-                                    gpui_kit::radians(std::f32::consts::PI),
-                                ))
-                            }),
-                    )
-                    .child(if s.backups_all {
-                        tr("Show fewer").to_owned()
-                    } else {
-                        crate::trf!("Show {} more", more)
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(s) = this.session() {
-                            s.backups_all = !s.backups_all;
-                        }
-                        cx.notify();
-                    }))
-                    .test_support(),
-            ),
-        );
+        history = history.child(more_row(
+            "backups-more",
+            more,
+            s.backups_all,
+            t,
+            cx.listener(|this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.backups_all = !s.backups_all;
+                }
+                cx.notify();
+            }),
+        ));
     }
     let backups_sec = section(t)
         .child(
@@ -581,10 +564,42 @@ pub fn page_with(
         .flex()
         .flex_col()
         .gap(px(16.))
-        .when(with_head, |d| d.child(head))
+        .child(head)
         .child(sync)
         .child(device)
         .child(backups_sec)
         // Mockup 37l: the deletions, at the very bottom (not on the organization's page).
-        .when(with_head, |d| d.child(super::erase::section(s, t, cx)))
+        .child(super::erase::section(s, t, cx))
+}
+
+/// "Show N more" / "Show fewer" under a list of backups (mockups 49i, 50f).
+pub fn more_row(
+    id: &'static str,
+    more: usize,
+    all: bool,
+    t: &Tokens,
+    on_click: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+) -> impl IntoElement {
+    row(t, false).child(div().flex_1()).child(
+        button(id, t, BtnKind::Ghost, true)
+            .child(
+                gpui_kit::svg()
+                    .path("icons/chevron.svg")
+                    .size(px(14.))
+                    .flex_none()
+                    .text_color(t.text_muted)
+                    .when(all, |d| {
+                        d.with_transformation(gpui_kit::Transformation::rotate(gpui_kit::radians(
+                            std::f32::consts::PI,
+                        )))
+                    }),
+            )
+            .child(if all {
+                tr("Show fewer").to_owned()
+            } else {
+                crate::trf!("Show {} more", more)
+            })
+            .on_click(on_click)
+            .test_support(),
+    )
 }

@@ -47,7 +47,12 @@ fn groups(s: &Session) -> Vec<Group> {
                 ("key", "Encryption"),
             ]);
         }
-        org.extend([("server", "Server"), ("upload", super::import::ORG_PAGE)]);
+        org.push(("server", "Server"));
+        // D-115 (mockup 50f): its backups on a page of its own, with the Backups right (D-67).
+        if o.can(cleis_core::org::Perm::Backups) {
+            org.push(("sync", super::org::SYNC_PAGE));
+        }
+        org.push(("upload", super::import::ORG_PAGE));
         out.push((o.m.name.clone(), Some(o.m.key()), org));
     }
     out
@@ -112,10 +117,10 @@ pub fn page(
                         16.,
                         if active { t.accent_text } else { t.text_muted },
                     ))
-                    .child(crate::i18n::tr_owned(if name == super::import::ORG_PAGE {
-                        "Import & export"
-                    } else {
-                        name
+                    .child(crate::i18n::tr_owned(match name {
+                        n if n == super::import::ORG_PAGE => "Import & export",
+                        n if n == super::org::SYNC_PAGE => "Sync & backups",
+                        n => n,
                     }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(k) = &key {
@@ -174,67 +179,7 @@ pub fn page(
         "Import & export" => super::import::page(s, t, cx),
         p if p == super::import::ORG_PAGE => super::import::page(s, t, cx),
         "Security" | "Profile" => super::account::page(s, s.account_pick, hosts, t, cx),
-        "Sync & backups" if manage => {
-            let org_view = s.org.as_ref().is_some_and(|o| o.ui.org_backups);
-            let name = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
-            let pick: super::org::Pick = std::rc::Rc::new(|app, i, cx| {
-                if let Some(o) = super::org::org_mut(app) {
-                    o.ui.org_backups = i == 1;
-                }
-                cx.notify();
-            });
-            // Audit U-15: the same head in both views: title, then the choice, then the action.
-            let whose = div()
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .min_h(px(32.))
-                .child(
-                    div()
-                        .text_size(TEXT_XL)
-                        .line_height(px(26.))
-                        .font_weight(W_STRONG)
-                        .child(tr("Sync & backups")),
-                )
-                .child(super::org::segment(
-                    "whose",
-                    t,
-                    &[tr("Mine"), &name],
-                    usize::from(org_view),
-                    pick,
-                    cx,
-                ))
-                .child(div().flex_1())
-                .when(org_view, |d| {
-                    d.child(
-                        button("org-backup-now", t, BtnKind::Primary, false)
-                            .child(icon("upload", 16., t.primary_ink))
-                            .child(tr("Back up now"))
-                            .on_click(cx.listener(|this, _, _, cx| this.org_backup_now(cx)))
-                            .test_support(),
-                    )
-                })
-                .when(!org_view && s.sync.place.is_some(), |d| {
-                    d.child(
-                        button("sync-now", t, BtnKind::Primary, false)
-                            .child(icon("sync", 16., t.primary_ink))
-                            .child(tr("Sync now"))
-                            .on_click(cx.listener(|this, _, _, cx| this.sync_now(cx)))
-                            .test_support(),
-                    )
-                });
-            let inner = if org_view {
-                super::org::backups(s, path, t, cx)
-            } else {
-                super::sync::page_with(s, t, s.sync_menu, false, cx)
-            };
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .child(whose)
-                .child(inner)
-        }
+        p if p == super::org::SYNC_PAGE && manage => super::org::sync_page(s, path, t, cx),
         "Sync & backups" => super::sync::page(s, t, s.sync_menu, cx),
         "Account" => super::account::page(s, s.account_pick, hosts, t, cx),
         "Members" => super::org::members(s, t, cx),
@@ -888,7 +833,10 @@ fn swatches(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>
     let items =
         std::iter::once((None, "None")).chain(ACCENTS.iter().map(|&(hex, name)| (Some(hex), name)));
     for (i, (hex, name)) in items.enumerate() {
-        let on = current.as_deref() == hex && s.wheel.is_none();
+        let on = current.as_deref() == hex
+            && s.wheel
+                .as_ref()
+                .is_none_or(|w| w.target != crate::screens::wheel::WheelFor::Accent);
         // As the buttons will be filled: the colour itself (D-99).
         let fill = hex.and_then(parse_hex);
         let tip: SharedString = if i == 1 {
@@ -938,7 +886,11 @@ fn swatches(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>
         .as_deref()
         .filter(|h| !wheel::in_palette(h))
         .and_then(parse_hex);
-    let on = own.is_some() || s.wheel.is_some();
+    let accent_wheel = s
+        .wheel
+        .as_ref()
+        .filter(|w| w.target == wheel::WheelFor::Accent);
+    let on = own.is_some() || accent_wheel.is_some();
     d = d.child(
         div()
             .size(px(30.))
@@ -957,7 +909,7 @@ fn swatches(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>
                     .test_support(),
             ),
     );
-    if let Some(w) = s.wheel.as_ref() {
+    if let Some(w) = accent_wheel {
         d = d.child(wheel::render(w, t, cx));
     }
     d

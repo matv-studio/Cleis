@@ -322,6 +322,8 @@ pub struct Preferences {
     /// A line with each folder's name before its items in All items, a vault, All contacts and
     /// My contacts (mockups 48a, 48d; Preferences › Lists, on by default).
     pub folder_lines: bool,
+    /// The labels of signing in with another account (D-113); `None`: the presets.
+    pub sign_in_labels: Option<Vec<crate::SignIn>>,
 }
 
 impl Default for Preferences {
@@ -353,6 +355,7 @@ impl Default for Preferences {
             sort_by: SortBy::Name,
             item_order: Vec::new(),
             folder_lines: true,
+            sign_in_labels: None,
         }
     }
 }

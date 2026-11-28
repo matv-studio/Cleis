@@ -1068,6 +1068,36 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   (`OnceCell`), un raccourci changé restait muet jusqu'au redémarrage : un seul gestionnaire qui
   lit la route courante (`hotkeys::route`).
 
+- **D-113 Connexion avec un autre compte : étiquettes** (28/11/2026, demande de l'utilisateur ;
+  proposition B de la maquette 50b retenue, avec ses changements : Password par défaut, Google en
+  rouge orangé, roue chromatique pour une étiquette nouvelle, pas de lien vers l'élément du compte).
+  Champ « Sign in » sous le mot de passe de l'inspecteur : Password, ou une étiquette dont la puce
+  colorée prend la place du mot de passe dans la liste et dans l'inspecteur (`Entry::sign_in`,
+  `SignIn { label, color }`, absent des anciens coffres). Les étiquettes sont celles de
+  l'utilisateur : préréglages (Google `#e5683c`, Microsoft, Apple, GitHub, SSO) jusqu'au premier
+  changement, puis sa liste (`Preferences::sign_in_labels`) ; s'y ajoutent celles trouvées sur les
+  éléments (faites par un autre membre). Couleur : une des six du code couleur de la charte (nom,
+  suit le thème) ou la sienne (`#rrggbb`, la roue de l'accent, `WheelFor`). Couleur et nom sont
+  aussi écrits dans l'élément : les autres membres voient la même puce sans la liste de l'auteur.
+  Renommer ou recolorer change les éléments qu'on a le droit de modifier ; un nom déjà pris fusionne
+  les deux ; supprimer une étiquette utilisée demande confirmation et rend Password à ses éléments
+  (le mot de passe gardé n'est jamais effacé). Le rapport de santé ignore le mot de passe et le 2FA
+  de ces éléments ; le remplissage tape l'identifiant seul, sans Entrée. Écartées : liste fixe de
+  méthodes (A, pas d'autres fournisseurs) et lien vers l'élément du compte (C, refusé).
+- **D-114 Santé : trouver un mot de passe** (28/11/2026, maquettes 50d, 50e validées). Une case
+  masquée (œil pour l'afficher, × pour vider) liste les éléments dont le mot de passe actuel est
+  celui tapé, dans le coffre et l'espace choisis, avec leurs problèmes, Coffre › Dossier, la date et
+  « Change » ; sinon « No item uses this password ». Comparaison par empreinte comme pour les
+  réutilisés (`health::using_password`), texte gardé seulement dans la case. Les anciens mots de
+  passe (historique) ne sont pas cherchés : l'élément en a déjà changé.
+- **D-115 Sync & backups de chaque organisation** (28/11/2026, maquette 50f validée). Une page par
+  organisation dans ses réglages (droit Backups, D-67 ; `org::SYNC_PAGE`), sous Server ; la page de
+  My account ne bascule plus vers l'organisation. Comme pour les sauvegardes personnelles : les 5
+  dernières, « Show N more », corbeille au survol de la ligne avec confirmation (D-111 ; la
+  corbeille des sauvegardes personnelles passe aussi au survol). Au passage : le voile des
+  dialogues (`scrim`, confirmation, GitHub, OneDrive / Google Drive, suppression du compte)
+  arrête le clic ; avant, confirmer cliquait aussi la ligne de la liste sous le bouton.
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

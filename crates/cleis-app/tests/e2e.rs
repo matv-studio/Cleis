@@ -4435,6 +4435,8 @@ fn show_filters_preferences_and_backups(cx: &mut TestAppContext) {
     assert!(window_has(cx, h, "del-backup-4") && !window_has(cx, h, "del-backup-5"));
     act(cx, h, |w, cx| w.click("backups-more", cx));
     assert!(window_has(cx, h, "del-backup-6"));
+    // The bin shows on the row's hover (mockup 50f).
+    act(cx, h, |w, cx| w.hover("backup-row-0", cx));
     act(cx, h, |w, cx| w.click("del-backup-0", cx));
     act(cx, h, |w, cx| w.click("confirm-ok", cx));
     let left = cleis_app::sync::backups(&path);
@@ -4451,4 +4453,334 @@ fn show_filters_preferences_and_backups(cx: &mut TestAppContext) {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert_eq!(s.filter, cleis_app::app::Filter::Personal);
     });
+}
+
+/// The demo unlocked, `name` selected (its inspector open).
+fn unlocked_with(
+    cx: &mut TestAppContext,
+    path: &Path,
+    name: &str,
+) -> (WindowHandle<Root>, Entity<CleisApp>) {
+    cleis_app::demo::create(path).unwrap();
+    let (h, app) = open(cx, path);
+    cx.run_until_parked();
+    act(cx, h, |w, cx| {
+        w.click("master-password", cx);
+        w.input(cleis_app::demo::PASSWORD, cx);
+        w.press("enter", cx);
+    });
+    let name = name.to_owned();
+    app.update(cx, |a, cx| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        s.selected = s.entries.iter().find(|e| e.name == name).map(|e| e.id);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    (h, app)
+}
+
+fn sign_in_of(
+    cx: &mut TestAppContext,
+    app: &Entity<CleisApp>,
+    name: &str,
+) -> Option<cleis_core::SignIn> {
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.entries
+            .iter()
+            .find(|e| e.name == name)
+            .unwrap()
+            .sign_in
+            .clone()
+    })
+}
+
+/// Scenario (28/11/2026, D-113, mockup 50b): Dropbox signs in with Google, its chip in the
+/// password's place and out of the health report; a label made (LinkedIn, green), recoloured,
+/// renamed; another made with one's own colour on the wheel (Okta), deleted with the item going
+/// back to Password; Password chosen again.
+#[gpui_kit::test]
+fn sign_in_labels(cx: &mut TestAppContext) {
+    use cleis_core::SignIn;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    let (h, app) = unlocked_with(cx, &path, "Dropbox");
+    let id = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.selected.unwrap()
+    });
+    let cell: &'static str = format!("sign-{id}").leak();
+    assert!(window_has(cx, h, "password-box") && window_has(cx, h, "sign-in"));
+    assert!(!window_has(cx, h, cell));
+    let reused = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            let (_, sum) = cleis_core::health::scan(
+                &s.entries,
+                &cleis_core::health::Policy::default(),
+                cleis_core::now(),
+            );
+            sum.reused
+        })
+    };
+    assert_eq!(reused(cx), 3, "Notion, Slack and Dropbox share a password");
+
+    // Google, from the presets: the chip replaces the password, here and in the list.
+    act(cx, h, |w, cx| w.click("sign-in", cx));
+    assert!(window_has(cx, h, "sign-password") && window_has(cx, h, "sign-new"));
+    act(cx, h, |w, cx| w.click("sign-l-0", cx));
+    assert_eq!(
+        sign_in_of(cx, &app, "Dropbox"),
+        Some(SignIn::new("Google", "#e5683c"))
+    );
+    assert!(!window_has(cx, h, "sign-l-0"), "the menu closed");
+    assert!(!window_has(cx, h, "password-box"));
+    assert!(window_has(cx, h, cell));
+    assert_eq!(reused(cx), 2, "Dropbox's password no longer counts");
+
+    // A label made: LinkedIn, green.
+    act(cx, h, |w, cx| w.click("sign-in", cx));
+    act(cx, h, |w, cx| w.click("sign-new", cx));
+    act(cx, h, |w, cx| w.input("LinkedIn", cx));
+    act(cx, h, |w, cx| w.click("sign-new-sw-ok", cx));
+    act(cx, h, |w, cx| w.click("sign-add", cx));
+    assert_eq!(
+        sign_in_of(cx, &app, "Dropbox"),
+        Some(SignIn::new("LinkedIn", "ok"))
+    );
+    let own = |cx: &mut TestAppContext| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else { panic!() };
+            s.prefs
+                .sign_in_labels
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|l| (l.label, l.color))
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(own(cx).len(), 6, "the presets, then LinkedIn");
+    assert_eq!(own(cx)[5], ("LinkedIn".into(), "ok".into()));
+
+    // Recoloured (red), then renamed: the item follows.
+    act(cx, h, |w, cx| w.click("sign-in", cx));
+    act(cx, h, |w, cx| w.hover("sign-l-5", cx));
+    act(cx, h, |w, cx| w.click("sign-more-5", cx));
+    act(cx, h, |w, cx| w.click("sign-sw-danger", cx));
+    assert_eq!(
+        sign_in_of(cx, &app, "Dropbox"),
+        Some(SignIn::new("LinkedIn", "danger"))
+    );
+    act(cx, h, |w, cx| w.click("sign-rename-start", cx));
+    act(cx, h, |w, cx| {
+        w.press("ctrl-a", cx);
+        w.input("LinkedIn Sales", cx);
+        w.press("enter", cx);
+    });
+    assert_eq!(
+        sign_in_of(cx, &app, "Dropbox"),
+        Some(SignIn::new("LinkedIn Sales", "danger"))
+    );
+    assert_eq!(own(cx)[5], ("LinkedIn Sales".into(), "danger".into()));
+
+    // One's own colour on the wheel (typed in its field), kept by "Use", then added.
+    act(cx, h, |w, cx| w.click("sign-new", cx));
+    act(cx, h, |w, cx| w.input("Okta", cx));
+    act(cx, h, |w, cx| w.click("sign-new-sw-own", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(
+            s.wheel.as_ref().map(|w| w.target.clone()),
+            Some(cleis_app::screens::wheel::WheelFor::NewLabel)
+        );
+    });
+    act(cx, h, |w, cx| {
+        w.click("wheel-hex", cx);
+        w.press("ctrl-a", cx);
+        w.input("#7C5CFF", cx);
+    });
+    act(cx, h, |w, cx| w.click("wheel-use", cx));
+    act(cx, h, |w, cx| w.click("sign-add", cx));
+    assert_eq!(
+        sign_in_of(cx, &app, "Dropbox"),
+        Some(SignIn::new("Okta", "#7c5cff"))
+    );
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.wheel.is_none());
+        // The accent was never touched.
+        assert_eq!(
+            s.prefs.accent.as_deref(),
+            Some(cleis_core::settings::DEFAULT_ACCENT)
+        );
+    });
+
+    // Deleted while used: asked, then the item goes back to its password.
+    act(cx, h, |w, cx| w.click("sign-in", cx));
+    act(cx, h, |w, cx| w.hover("sign-l-6", cx));
+    act(cx, h, |w, cx| w.click("sign-more-6", cx));
+    act(cx, h, |w, cx| w.click("sign-delete", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    // The click on the question's button reaches nothing below it (the row there).
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s.entries.iter().find(|e| Some(e.id) == s.selected).unwrap();
+        assert_eq!(e.name, "Dropbox");
+    });
+    assert_eq!(sign_in_of(cx, &app, "Dropbox"), None);
+    assert!(own(cx).iter().all(|(l, _)| l != "Okta"));
+    assert!(window_has(cx, h, "password-box"));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let e = s.entries.iter().find(|e| e.name == "Dropbox").unwrap();
+        assert_eq!(e.password, "Studio2024", "the password was kept all along");
+    });
+
+    // Google again, then Password.
+    act(cx, h, |w, cx| w.click("sign-in", cx));
+    assert!(window_has(cx, h, "sign-l-0"), "the menu opened again");
+    act(cx, h, |w, cx| w.click("sign-l-0", cx));
+    assert!(sign_in_of(cx, &app, "Dropbox").is_some());
+    act(cx, h, |w, cx| w.click("sign-in", cx));
+    act(cx, h, |w, cx| w.click("sign-password", cx));
+    assert_eq!(sign_in_of(cx, &app, "Dropbox"), None);
+
+    // Kept: the vault opened again shows the label on the demo's Google items.
+    let saved = cleis_store::LockedVault::open(&path)
+        .unwrap()
+        .unlock(cleis_app::demo::PASSWORD)
+        .unwrap();
+    let canva = saved
+        .entries()
+        .unwrap()
+        .into_iter()
+        .find(|e| e.name == "Canva")
+        .unwrap();
+    assert_eq!(canva.sign_in, Some(SignIn::new("Google", "#e5683c")));
+}
+
+/// Scenario (28/11/2026, D-114, mockups 50d, 50e): a password typed in Health lists the items
+/// using it (in the vault chosen), shown in clear on request; one nobody uses says so; × brings
+/// the report back.
+#[gpui_kit::test]
+fn health_find_a_password(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    let (h, app) = unlocked_with(cx, &path, "Figma");
+    app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+    });
+    act(cx, h, |w, cx| w.click("tab-Health", cx));
+    assert!(window_has(cx, h, "st-weak"));
+    let ids: Vec<String> = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        ["Notion", "Slack", "Dropbox", "Figma"]
+            .iter()
+            .map(|n| {
+                s.entries
+                    .iter()
+                    .find(|e| e.name == *n)
+                    .unwrap()
+                    .id
+                    .to_string()
+            })
+            .collect()
+    });
+    let fix = |i: usize| -> &'static str { format!("fix-{}", ids[i]).leak() };
+    act(cx, h, |w, cx| {
+        w.click("health-find", cx);
+        w.input("Studio2024", cx);
+    });
+    assert!(window_has(cx, h, "health-found"));
+    assert!(!window_has(cx, h, "st-weak"), "the report gives way");
+    for i in 0..3 {
+        assert!(window_has(cx, h, fix(i)), "{i}");
+    }
+    assert!(!window_has(cx, h, fix(3)));
+    act(cx, h, |w, cx| w.click("health-find-show", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.health.find_shown);
+    });
+    // Only My vault: Dropbox alone.
+    act(cx, h, |w, cx| w.click("health-vault", cx));
+    act(cx, h, |w, cx| w.click("hv-personal", cx));
+    assert!(window_has(cx, h, fix(2)) && !window_has(cx, h, fix(0)));
+    act(cx, h, |w, cx| w.click("health-vault", cx));
+    act(cx, h, |w, cx| w.click("hv-all", cx));
+    // "Change" works from here too.
+    act(cx, h, |w, cx| w.click(fix(1), cx));
+    act(cx, h, |w, cx| w.click("health-change-apply", cx));
+    act(cx, h, |w, cx| w.click("health-find-clear", cx));
+    assert!(window_has(cx, h, "st-weak"));
+    act(cx, h, |w, cx| {
+        w.click("health-find", cx);
+        w.input("Studio2024", cx);
+    });
+    assert!(!window_has(cx, h, fix(1)), "Slack's password was changed");
+    act(cx, h, |w, cx| w.click("health-find-clear", cx));
+    act(cx, h, |w, cx| {
+        w.click("health-find", cx);
+        w.input("Not-used-anywhere-7", cx);
+    });
+    assert!(window_has(cx, h, "health-found-none"));
+}
+
+/// Scenario (28/11/2026, D-115, mockup 50f): the organization's Sync & backups under its name;
+/// the 5 latest backups, the others under "Show 3 more"; one deleted (asked); My account's page
+/// no longer switches to the organization.
+#[gpui_kit::test]
+fn organization_sync_page(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    let (h, app) = unlocked_with(cx, &path, "Figma");
+    let bdir = app.update(cx, |a, _| {
+        let Phase::Main(s) = &mut a.phase else {
+            panic!()
+        };
+        cleis_app::demo::org(s);
+        cleis_app::org::org_backups_dir(&path, &s.org.as_ref().unwrap().m)
+    });
+    std::fs::create_dir_all(&bdir).unwrap();
+    for d in 0..8u64 {
+        let f = bdir.join(format!("org-2026-11-2{d}-030000.cleisorg"));
+        std::fs::copy(&path, &f).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&f)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(d * 86_400))
+            .unwrap();
+    }
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+    assert!(
+        !window_has(cx, h, "org-backup-now"),
+        "My account's page only"
+    );
+    act(cx, h, |w, cx| {
+        w.click("set-Organization sync & backups", cx)
+    });
+    assert!(window_has(cx, h, "org-sync-page") && window_has(cx, h, "org-backup-now"));
+    assert!(window_has(cx, h, "obk-restore-4") && !window_has(cx, h, "obk-restore-5"));
+    act(cx, h, |w, cx| w.click("obk-more", cx));
+    assert!(window_has(cx, h, "obk-restore-7"));
+    act(cx, h, |w, cx| w.hover("obk-row-0", cx));
+    act(cx, h, |w, cx| w.click("obk-del-0", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    let left = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        cleis_app::org::org_backups(&path, &s.org.as_ref().unwrap().m)
+    });
+    assert_eq!(left.len(), 7);
+    assert!(
+        !bdir.join("org-2026-11-20-030000.cleisorg").exists(),
+        "the latest went"
+    );
 }

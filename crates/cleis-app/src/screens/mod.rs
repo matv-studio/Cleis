@@ -21,6 +21,7 @@ pub mod quick_access;
 pub mod security;
 pub mod settings;
 pub mod sidebar;
+pub mod sign_in;
 pub mod sync;
 pub mod trash;
 pub mod unlock;

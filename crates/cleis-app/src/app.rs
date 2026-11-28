@@ -97,6 +97,9 @@ pub enum ConfirmAction {
     GoMembers,
     /// Mockup 49l: leaving refused, the organization's deletion instead (Server page).
     OpenDeleteOrg,
+    /// D-113: a sign-in label used by items (`Session::label_to_delete`); they go back to a
+    /// password.
+    DeleteSignLabel,
 }
 
 pub struct Welcome {
@@ -196,6 +199,8 @@ pub struct Session {
     pub confirm: Option<Confirm>,
     /// The backup the confirmation is about (mockup 49i).
     pub backup_to_delete: Option<std::path::PathBuf>,
+    /// The sign-in label asked to be deleted (D-113).
+    pub label_to_delete: Option<String>,
     /// Sync & backups: every backup listed, not only the 5 latest (mockup 49i).
     pub backups_all: bool,
     /// Columns menu of the vault (screen 02).
@@ -1396,6 +1401,7 @@ impl CleisApp {
             history_tab: false,
             confirm: None,
             backup_to_delete: None,
+            label_to_delete: None,
             backups_all: false,
             columns_menu: None,
             import: Default::default(),

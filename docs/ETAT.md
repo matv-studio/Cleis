@@ -1,6 +1,13 @@
 # Cleis — état
 
 ## 28/11/2026 (retours sur la 0.2.4, avant brouillon)
+- Maquettes 50 (D-113 à D-115) : étiquettes de connexion avec un autre compte (proposition B,
+  Google rouge orangé, roue pour une couleur à soi, pas de lien), recherche d'un mot de passe dans
+  Health, Sync & backups de chaque organisation (5 sauvegardes + Show more, corbeille au survol).
+  Corrigé au passage : confirmer une question cliquait aussi la ligne sous le bouton (voile sans
+  `occlude`). 3 essais de bout en bout nouveaux.
+- Prochaine étape : build d'essai complet (Windows + macOS), puis, à la validation de
+  l'utilisateur, étiquette v0.2.4 par `tag.yml` (le brouillon 0.2.4 n'existe plus).
 - Remplissage : le focus lu trop tôt après Tab (navigateur) faisait croire à une connexion en deux pages
   (Maj+Tab, Entrée, formulaire envoyé sans mot de passe). Désormais : focus relu jusqu'à 600 ms, puis
   recherche du champ mot de passe de la page (UI Automation, `focus_password_field`) ; seule une page

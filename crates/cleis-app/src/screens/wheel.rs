@@ -23,8 +23,20 @@ pub const WHEEL: f32 = 216.;
 const BAR_H: f32 = 10.;
 const WIDTH: f32 = 248.;
 
-/// The wheel open in Preferences › Appearance.
+/// What the wheel's colour is for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WheelFor {
+    /// Preferences › Appearance: the accent, shown live.
+    Accent,
+    /// The inspector's sign-in labels (D-113): the label being made…
+    NewLabel,
+    /// …or an existing one, by name.
+    Label(String),
+}
+
+/// The wheel open in Preferences › Appearance, or for a sign-in label.
 pub struct Wheel {
+    pub target: WheelFor,
     /// Hue in degrees, 0 = red at the top, clockwise.
     pub h: f32,
     /// Saturation, 0 at the centre to 1 at the rim.
@@ -39,8 +51,13 @@ pub struct Wheel {
 
 impl Wheel {
     pub fn new(start: Option<Rgba>) -> Self {
+        Self::for_target(start, WheelFor::Accent)
+    }
+
+    pub fn for_target(start: Option<Rgba>, target: WheelFor) -> Self {
         let (h, s, v) = start.map(rgb_to_hsv).unwrap_or((330., 0.52, 0.88));
         Self {
+            target,
             h,
             s,
             v,
@@ -169,8 +186,13 @@ pub fn wheel_png(n: u32) -> Vec<u8> {
 
 /// The last swatch: your own colour when it is the accent, otherwise a small wheel.
 pub fn own_swatch(own: Option<Rgba>, t: &Tokens) -> Div {
+    own_swatch_sized(own, t, 22.)
+}
+
+/// [`own_swatch`] `size` pixels wide (a sign-in label's colours, D-113).
+pub fn own_swatch_sized(own: Option<Rgba>, t: &Tokens, size: f32) -> Div {
     let d = div()
-        .size(px(22.))
+        .size(px(size))
         .rounded_full()
         .overflow_hidden()
         .flex()
@@ -178,7 +200,7 @@ pub fn own_swatch(own: Option<Rgba>, t: &Tokens) -> Div {
         .justify_center();
     match own {
         Some(c) => d.bg(c).border_1().border_color(t.line_strong),
-        None => d.child(gpui_kit::img(wheel_image()).size(px(22.)).rounded_full()),
+        None => d.child(gpui_kit::img(wheel_image()).size(px(size)).rounded_full()),
     }
 }
 
@@ -189,6 +211,32 @@ pub fn in_palette(hex: &str) -> bool {
 
 /// The popup below the swatches.
 pub fn render(w: &Wheel, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
+    popup_below(panel(w, t, cx), px(30.))
+}
+
+/// The popup at the left of its row, its middle level with it (the inspector's sign-in
+/// labels, D-113: the menu stays visible beside it).
+pub fn render_left(w: &Wheel, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
+    let target = gpui_kit::Bounds::new(
+        gpui_kit::point(px(0.), px(0.)),
+        gpui_kit::size(px(0.), px(0.)),
+    );
+    div().absolute().top_0().left_0().size(px(0.)).child(
+        gpui_kit::deferred(
+            gpui_kit::anchored()
+                .position_mode(gpui_kit::AnchoredPositionMode::Local)
+                .anchor(gpui_kit::Anchor::TopRight)
+                .attach(target, gpui_kit::Anchor::TopLeft)
+                .offset(gpui_kit::point(px(-12.), px(-150.)))
+                .snap_to_window_with_margin(px(8.))
+                .child(panel(w, t, cx)),
+        )
+        .with_priority(2),
+    )
+}
+
+/// The wheel, its brightness, its field and "Use".
+fn panel(w: &Wheel, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
     use gpui_kit::{linear_color_stop, linear_gradient};
     let c = w.rgba();
     let full = hsv_to_rgb(w.h, w.s, 1.);
@@ -332,7 +380,7 @@ pub fn render(w: &Wheel, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                         .test_support(),
                 ),
         );
-    popup_below(menu_in("wheel-in", div().child(body)), px(30.))
+    menu_in("wheel-in", div().child(body))
 }
 
 impl CleisApp {
@@ -365,6 +413,14 @@ impl CleisApp {
         let Some(s) = self.session() else { return };
         let Some(w) = s.wheel.as_ref() else { return };
         let hex = w.hex_text();
+        if w.target != WheelFor::Accent {
+            // A label's colour: its swatch shows it; nothing else changes before "Use".
+            if to_field && let Some((i, _)) = w.hex.as_ref() {
+                self.wheel_field = Some((i.clone(), hex.to_uppercase()));
+            }
+            cx.notify();
+            return;
+        }
         let mut prefs = s.prefs.clone();
         prefs.accent = Some(hex.clone());
         let field = w.hex.as_ref().map(|(i, _)| i.clone());
@@ -394,12 +450,20 @@ impl CleisApp {
         self.wheel_changed(false, cx);
     }
 
-    /// "Use": the colour becomes the accent (saved).
+    /// "Use": the colour becomes the accent (saved), or the label's.
     pub fn wheel_use(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let Some(w) = s.wheel.take() else { return };
         let hex = w.hex_text();
-        self.update_prefs(move |p| p.accent = Some(hex), cx);
+        match w.target {
+            WheelFor::Accent => self.update_prefs(move |p| p.accent = Some(hex), cx),
+            WheelFor::NewLabel => {
+                if let Some(ed) = self.session().and_then(|s| s.editor.as_mut()) {
+                    ed.sign.color = hex;
+                }
+            }
+            WheelFor::Label(name) => self.recolor_sign_label(&name, &hex, cx),
+        }
         cx.notify();
     }
 

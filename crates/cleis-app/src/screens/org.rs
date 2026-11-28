@@ -151,8 +151,8 @@ pub struct OrgUi {
     pub log_space: Option<SpaceId>,
     /// Last N days (None: all kept).
     pub log_days: Option<u32>,
-    /// Sync & backups: the organization's view rather than "Mine".
-    pub org_backups: bool,
+    /// Its Sync & backups page: every backup shown, not only the 5 latest (mockup 50f).
+    pub backups_all: bool,
     /// Backup asked to be restored (confirmation).
     pub restore: Option<std::path::PathBuf>,
     /// Settings › Devices, as last fetched.
@@ -2730,13 +2730,67 @@ pub fn join_fields(j: &JoinForm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div 
         )
 }
 
-// ---------- Organization backups (13) ----------
+// ---------- Organization backups (13, mockup 50f) ----------
+
+/// Settings › the organization's Sync & backups (D-115): its own page, below its others.
+pub const SYNC_PAGE: &str = "Organization sync & backups";
+
+/// The page: title with the organization's name, "Back up now", then [`backups`].
+pub fn sync_page(
+    s: &Session,
+    path: &std::path::Path,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> Div {
+    let Some(o) = s.org.as_ref() else {
+        return div();
+    };
+    let head = div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .min_h(px(32.))
+        .child(
+            div()
+                .text_size(TEXT_XL)
+                .line_height(px(26.))
+                .font_weight(W_STRONG)
+                .child(tr("Sync & backups")),
+        )
+        .child(
+            chip(t, Tone::Neutral, o.m.name.clone(), false)
+                .child(icon("users", 12., t.text_muted))
+                .flex_row_reverse(),
+        )
+        .child(div().flex_1())
+        .child(
+            button("org-backup-now", t, BtnKind::Primary, false)
+                .child(icon("upload", 16., t.primary_ink))
+                .child(tr("Back up now"))
+                .on_click(cx.listener(|this, _, _, cx| this.org_backup_now(cx)))
+                .test_support(),
+        );
+    div()
+        .id("org-sync-page")
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(head)
+        .child(backups(s, path, t, cx))
+        .test_support()
+        .into_any_element()
+        .into_div()
+}
 
 pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let Some(o) = s.org.as_ref() else {
         return div();
     };
     let list = crate::org::org_backups(path, &o.m);
+    // Mockup 50f: the 5 latest, the others under "Show N more"; each one can be deleted.
+    const SHOWN: usize = 5;
+    let more = list.len().saturating_sub(SHOWN);
+    let all = o.ui.backups_all;
     let mut hist = div().flex().flex_col().child(
         div()
             .flex()
@@ -2751,7 +2805,7 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
             .child(div().flex_1().child(tr("Date")))
             .child(div().w(px(140.)).child(tr("Destination")))
             .child(div().w(px(80.)).flex().justify_end().child(tr("Size")))
-            .child(div().w(px(200.))),
+            .child(div().w(px(232.))),
     );
     if list.is_empty() {
         hist = hist.child(
@@ -2761,11 +2815,19 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                 .child(tr("No backup yet")),
         );
     }
-    for (i, (p, size, ts)) in list.into_iter().take(30).enumerate() {
+    for (i, (p, size, ts)) in list
+        .into_iter()
+        .take(if all { usize::MAX } else { SHOWN })
+        .enumerate()
+    {
         let pv = p.clone();
         let pr = p.clone();
+        let gone = p.clone();
+        let group = SharedString::from(format!("obk-row-{i}"));
         hist = hist.child(
             div()
+                .id(group.clone())
+                .group(group.clone())
                 .flex()
                 .min_h(px(36.))
                 .items_center()
@@ -2793,8 +2855,9 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                 )
                 .child(
                     div()
-                        .w(px(200.))
+                        .w(px(232.))
                         .flex()
+                        .items_center()
                         .justify_end()
                         .gap(px(6.))
                         .child(
@@ -2825,9 +2888,43 @@ pub fn backups(s: &Session, path: &std::path::Path, t: &Tokens, cx: &mut Context
                                 cx.notify();
                             }))
                             .test_support(),
+                        )
+                        // Shown on the row's hover (mockup 50f), as in My account's list.
+                        .child(
+                            div()
+                                .invisible()
+                                .group_hover(group.clone(), |d| d.visible())
+                                .child(
+                                    icon_button(
+                                        SharedString::from(format!("obk-del-{i}")),
+                                        t,
+                                        "trash",
+                                        true,
+                                    )
+                                    .tooltip(tip("Delete this backup"))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.ask_delete_backup(gone.clone(), true, cx)
+                                    }))
+                                    .test_support(),
+                                ),
                         ),
-                ),
+                )
+                .test_support(),
         );
+    }
+    if more > 0 {
+        hist = hist.child(crate::screens::sync::more_row(
+            "obk-more",
+            more,
+            all,
+            t,
+            cx.listener(|this, _, _, cx| {
+                if let Some(o) = org_mut(this) {
+                    o.ui.backups_all = !o.ui.backups_all;
+                }
+                cx.notify();
+            }),
+        ));
     }
     let saved = s.prefs.org_backup_key_saved;
     div()
@@ -5450,6 +5547,78 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                     d
                 ));
                 let _ = std::fs::copy(&app.path, f);
+            }
+        }
+        // Mockup 50b: Canva's Sign in menu; `sign-new`: a label being made, its colour on the
+        // wheel; `sign-edit`: a label's colours, Rename and Delete.
+        "sign-in" | "sign-new" | "sign-edit" => {
+            if let Some(s) = app.session() {
+                s.tab = crate::app::Tab::Vault;
+                s.selected = s.entries.iter().find(|e| e.name == "Canva").map(|e| e.id);
+            }
+            app.ensure_editor(window, cx);
+            app.toggle_sign_menu(cx);
+            match m {
+                "sign-new" => {
+                    app.start_new_sign_label(window, cx);
+                    if let Some(s) = app.session()
+                        && let Some(ed) = s.editor.as_mut()
+                        && let Some((i, _)) = ed.sign.name.as_ref()
+                    {
+                        let i = i.clone();
+                        i.update(cx, |i, cx| i.set_value("LinkedIn", window, cx));
+                    }
+                    if let Some(s) = app.session() {
+                        s.wheel = Some(super::wheel::Wheel::for_target(
+                            crate::theme::parse_hex("#3d8bd6"),
+                            super::wheel::WheelFor::NewLabel,
+                        ));
+                    }
+                }
+                "sign-edit" => app.edit_sign_label("SSO", cx),
+                _ => {}
+            }
+        }
+        // Mockup 50d: Health, a password typed (the demo's reused one); `health-none`: one no
+        // item uses (50e).
+        "health-find" | "health-none" => {
+            if let Some(s) = app.session() {
+                s.tab = crate::app::Tab::Health;
+            }
+            app.ensure_health_find(window, cx);
+            let f = app
+                .session()
+                .and_then(|s| s.health.find.as_ref().map(|(f, _)| f.clone()));
+            if let Some(f) = f {
+                let text = if m == "health-find" {
+                    "Studio2024"
+                } else {
+                    "Not-used-anywhere-7"
+                };
+                f.update(cx, |i, cx| i.set_value(text, window, cx));
+            }
+        }
+        // Mockup 50f: 8 backups of the organization (copies of the demo file, shown only).
+        "org-backup-list" => {
+            let path = app.path.clone();
+            if let Some(s) = app.session()
+                && let Some(o) = s.org.as_ref()
+            {
+                let dir = crate::org::org_backups_dir(&path, &o.m);
+                let _ = std::fs::create_dir_all(&dir);
+                for d in 0..8 {
+                    let f = dir.join(format!("org-2026-11-{:02}-030000.cleisorg", 28 - d));
+                    if std::fs::copy(&path, &f).is_ok() {
+                        let t = std::time::SystemTime::now()
+                            - std::time::Duration::from_secs(d * 86_400 + 3_600);
+                        let _ = std::fs::File::options()
+                            .write(true)
+                            .open(&f)
+                            .and_then(|f| f.set_modified(t));
+                    }
+                }
+                s.settings_page = SYNC_PAGE;
+                s.tab = crate::app::Tab::Settings;
             }
         }
         // Mockup 49a: the filter's Show group, Favorites on.

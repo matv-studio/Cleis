@@ -124,6 +124,9 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     div()
         .absolute()
         .inset_0()
+        // Nothing under the question gets the click (28/11/2026: confirming selected the row
+        // below the button).
+        .occlude()
         .flex()
         .items_center()
         .justify_center()
@@ -368,6 +371,11 @@ impl CleisApp {
                     });
                 }
             }
+            ConfirmAction::DeleteSignLabel => {
+                if let Some(l) = s.label_to_delete.take() {
+                    self.delete_sign_label(&l, cx);
+                }
+            }
             ConfirmAction::GoMembers => {
                 s.tab = crate::app::Tab::Settings;
                 s.settings_page = "Members";
@@ -447,18 +455,45 @@ impl CleisApp {
 
 impl CleisApp {
     /// Mockup 49i: one backup deleted, asked first (it cannot come back).
-    pub fn ask_delete_backup(&mut self, file: std::path::PathBuf, cx: &mut Context<Self>) {
-        let name = file
-            .file_stem()
-            .map(|n| n.to_string_lossy().trim_start_matches("vault-").to_owned())
-            .unwrap_or_default();
+    /// `org`: one of the organization's (mockup 50f), named by its date.
+    pub fn ask_delete_backup(
+        &mut self,
+        file: std::path::PathBuf,
+        org: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let name = if org {
+            std::fs::metadata(&file)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| crate::format::when(d.as_secs() as i64, cleis_core::now()))
+                .unwrap_or_default()
+        } else {
+            file.file_stem()
+                .map(|n| n.to_string_lossy().trim_start_matches("vault-").to_owned())
+                .unwrap_or_default()
+        };
         if let Some(s) = self.session() {
             s.backup_to_delete = Some(file);
         }
         self.ask(
             Confirm {
-                title: crate::trf!("Delete the backup of {}?", name).into(),
-                body: tr("This dated copy is erased from this computer. The vault stays.").into(),
+                title: if org {
+                    tr("Delete this backup?").to_owned()
+                } else {
+                    crate::trf!("Delete the backup of {}?", name)
+                }
+                .into(),
+                body: if org {
+                    crate::trf!(
+                        "{}: this copy of the organization is erased from this computer. The organization stays.",
+                        name
+                    )
+                } else {
+                    tr("This dated copy is erased from this computer. The vault stays.").to_owned()
+                }
+                .into(),
                 button: tr("Delete").into(),
                 action: ConfirmAction::DeleteBackup,
                 alt: None,

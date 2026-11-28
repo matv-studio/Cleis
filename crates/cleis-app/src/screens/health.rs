@@ -35,6 +35,14 @@ pub struct HealthUi {
         gpui_kit::Entity<gpui_kit::component::input::InputState>,
     )>,
     pub subs: Vec<gpui_kit::Subscription>,
+    /// D-114 (mockup 50d): the box where a password is typed to find the items using it
+    /// (made at the next render; its text is never kept elsewhere).
+    pub find: Option<(
+        gpui_kit::Entity<gpui_kit::component::input::InputState>,
+        gpui_kit::Subscription,
+    )>,
+    /// The password typed shown in clear.
+    pub find_shown: bool,
 }
 
 fn matches(i: &Issue, k: IssueKind) -> bool {
@@ -166,99 +174,19 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
         .iter()
         .filter(|f| f.issues.iter().any(|i| matches(i, ui.only)))
         .collect();
-    let open_here = ui.change.as_ref().map(|(e, _)| *e);
     for f in shown.iter().take(200) {
         let Some(e) = entries.iter().find(|e| e.id == f.entry) else {
             continue;
         };
-        let id = e.id;
-        let mut chips = div().flex().gap(px(4.));
-        for i in &f.issues {
-            chips = chips.child(match i {
-                Issue::Weak => chip(t, Tone::Danger, tr("Weak"), false),
-                Issue::Reused { count } => {
-                    chip(t, Tone::Warn, crate::trf!("Reused ×{}", count), false)
-                }
-                Issue::Old => chip(t, Tone::Warn, tr("Over a year"), false),
-                Issue::NoTwoFactor => chip(t, Tone::Neutral, tr("No 2FA"), false),
-            });
-        }
-        let needs_password = f.issues.iter().any(|i| !matches!(i, Issue::NoTwoFactor));
-        table = table.child(
-            div()
-                .h(ROW_H)
-                .flex()
-                .items_center()
-                .border_b_1()
-                .border_color(t.line)
-                .child(
-                    div()
-                        .w(px(260.))
-                        .flex_none()
-                        .px(px(12.))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(site_icon(t, e.name.chars().next().unwrap_or('?'), 20.))
-                        .child(
-                            div()
-                                .font_weight(W_MEDIUM)
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(e.name.clone()),
-                        ),
-                )
-                .child(div().flex_1().px(px(12.)).child(chips))
-                .child(
-                    div()
-                        .w(px(140.))
-                        .flex_none()
-                        .px(px(12.))
-                        .text_color(t.text_muted)
-                        .child(space_name(e.space)),
-                )
-                .child(
-                    div()
-                        .w(px(160.))
-                        .flex_none()
-                        .px(px(12.))
-                        .text_color(t.text_muted)
-                        .child(crate::format::date(e.password_changed)),
-                )
-                .child(
-                    div()
-                        .w(px(100.))
-                        .flex_none()
-                        .px(px(12.))
-                        .relative()
-                        .child(
-                            button(
-                                SharedString::from(format!("fix-{id}")),
-                                t,
-                                BtnKind::Default,
-                                true,
-                            )
-                            .when(open_here == Some(id), |b| b.border_color(t.focus))
-                            .child(if needs_password {
-                                tr("Change")
-                            } else {
-                                tr("Add 2FA")
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if needs_password {
-                                    this.open_health_change(id, window, cx)
-                                } else {
-                                    this.fix_from_health(id, false, window, cx)
-                                }
-                            }))
-                            .test_support(),
-                        )
-                        .when_some(
-                            ui.change.as_ref().filter(|(e, _)| *e == id),
-                            |d, (_, field)| d.child(change_card(e, field, t, cx)),
-                        ),
-                ),
-        );
+        table = table.child(item_row(
+            e,
+            &f.issues,
+            space_name(e.space),
+            140.,
+            ui.change.as_ref(),
+            t,
+            cx,
+        ));
     }
     if shown.is_empty() {
         table = table.child(
@@ -272,6 +200,16 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                 .child(tr("Nothing to fix")),
         );
     }
+    // D-114 (mockup 50d): a password typed in the box shows the items using it instead.
+    let typed = ui
+        .find
+        .as_ref()
+        .map(|(i, _)| zeroize::Zeroizing::new(i.read(cx).value().to_string()))
+        .unwrap_or_default();
+    let found = (!typed.is_empty()).then(|| {
+        let users = cleis_core::health::using_password(&entries, &typed);
+        found_card(s, &users, &findings, t, cx)
+    });
     let label = ui
         .space
         .map(space_name)
@@ -437,52 +375,56 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoEle
                                     .test_support(),
                             ),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(12.))
-                            .child(stat(
-                                "st-weak",
-                                sum.weak,
-                                "Weak",
-                                t.danger_text,
-                                IssueKind::Weak,
-                                cx,
-                            ))
-                            .child(stat(
-                                "st-reused",
-                                sum.reused,
-                                "Reused",
-                                t.warning_text,
-                                IssueKind::Reused,
-                                cx,
-                            ))
-                            .child(stat(
-                                "st-old",
-                                sum.old,
-                                "Over a year old",
-                                t.warning_text,
-                                IssueKind::Old,
-                                cx,
-                            ))
-                            .child(stat(
-                                "st-2fa",
-                                sum.no_two_factor,
-                                "No 2FA",
-                                t.text,
-                                IssueKind::NoTwoFactor,
-                                cx,
-                            ))
-                            .child(stat(
-                                "st-ok",
-                                sum.ok,
-                                "No issue",
-                                t.success_text,
-                                IssueKind::Any,
-                                cx,
-                            )),
-                    )
-                    .child(section(t).p_0().overflow_hidden().child(table)),
+                    .child(find_box(ui, t, cx))
+                    .when_some(found, |d, card| d.child(card))
+                    .when(typed.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .gap(px(12.))
+                                .child(stat(
+                                    "st-weak",
+                                    sum.weak,
+                                    "Weak",
+                                    t.danger_text,
+                                    IssueKind::Weak,
+                                    cx,
+                                ))
+                                .child(stat(
+                                    "st-reused",
+                                    sum.reused,
+                                    "Reused",
+                                    t.warning_text,
+                                    IssueKind::Reused,
+                                    cx,
+                                ))
+                                .child(stat(
+                                    "st-old",
+                                    sum.old,
+                                    "Over a year old",
+                                    t.warning_text,
+                                    IssueKind::Old,
+                                    cx,
+                                ))
+                                .child(stat(
+                                    "st-2fa",
+                                    sum.no_two_factor,
+                                    "No 2FA",
+                                    t.text,
+                                    IssueKind::NoTwoFactor,
+                                    cx,
+                                ))
+                                .child(stat(
+                                    "st-ok",
+                                    sum.ok,
+                                    "No issue",
+                                    t.success_text,
+                                    IssueKind::Any,
+                                    cx,
+                                )),
+                        )
+                        .child(section(t).p_0().overflow_hidden().child(table))
+                    }),
             ),
         t,
         cx,
@@ -670,4 +612,299 @@ fn change_card(
             .test_support(),
     )
     .with_priority(2)
+}
+
+type ChangeBox = (
+    EntryId,
+    gpui_kit::Entity<gpui_kit::component::input::InputState>,
+);
+
+/// A line of the report: the item, its issues, where it is, when its password changed, and
+/// "Change" (or "Add 2FA").
+fn item_row(
+    e: &cleis_core::Entry,
+    issues: &[Issue],
+    place: String,
+    place_w: f32,
+    change: Option<&ChangeBox>,
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> gpui_kit::Div {
+    let id = e.id;
+    let mut chips = div().flex().gap(px(4.));
+    for i in issues {
+        chips = chips.child(match i {
+            Issue::Weak => chip(t, Tone::Danger, tr("Weak"), false),
+            Issue::Reused { count } => chip(t, Tone::Warn, crate::trf!("Reused ×{}", count), false),
+            Issue::Old => chip(t, Tone::Warn, tr("Over a year"), false),
+            Issue::NoTwoFactor => chip(t, Tone::Neutral, tr("No 2FA"), false),
+        });
+    }
+    // An item found by its password with nothing wrong: still changeable.
+    let needs_password =
+        issues.is_empty() || issues.iter().any(|i| !matches!(i, Issue::NoTwoFactor));
+    let open_here = change.map(|(e, _)| *e);
+    div()
+        .h(ROW_H)
+        .flex()
+        .items_center()
+        .border_b_1()
+        .border_color(t.line)
+        .child(
+            div()
+                .w(px(260.))
+                .flex_none()
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(site_icon(t, e.name.chars().next().unwrap_or('?'), 20.))
+                .child(
+                    div()
+                        .font_weight(W_MEDIUM)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(e.name.clone()),
+                ),
+        )
+        .child(div().flex_1().px(px(12.)).child(chips))
+        .child(
+            div()
+                .w(px(place_w))
+                .flex_none()
+                .px(px(12.))
+                .text_color(t.text_muted)
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(place),
+        )
+        .child(
+            div()
+                .w(px(160.))
+                .flex_none()
+                .px(px(12.))
+                .text_color(t.text_muted)
+                .child(crate::format::date(e.password_changed)),
+        )
+        .child(
+            div()
+                .w(px(100.))
+                .flex_none()
+                .px(px(12.))
+                .relative()
+                .child(
+                    button(
+                        SharedString::from(format!("fix-{id}")),
+                        t,
+                        BtnKind::Default,
+                        true,
+                    )
+                    .when(open_here == Some(id), |b| b.border_color(t.focus))
+                    .child(if needs_password {
+                        tr("Change")
+                    } else {
+                        tr("Add 2FA")
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if needs_password {
+                            this.open_health_change(id, window, cx)
+                        } else {
+                            this.fix_from_health(id, false, window, cx)
+                        }
+                    }))
+                    .test_support(),
+                )
+                .when_some(change.filter(|(x, _)| *x == id), |d, (_, field)| {
+                    d.child(change_card(e, field, t, cx))
+                }),
+        )
+}
+
+/// Mockup 50d: the box where a password is typed (masked, shown on request, cleared by ×).
+fn find_box(ui: &HealthUi, t: &Tokens, cx: &mut Context<CleisApp>) -> impl IntoElement {
+    use crate::ui::Input;
+    let Some((field, _)) = ui.find.as_ref() else {
+        return div().id("health-find-box").h(CONTROL_MD);
+    };
+    let has_text = !field.read(cx).value().is_empty();
+    div().id("health-find-box").child(
+        Input::new(field)
+            .id("health-find")
+            .prefix(icon("key", 14., t.text_muted))
+            .suffix(
+                div()
+                    .flex()
+                    .child(
+                        icon_button("health-find-show", t, "eye", true)
+                            .tooltip(crate::ui::tip(if ui.find_shown {
+                                tr("Hide")
+                            } else {
+                                tr("Show")
+                            }))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.health_find_reveal(window, cx)
+                            }))
+                            .test_support(),
+                    )
+                    .when(has_text, |d| {
+                        d.child(
+                            icon_button("health-find-clear", t, "x", true)
+                                .tooltip(crate::ui::tip(tr("Clear")))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.health_find_clear(window, cx)
+                                }))
+                                .test_support(),
+                        )
+                    }),
+            ),
+    )
+}
+
+/// Mockup 50d: the items using the password typed, or that none does (50e).
+fn found_card(
+    s: &Session,
+    users: &[&cleis_core::Entry],
+    findings: &[cleis_core::health::Finding],
+    t: &Tokens,
+    cx: &mut Context<CleisApp>,
+) -> gpui_kit::AnyElement {
+    if users.is_empty() {
+        return section(t)
+            .id("health-found-none")
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .text_color(t.text_muted)
+                    .child(icon("check", 14., t.text_muted))
+                    .child(tr("No item uses this password")),
+            )
+            .test_support()
+            .into_any_element();
+    }
+    let n = users.len();
+    let head_cell = |w: f32, label: &str| {
+        let d = div().px(px(12.)).child(crate::i18n::tr_owned(label));
+        if w > 0. {
+            d.w(px(w)).flex_none()
+        } else {
+            d.flex_1()
+        }
+    };
+    let mut card = div()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(16.))
+                .h(px(44.))
+                .border_b_1()
+                .border_color(t.line)
+                .child(icon("key", 14., t.text_muted))
+                .child(div().flex_1().child(if n == 1 {
+                    tr("Used by 1 item").to_owned()
+                } else {
+                    crate::trf!("Used by {} items", n)
+                }))
+                .when(n > 1, |d| {
+                    d.child(chip(t, Tone::Warn, crate::trf!("Reused ×{}", n), false))
+                }),
+        )
+        .child(
+            div()
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .border_b_1()
+                .border_color(t.line)
+                .text_size(TEXT_XS)
+                .font_weight(W_MEDIUM)
+                .text_color(t.text_muted)
+                .child(head_cell(260., "Item"))
+                .child(head_cell(0., "Issues"))
+                .child(head_cell(200., "Vault › Folder"))
+                .child(head_cell(160., "Last changed"))
+                .child(head_cell(100., "")),
+        );
+    for e in users {
+        let issues: Vec<Issue> = findings
+            .iter()
+            .find(|f| f.entry == e.id)
+            .map(|f| f.issues.clone())
+            .unwrap_or_default();
+        let (vault, folder) = s.folder_label(e.space, true);
+        let place = if vault.is_empty() {
+            folder
+        } else {
+            format!("{vault} › {folder}")
+        };
+        card = card.child(item_row(
+            e,
+            &issues,
+            place,
+            200.,
+            s.health.change.as_ref(),
+            t,
+            cx,
+        ));
+    }
+    section(t)
+        .p_0()
+        .overflow_hidden()
+        .id("health-found")
+        .child(card)
+        .test_support()
+        .into_any_element()
+}
+
+impl CleisApp {
+    /// The find box needs the window: made at the next render of Health.
+    pub fn ensure_health_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        if s.tab != Tab::Health || s.health.find.is_some() {
+            return;
+        }
+        let field = cx.new(|cx| {
+            gpui_kit::component::input::InputState::new(window, cx)
+                .masked(true)
+                .placeholder(tr("Find the items using a password"))
+        });
+        let sub = cx.subscribe_in(
+            &field,
+            window,
+            |_, _, ev: &gpui_kit::component::input::InputEvent, _, cx| {
+                if matches!(ev, gpui_kit::component::input::InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        );
+        if let Some(s) = self.session() {
+            s.health.find = Some((field, sub));
+        }
+    }
+
+    fn health_find_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        s.health.find_shown = !s.health.find_shown;
+        let shown = s.health.find_shown;
+        if let Some((f, _)) = s.health.find.as_ref().map(|(f, _)| (f.clone(), ())) {
+            f.update(cx, |i, cx| i.set_masked(!shown, window, cx));
+        }
+        cx.notify();
+    }
+
+    /// ×: the box emptied (the report comes back).
+    pub fn health_find_clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        s.health.change = None;
+        if let Some((f, _)) = s.health.find.as_ref().map(|(f, _)| (f.clone(), ())) {
+            f.update(cx, |i, cx| i.set_value("", window, cx));
+        }
+        cx.notify();
+    }
 }

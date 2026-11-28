@@ -86,6 +86,66 @@ pub fn parse_recovery_codes(text: &str) -> Vec<String> {
     out
 }
 
+/// How one signs in to a site without its own password (D-113, mockup 50b): the account of
+/// another service (Google, Microsoft, an SSO…), shown as a coloured label in the password's
+/// place. The label is the user's: one of the presets or one made, of any colour.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignIn {
+    pub label: String,
+    /// A colour of the charter (`set`, `auto`, `ok`, `warn`, `danger`, `neutral`) or `#rrggbb`.
+    pub color: String,
+}
+
+impl SignIn {
+    pub fn new(label: &str, color: &str) -> Self {
+        Self {
+            label: label.trim().to_owned(),
+            color: color.to_owned(),
+        }
+    }
+
+    /// Same label, whatever the case or accents (`google` is `Google`).
+    pub fn same(&self, label: &str) -> bool {
+        crate::text::fold(&self.label) == crate::text::fold(label.trim())
+    }
+}
+
+/// The colours a label can take besides one of one's own (the wheel): the charter's.
+pub const SIGN_IN_TONES: [&str; 6] = ["set", "auto", "ok", "warn", "danger", "neutral"];
+
+/// Labels offered before any is made (D-113). Google in its red-orange (asked 28/11/2026).
+pub const SIGN_IN_PRESETS: [(&str, &str); 5] = [
+    ("Google", "#e5683c"),
+    ("Microsoft", "set"),
+    ("Apple", "neutral"),
+    ("GitHub", "auto"),
+    ("SSO", "ok"),
+];
+
+/// The labels to choose from: one's own list (the presets until one is changed), then those
+/// found on items and missing from it (made by another member of an organization), by name.
+pub fn sign_in_labels<'a>(
+    own: Option<&[SignIn]>,
+    used: impl IntoIterator<Item = &'a SignIn>,
+) -> Vec<SignIn> {
+    let mut out: Vec<SignIn> = match own {
+        Some(l) => l.to_vec(),
+        None => SIGN_IN_PRESETS
+            .iter()
+            .map(|(n, c)| SignIn::new(n, c))
+            .collect(),
+    };
+    let mut extra: Vec<SignIn> = vec![];
+    for l in used {
+        if !out.iter().chain(extra.iter()).any(|o| o.same(&l.label)) {
+            extra.push(l.clone());
+        }
+    }
+    extra.sort_by_key(|l| crate::text::fold(&l.label));
+    out.extend(extra);
+    out
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: EntryId,
@@ -109,6 +169,9 @@ pub struct Entry {
     /// Recovery keys of the account (D-102).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recovery: Vec<RecoveryCode>,
+    /// Signed in with another account rather than a password (D-113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<SignIn>,
     pub password_changed: Timestamp,
     pub created: Timestamp,
     pub updated: Timestamp,
@@ -142,6 +205,7 @@ impl Entry {
             fields: BTreeMap::new(),
             password_history: vec![],
             recovery: vec![],
+            sign_in: None,
             password_changed: t,
             created: t,
             updated: t,
@@ -190,6 +254,10 @@ impl Entry {
     /// Text searched by the vault search box.
     pub fn search_text(&self) -> String {
         let mut s = format!("{} {} {}", self.name, self.username, self.notes);
+        if let Some(l) = &self.sign_in {
+            s.push(' ');
+            s.push_str(&l.label);
+        }
         for u in &self.urls {
             s.push(' ');
             s.push_str(u);
@@ -218,12 +286,20 @@ impl Entry {
             "renewal" => self.renewal.clone().map(Value::Date),
             "website" => self.urls.first().cloned().map(Value::Text),
             "notes" => Some(Value::Text(self.notes.clone())),
+            // Sorted and searched by its label; the password itself is never a cell.
+            "password" => self.sign_in.as_ref().map(|l| Value::Text(l.label.clone())),
             "recovery" => (!self.recovery.is_empty()).then(|| {
                 let (left, all) = self.recovery_left();
                 Value::Text(format!("{left} / {all}"))
             }),
             _ => None,
         }
+    }
+
+    /// Signs in with its own password (not with another account, D-113): the password
+    /// counts for the health report and is typed by autofill.
+    pub fn uses_password(&self) -> bool {
+        self.sign_in.is_none() && !self.password.is_empty()
     }
 
     /// Unused recovery codes, and all of them.
@@ -314,6 +390,58 @@ mod tests {
         assert_eq!(e.password_history[0].password, "first");
         e.urls = vec!["www.ovhcloud.com/fr/".into()];
         assert_eq!(e.host().as_deref(), Some("ovhcloud.com"));
+    }
+}
+
+#[cfg(test)]
+mod sign_in_tests {
+    use super::*;
+
+    #[test]
+    fn labels_presets_own_and_found() {
+        let presets = sign_in_labels(None, []);
+        assert_eq!(presets[0], SignIn::new("Google", "#e5683c"));
+        assert_eq!(presets.len(), SIGN_IN_PRESETS.len());
+        let okta = SignIn::new("Okta", "#7c5cff");
+        let google = SignIn::new("google", "danger");
+        // Found on items: added once, after the list, by name; a preset is not added twice.
+        let all = sign_in_labels(
+            None,
+            [&okta, &google, &SignIn::new("LinkedIn", "set"), &okta],
+        );
+        let names: Vec<_> = all.iter().map(|l| l.label.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Google",
+                "Microsoft",
+                "Apple",
+                "GitHub",
+                "SSO",
+                "LinkedIn",
+                "Okta"
+            ]
+        );
+        // One's own list replaces the presets.
+        let own = vec![SignIn::new("Okta", "#7c5cff")];
+        assert_eq!(sign_in_labels(Some(&own), []), own);
+        assert!(SignIn::new(" Google ", "set").same("GOOGLE"));
+    }
+
+    #[test]
+    fn a_sign_in_replaces_the_password() {
+        let mut e = Entry::new(SpaceId::new(), "Canva");
+        e.password = "kept-from-before".into();
+        assert!(e.uses_password());
+        e.sign_in = Some(SignIn::new("Google", "#e5683c"));
+        assert!(!e.uses_password());
+        assert!(e.search_text().contains("Google"));
+        // Older vaults have no such field.
+        let mut v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["sign_in"]["label"], "Google");
+        v.as_object_mut().unwrap().remove("sign_in");
+        let back: Entry = serde_json::from_value(v).unwrap();
+        assert_eq!(back.sign_in, None);
     }
 }
 

@@ -335,6 +335,15 @@ pub fn plan(has_username: bool, has_totp: bool, focus: Focus, o: PlanOptions) ->
     Plan { now, later }
 }
 
+/// An item signed in with another account (D-113): its username only, where the focus is, and
+/// no Enter (the page goes on with the other service's button, not with a password).
+pub fn plan_sign_in() -> Plan {
+    Plan {
+        now: vec![Action::Fill(Field::Username)],
+        later: vec![],
+    }
+}
+
 /// Only the 2FA code (Quick Access "2FA code" or a pending step).
 pub fn plan_totp(o: PlanOptions) -> Vec<Action> {
     let mut v = vec![Action::Fill(Field::Totp)];
@@ -348,6 +357,13 @@ pub fn plan_totp(o: PlanOptions) -> Vec<Action> {
 mod tests {
     use super::*;
     use crate::ids::SpaceId;
+
+    #[test]
+    fn signed_in_elsewhere_types_the_username_only() {
+        let p = plan_sign_in();
+        assert_eq!(p.now, vec![Action::Fill(Field::Username)]);
+        assert!(p.later.is_empty());
+    }
 
     fn entry(name: &str, url: &str) -> Entry {
         let mut e = Entry::new(SpaceId::new(), name);

@@ -186,6 +186,7 @@ pub fn dialog(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Option<Div
         div()
             .absolute()
             .inset_0()
+            .occlude()
             .flex()
             .items_center()
             .justify_center()

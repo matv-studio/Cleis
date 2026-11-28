@@ -248,6 +248,27 @@ impl CleisApp {
         let Some(e) = s.entries.iter().find(|e| e.id == entry) else {
             return;
         };
+        // D-113: signed in with another account, no password to type; the username only.
+        let sign_in = e.sign_in.as_ref().map(|l| l.label.clone());
+        if let Some(l) = &sign_in {
+            let empty = e.username.is_empty();
+            self.toast_for(
+                if empty {
+                    crate::trf!("Signs in with {}: nothing to fill", l)
+                } else {
+                    crate::trf!("Signs in with {}: username filled", l)
+                },
+                4,
+                cx,
+            );
+            if empty {
+                return;
+            }
+        }
+        let Some(s) = self.session() else { return };
+        let Some(e) = s.entries.iter().find(|e| e.id == entry) else {
+            return;
+        };
         let now = cleis_core::now();
         let job = Job {
             entry,
@@ -262,12 +283,15 @@ impl CleisApp {
         let method = method.unwrap_or(s.prefs.autofill.method);
         let speed = s.prefs.autofill.typing_speed;
         let window = fg.window;
+        let signed_elsewhere = sign_in.is_some();
         self.autofill.running = true;
         let result = cx.background_spawn(async move {
             let (has_user, has_totp) = (job.has_username, job.has_totp);
             let r = cleis_autofill::fill(window, &job.values, method, speed, move |focus| {
                 let p = custom(focus);
-                if p.now.is_empty() && p.later.is_empty() {
+                if p.now.is_empty() && p.later.is_empty() && signed_elsewhere {
+                    logic::plan_sign_in()
+                } else if p.now.is_empty() && p.later.is_empty() {
                     logic::plan(has_user, has_totp, focus, o)
                 } else {
                     p

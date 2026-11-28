@@ -362,6 +362,7 @@ fn overlay(t: &Tokens, card: Div) -> AnyElement {
     div()
         .absolute()
         .inset_0()
+        .occlude()
         .flex()
         .items_center()
         .justify_center()

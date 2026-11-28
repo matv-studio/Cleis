@@ -28,6 +28,6 @@ pub mod vcard;
 
 pub use column::{ColumnDef, ColumnKind, ColumnScope, Value};
 pub use contact::{Address, Contact, Labeled, PartialDate};
-pub use entry::{Entry, LinkedApp, Subscription};
+pub use entry::{Entry, LinkedApp, SignIn, Subscription};
 pub use ids::{ColumnId, ContactId, EntryId, MemberId, SpaceId, now};
 pub use money::{Money, Period};

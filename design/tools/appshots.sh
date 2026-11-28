@@ -61,6 +61,13 @@ for theme in ${THEMES:-dark}; do
   shot "sync-backups-$theme" --demo --unlocked --tab settings --page sync --menu backups --theme $theme
   shot "onedrive-folders-$theme" --demo --unlocked --tab settings --page sync --menu onedrive-folders --theme $theme
   shot "leave-refused-$theme" --demo --unlocked --tab settings --page server --menu leave-refused --theme $theme
+  # 28/11/2026 (mockups 50): sign-in labels, finding a password in Health, the organization's backups.
+  shot "sign-in-menu-$theme" --demo --unlocked --menu sign-in --theme $theme
+  shot "sign-in-new-$theme" --demo --unlocked --menu sign-new --theme $theme
+  shot "sign-in-edit-$theme" --demo --unlocked --menu sign-edit --theme $theme
+  shot "health-find-$theme" --demo --unlocked --menu health-find --theme $theme
+  shot "health-find-none-$theme" --demo --unlocked --menu health-none --theme $theme
+  shot "org-sync-$theme" --demo --unlocked --tab settings --page org-backups --menu org-backup-list --theme $theme
   # 27/11/2026 (D-104): Microsoft and Google sync.
   shot "account-pick-microsoft-$theme" --demo --unlocked --tab settings --page account --menu pick-microsoft --theme $theme
   shot "cloud-microsoft-$theme" --demo --unlocked --tab settings --page account --menu cloud-microsoft --theme $theme

@@ -2658,6 +2658,136 @@ const serveurBody49 = () => `<div class="page-head"><h1>Organization</h1></div>
     <div class="row"><span class="row-label"></span><button class="btn btn--sm">${i('sync')}Sync now</button><button class="btn btn--danger-ghost btn--sm">Leave</button></div>
   </div>`;
 
+// ---------- 50. Sign-in label, Health search, organization's Sync & backups (28/11/2026) ----------
+
+// The items signed in through another account: their chip takes the password's place in the list.
+const LOGIN50 = { Canva: ['Google', 'chip--google'], Notion: ['Microsoft', 'chip--set'], Slack: ['SSO', 'chip--ok'], Webflow: ['Google', 'chip--google'] };
+function vaultTable50({ selected = null } = {}) {
+  const head = `<tr><th style="width:214px" class="sorted">Name <span class="sort">↑</span></th><th>Username</th><th style="width:130px">Password</th><th style="width:100px">2FA code</th><th style="width:120px">Subscription</th><th class="num" style="width:120px">Price</th><th class="num" style="width:100px">Yearly cost</th></tr>`;
+  const order = [['My vault', ''], ['My vault', 'Banking'], ['My vault', 'Shopping'], ['Example Studio', 'General'], ['Example Studio', 'Design'], ['Example Studio', 'Accounting'], ['Example Studio', 'Dev']];
+  let body = '';
+  for (const [v, f] of order) {
+    const rows = ROWS.filter((r) => FOLDER48[r.n][0] === v && FOLDER48[r.n][1] === f);
+    if (!rows.length) continue;
+    body += sepRow49(7, v, f, rows.length);
+    body += rows.map((r) => {
+      const totp = r.totp ? `<span class="totp"><span class="ring ${r.p < 25 ? 'low' : ''}" style="--p:${r.p}%"></span>${r.totp}</span>` : '<span style="color:var(--text-faint)">—</span>';
+      const l = LOGIN50[r.n];
+      const pw = l ? `<span class="chip ${l[1]}" title="No password: signed in with ${l[0]}">${i('link')}${l[0]}</span>` : '<span class="dots">••••••</span>';
+      return `<tr class="${r.n === selected ? 'is-selected' : ''}"><td>${name49(r)}</td><td class="muted">${r.u}</td><td>${pw}</td><td>${totp}</td><td>${statusChip(r.st)}</td><td class="num">${r.price}${r.per ? `<span style="color:var(--text-faint)"> /${r.per}</span>` : ''}</td><td class="num">${r.cost}</td></tr>`;
+    }).join('');
+  }
+  return `<table class="table table--fixed"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+// The inspector of Canva with a "Sign in" field in place of the password, in one of three ways.
+function inspector50(field) {
+  return `<aside class="inspector pane">
+    <div class="inspector-head">
+      <span class="site-ico site-ico--lg">C</span>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <span style="font-weight:var(--weight-medium);font-size:var(--text-lg)">Canva</span>
+        <span style="color:var(--text-muted);font-size:var(--text-sm)">My vault › Shopping</span>
+      </div>
+      <button class="icon-btn" aria-label="Favorite" title="Remove from favorites" style="color:var(--warning-text)">${i('starFill')}</button>
+      <button class="icon-btn" aria-label="More" title="More">${i('more')}</button>
+    </div>
+    <div class="inspector-tabs"><span class="is-active">Details</span><span>History</span></div>
+    <div class="inspector-body" style="padding-top:var(--s-3)">
+      <div class="field"><span class="label">Website</span><div class="input"><span class="grow">canva.com</span><span class="act"><button class="icon-btn icon-btn--sm" title="Open website">${i('external')}</button></span></div></div>
+      <div class="field"><span class="label">Username</span><div class="input"><span class="grow">design@example-studio.com</span><span class="act"><button class="icon-btn icon-btn--sm" title="Copy">${i('copy')}</button></span></div></div>
+      ${field}
+      <div class="field"><span class="label">Notes</span><div class="input" style="height:auto;min-height:48px;align-items:flex-start;padding:6px 8px;color:var(--text-muted)">Notes</div></div>
+    </div>
+  </aside>`;
+}
+const signField50 = (value, extra = '') => `<div class="field"><span class="label" title="How you sign in to this site">Sign in</span>
+  <div class="input select is-focus"><span class="grow" style="display:flex;align-items:center;gap:8px">${value}</span></div>${extra}</div>`;
+
+// 50a. Proposal A: a "Sign in" field above the password: Password (default) or an account of
+// another service, chosen in a list; each method has its colour, set once for every item.
+function connexionA() {
+  const menu = `<div class="menu" style="left:1176px;top:326px;width:244px">
+    ${mi('check', 'Password')}${sep}
+    <div class="menu-head">Account of another service</div>
+    ${mi('', '<span class="chip chip--set">Google</span>')}${mi('', '<span class="chip chip--auto">Microsoft</span>')}${mi('', '<span class="chip">Apple</span>')}${mi('', '<span class="chip">GitHub</span>')}${mi('', '<span class="chip">Facebook</span>')}${mi('', '<span class="chip chip--ok">SSO</span>')}${mi('', '<span class="chip chip--warn">Passkey</span>')}
+    ${sep}${mi('plus', 'Other…')}
+  </div>`;
+  const insp = inspector50(signField50(`<span class="chip chip--set">${i('link')}Google</span>`));
+  return shell('Vault', `<div class="work">${side48('All items')}<section class="center">${toolbar48(search48())}<div class="table-wrap">${vaultTable50({ selected: 'Canva' })}</div></section>${insp}</div>${statusbar()}`, { overlay: menu });
+}
+// 50b. Proposal B: the methods are labels you make and colour (as contacts' labels): the list,
+// a colour per label, renamed or removed in place; "New label" adds one (LinkedIn, Okta…).
+function connexionB() {
+  const sw = (c, on) => `<button class="swatch ${on ? 'on' : ''}" style="width:16px;height:16px;${c ? `background:${c}` : ''}"></button>`;
+  const wheelSw = '<button class="swatch" title="Your own color" style="width:16px;height:16px;background:conic-gradient(red,#ff0,lime,cyan,blue,#f0f,red)"></button>';
+  const lbl = (name, cls, on = false, hover = false) => `<div class="menu-item ${hover ? 'is-hover' : ''}" style="height:32px"><span class="check ${on ? 'on' : ''}">${on ? i('check') : ''}</span><span class="chip ${cls}">${i('link')}${name}</span><span style="flex:1"></span>${hover ? `<button class="icon-btn icon-btn--sm" title="Color, rename, delete">${i('more')}</button>` : ''}</div>`;
+  const menu = `<div class="menu" style="left:1166px;top:326px;width:256px">
+    ${lbl('Password', '', false).replace(`<span class="chip ">${i('link')}Password</span>`, 'Password')}${sep}
+    ${lbl('Google', 'chip--google', true)}${lbl('Microsoft', 'chip--set')}${lbl('Apple', '')}${lbl('GitHub', 'chip--auto')}${lbl('SSO', 'chip--ok', false, true)}
+    <div style="display:flex;gap:6px;padding:6px 8px 6px 30px">${sw('var(--set-text)')}${sw('var(--auto-text)')}${sw('var(--success-text)', true)}${sw('var(--warning-text)')}${sw('var(--danger-text)')}${sw('var(--text-muted)')}${wheelSw}</div>
+    <div class="menu-item" style="padding-left:30px">${i('text')}Rename</div><div class="menu-item" style="padding-left:30px;color:var(--danger-text)">${i('trash')}Delete label</div>
+    ${sep}<div class="menu-item">${i('plus')}<span class="grow" style="color:var(--text-muted)">New label</span></div>
+  </div>`;
+  const insp = inspector50(signField50(`<span class="chip chip--google">${i('link')}Google</span>`));
+  return shell('Vault', `<div class="work">${side48('All items')}<section class="center">${toolbar48(search48())}<div class="table-wrap">${vaultTable50({ selected: 'Canva' })}</div></section>${insp}</div>${statusbar()}`, { overlay: menu });
+}
+// 50c. Proposal C: "Sign in with" points to the item of that account in the vault (Google
+// Workspace, the studio's Microsoft 365…): the chip names the service and the account; a click
+// opens that item; the account's password, 2FA and health count for both.
+function connexionC() {
+  const field = `<div class="field"><span class="label" title="This site has no password of its own: you sign in with another account">Sign in with</span>
+    <div class="input"><span class="grow" style="display:flex;align-items:center;gap:8px;min-width:0"><span class="site-ico" style="width:18px;height:18px;font-size:10px;flex:none">G</span><span style="flex:none">Google Workspace</span><span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">admin@example-studio.com</span></span><span class="act"><button class="icon-btn icon-btn--sm" title="Open this item">${i('arrowR')}</button><button class="icon-btn icon-btn--sm" title="Back to a password">${i('x')}</button></span></div></div>`;
+  const insp = inspector50(field);
+  return shell('Vault', `<div class="work">${side48('All items')}<section class="center">${toolbar48(search48())}<div class="table-wrap">${vaultTable50({ selected: 'Canva' }).replace(/title="No password: signed in with Google">([\s\S]*?)Google<\/span>/g, 'title="Signed in with Google Workspace · admin@example-studio.com">$1Google</span>')}</div></section>${insp}</div>${statusbar()}`);
+}
+
+// 50d. Health › Find a password: typed here (hidden, never saved), the items using it are listed,
+// every vault you can see; Change on each. Empty: "No item uses this password".
+function santeRecherche(found = true) {
+  const pb = (t, cls) => `<span class="chip ${cls}" style="margin-right:4px">${t}</span>`;
+  const r = (c, n, probs, sp, ch) => `<tr><td><span class="site"><span class="site-ico">${c}</span><span class="site-name">${n}</span></span></td><td>${probs}</td><td class="muted">${sp}</td><td class="muted">${ch}</td><td><button class="btn btn--sm">Change</button></td></tr>`;
+  const res = found
+    ? `<div class="section" style="padding:0;overflow:hidden">
+        <div class="row" style="padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--line)"><span class="row-label">${i('key')}Used by 3 items</span><span class="chip chip--warn">Reused ×3</span></div>
+        <table class="table"><thead><tr><th>Item</th><th>Issues</th><th style="width:160px">Vault › Folder</th><th style="width:160px">Last changed</th><th style="width:100px"></th></tr></thead><tbody>
+          ${r('S', 'Slack', pb('Weak', 'chip--danger') + pb('Over a year', 'chip--warn'), 'Example Studio › General', 'Oct 11, 2025')}
+          ${r('D', 'Dropbox', pb('Weak', 'chip--danger'), 'My vault', 'Jun 10, 2025')}
+          ${r('N', 'Notion', pb('Weak', 'chip--danger'), 'Example Studio › General', 'Jun 14, 2026')}
+        </tbody></table></div>`
+    : `<div class="section"><div class="row"><span class="row-label" style="color:var(--text-muted)">${i('check')}No item uses this password</span></div></div>`;
+  return shell('Health', `
+    <div class="settings-body" style="padding-top:var(--s-6)"><div class="page" style="max-width:1100px">
+      <div class="page-head"><h1>Health report</h1><div class="input select" style="width:170px"><span class="grow">All vaults</span></div><div class="input select" style="width:170px"><span class="grow">All spaces</span></div><button class="btn">${i('refresh')}Scan</button></div>
+      <div class="row" style="gap:var(--s-2)"><div class="input search is-focus" style="flex:1" title="Typed here only, never saved"><span style="display:inline-grid">${i('key')}</span><span class="grow dots">••••••••</span><button class="icon-btn icon-btn--sm" title="Show">${i('eye')}</button><button class="icon-btn icon-btn--sm" title="Clear (Esc)">${i('x')}</button></div></div>
+      ${res}
+    </div></div>`, { primary: null });
+}
+function santeRechercheVide() { return santeRecherche(false); }
+
+// 50e. Settings: each organization has its own "Sync & backups" under its name (no more Mine /
+// organization switch on the personal page); the page is the organization's backups.
+function syncOrg50() {
+  const nav = settingsNav('').replace(`${i('server')}<span>Server</span></div>`, `${i('server')}<span>Server</span></div><div class="side-item is-active">${i('sync')}<span>Sync & backups</span></div>`);
+  const h = (d, where, size) => `<tr><td>${d}</td><td class="muted">${where}</td><td class="num muted">${size}</td><td style="text-align:right"><button class="btn btn--sm">Restore</button></td></tr>`;
+  const body = `
+    <div class="page-head"><h1 style="flex:none">Sync & backups</h1><span class="chip" style="margin-left:var(--s-2)">${i('users')}Example Studio</span><span style="flex:1"></span><button class="btn btn--primary">${i('upload')}Back up now</button></div>
+    <div class="section">${sectionTitle('This computer', 'Dated copies of the organization kept here')}
+      <div class="row"><span class="row-label code" style="color:var(--text-muted)">C:\\Users\\lea\\AppData\\Roaming\\Cleis\\backups\\org-example-studio</span></div>
+    </div>
+    <div class="section">${sectionTitle('Copies elsewhere')}
+      <div class="row"><span class="row-label" style="color:var(--text-muted)">Only on this computer</span><button class="btn btn--sm">${i('repo')}GitHub</button><button class="btn btn--sm">${i('server')}SFTP</button></div>
+    </div>
+    <div class="section">${sectionTitle('Backup key', 'Without it, no backup can be restored. Keep it outside Cleis.')}
+      <div class="row"><span class="row-label" style="color:var(--warning-text)">${i('warn')}Not downloaded yet</span><button class="btn">${i('download')}Download</button></div>
+    </div>
+    <div class="section" style="padding-bottom:var(--s-2)">${sectionTitle('History')}
+      <table class="table"><thead><tr><th>Date</th><th>Destination</th><th class="num">Size</th><th></th></tr></thead><tbody>
+        ${h('Today, 3:00 AM', 'This computer', '184 KB')}${h('Yesterday, 3:00 AM', 'This computer', '183 KB')}
+      </tbody></table>
+    </div>`;
+  return shell('Settings', `<div class="settings">${nav}<div class="settings-body"><div class="page">${body}</div></div></div>`, { primary: null });
+}
+
 export const SCREENS = {
   '01-coffre': ['Vault', coffre],
   '01b-filtre': ['Vault filter', filtre],
@@ -2824,4 +2954,10 @@ export const SCREENS = {
   '49j-drive-dossier': ['Google Drive — where to keep the vault', dossierDrive49g],
   '49k-onedrive-dossier': ['OneDrive — where to keep the vault', dossierDrive49o],
   '49l-quitter-org': ['Leave — refused for the only one who can invite', quitterOrg49],
+  '50a-connexion-liste-a': ['Sign in — A: a field with fixed methods', connexionA],
+  '50b-connexion-etiquettes-b': ['Sign in — B: your own labels and colours', connexionB],
+  '50c-connexion-compte-c': ['Sign in — C: with the item of the account', connexionC],
+  '50d-sante-recherche': ['Health — find a password', santeRecherche],
+  '50e-sante-recherche-vide': ['Health — a password no item uses', santeRechercheVide],
+  '50f-synchro-organisation': ['Settings — the organization’s Sync & backups', syncOrg50],
 };

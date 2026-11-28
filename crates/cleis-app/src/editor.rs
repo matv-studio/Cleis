@@ -47,6 +47,8 @@ pub struct EntryEditor {
     pub recovery_add: Option<Entity<TextareaState>>,
     /// Redraws while codes are pasted (the "Add n" count).
     pub recovery_sub: Option<Subscription>,
+    /// The Sign in menu's state (D-113).
+    pub sign: crate::screens::sign_in::SignMenu,
     _subs: Vec<Subscription>,
 }
 
@@ -55,6 +57,8 @@ pub struct EntryEditor {
 pub enum Menu {
     More,
     Subscription,
+    /// D-113 (mockup 50b): how one signs in, Password or a label.
+    SignIn,
 }
 
 /// The text of a box, its price period in the interface language (the parser reads both).
@@ -222,6 +226,7 @@ impl CleisApp {
                 dirty_custom: Default::default(),
                 recovery_shown: false,
                 recovery_add: None,
+                sign: Default::default(),
                 recovery_sub: None,
                 _subs: subs,
             });

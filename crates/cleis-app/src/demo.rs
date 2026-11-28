@@ -310,6 +310,10 @@ pub fn create(path: &Path) -> anyhow::Result<()> {
             _ => {}
         }
         e.favorite = matches!(*name, "Figma" | "GitHub" | "OVHcloud");
+        // D-113 (mockup 50b): signed in with the studio's Google account.
+        if matches!(*name, "Canva" | "Webflow") {
+            e.sign_in = Some(cleis_core::SignIn::new("Google", "#e5683c"));
+        }
         e.password_changed = now - (i as i64 * 41 + 3) * 86_400;
         if *name == "Figma" {
             e.notes = "Team account · invoices in the studio's name".into();

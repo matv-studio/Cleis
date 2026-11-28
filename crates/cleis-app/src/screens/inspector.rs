@@ -302,7 +302,12 @@ fn details(
         ));
         d = d.child(field(t, tr("Username"), boxed(t, ed, Field::Username, inp)));
     }
-    if let Some(st) = input(Field::Password) {
+    // D-113 (mockup 50b): signed in with another account, the label in the password's place.
+    let signed_elsewhere = e.sign_in.is_some();
+    if signed_elsewhere {
+        d = d.child(super::sign_in::sign_field(s, ed, e, t, cx));
+    }
+    if let Some(st) = input(Field::Password).filter(|_| !signed_elsewhere) {
         let actions = div()
             .flex()
             .child(
@@ -343,6 +348,7 @@ fn details(
                 )
                 .test_support(),
         );
+        d = d.child(super::sign_in::sign_field(s, ed, e, t, cx));
     }
 
     // 2FA: the current code, or the box for its key.

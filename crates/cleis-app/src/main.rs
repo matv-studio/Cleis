@@ -231,7 +231,8 @@ fn main() {
                                 s.settings_page = match p {
                                     "autofill" => "Autofill",
                                     "account" => "Account",
-                                    "sync" | "org-backups" => "Sync & backups",
+                                    "sync" => "Sync & backups",
+                                    "org-backups" => cleis_app::screens::org::SYNC_PAGE,
                                     "security" | "profile" => "Account",
                                     "import" => "Import & export",
                                     "org-import" => cleis_app::screens::import::ORG_PAGE,
@@ -245,11 +246,6 @@ fn main() {
                                     "shortcuts" => "Shortcuts",
                                     _ => "Preferences",
                                 };
-                                if p == "org-backups"
-                                    && let Some(o) = s.org.as_mut()
-                                {
-                                    o.ui.org_backups = true;
-                                }
                                 if p == "server-here"
                                     && let Some(o) = s.org.as_mut()
                                 {

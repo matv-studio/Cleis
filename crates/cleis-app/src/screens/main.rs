@@ -25,6 +25,7 @@ pub fn render(
     app.ensure_contact_editor(window, cx);
     app.ensure_org_inputs(window, cx);
     app.ensure_wheel_input(window, cx);
+    app.ensure_health_find(window, cx);
     // Updates (D-74), read before the session is borrowed.
     let update_button = super::update::top_button(app, &t, cx);
     let update_dialog = super::update::dialog(app, &t, cx);
@@ -744,6 +745,26 @@ fn row_cell(
                         .test_support(),
                 )
                 .into_any_element()
+        }
+        // D-113 (mockup 50b): signed in with another account, its label in the password's place.
+        "password" if e.sign_in.is_some() => {
+            let l = e
+                .sign_in
+                .clone()
+                .unwrap_or_else(|| cleis_core::SignIn::new("", ""));
+            let tip_text: SharedString =
+                crate::trf!("No password: signed in with {}", l.label).into();
+            base.child(
+                div()
+                    .id(SharedString::from(format!("sign-{id}")))
+                    .child(sign_in_chip(t, &l))
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(tip_text.clone())
+                            .build(window, cx)
+                    })
+                    .test_support(),
+            )
+            .into_any_element()
         }
         "password" => {
             let p = e.password.clone();
