@@ -6,8 +6,11 @@
   Health, Sync & backups de chaque organisation (5 sauvegardes + Show more, corbeille au survol).
   Corrigé au passage : confirmer une question cliquait aussi la ligne sous le bouton (voile sans
   `occlude`). 3 essais de bout en bout nouveaux.
-- Prochaine étape : build d'essai complet (Windows + macOS), puis, à la validation de
-  l'utilisateur, étiquette v0.2.4 par `tag.yml` (le brouillon 0.2.4 n'existe plus).
+- API Google Picker activée par l'utilisateur. Étiquette `v0.2.4` posée sur 28f96f2 par `tag.yml`
+  (validation de l'utilisateur) ; brouillon construit : setup Windows (+ .sha256), deux `.dmg`
+  macOS, archive serveur, SHA256SUMS (empreintes identiques à celles de GitHub). Reste :
+  publication par l'utilisateur ; essais sur Windows et Mac (étiquettes de connexion, recherche
+  Health, sauvegardes d'organisation, dossier Google Drive choisi).
 - Remplissage : le focus lu trop tôt après Tab (navigateur) faisait croire à une connexion en deux pages
   (Maj+Tab, Entrée, formulaire envoyé sans mot de passe). Désormais : focus relu jusqu'à 600 ms, puis
   recherche du champ mot de passe de la page (UI Automation, `focus_password_field`) ; seule une page
