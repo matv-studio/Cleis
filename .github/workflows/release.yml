@@ -111,29 +111,21 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release -p cleis-server --locked --target ${{ matrix.target }}
       - run: |
-          sha=$(echo "${{ github.sha }}" | cut -c1-7)
-          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          name="cleis-server-$ver-$sha-linux-${{ matrix.arch }}"
-          mkdir -p "dist/$name" bin
-          cp target/${{ matrix.target }}/release/cleis-server THIRD_PARTY.md "dist/$name/"
+          mkdir -p bin
           cp target/${{ matrix.target }}/release/cleis-server "bin/cleis-server-${{ matrix.qnap }}"
-          (cd bin && sha256sum "cleis-server-${{ matrix.qnap }}" > "cleis-server-${{ matrix.qnap }}.sha256")
-          python3 tools/licenses.py -o "dist/$name/THIRD_PARTY_LICENSES.txt" cleis-server
-          cp -r deploy "dist/$name/deploy"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
-          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
-          echo "NAME=$name" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ${{ env.NAME }}
-          path: |
-            dist/${{ env.NAME }}.tar.gz
-            dist/${{ env.NAME }}.tar.gz.sha256
-          retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: server-bin-${{ matrix.qnap }}
-          path: bin/cleis-server-${{ matrix.qnap }}*
+          path: bin/cleis-server-${{ matrix.qnap }}
+          retention-days: 30
+      # Licences of the crates built into the server (one list: the same crates on both Linux).
+      - if: matrix.arch == 'x64'
+        run: python3 tools/licenses.py -o THIRD_PARTY_LICENSES.txt cleis-server
+      - if: matrix.arch == 'x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: server-licenses
+          path: THIRD_PARTY_LICENSES.txt
           retention-days: 30
 
   # Cleis Server in QNAP's App Center (D-78): a QPKG per architecture, built with QNAP's QDK.
