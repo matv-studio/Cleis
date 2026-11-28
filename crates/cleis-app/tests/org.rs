@@ -1342,6 +1342,25 @@ fn organization_in_shared_folder(cx: &mut TestAppContext) {
             cleis_core::org::SUPER_ADMIN
         );
     });
+    // Mockup 49l (28/11/2026): alone, Lea cannot leave: no one could let her back in. The
+    // question offers Members or the organization's deletion instead; Cancel keeps everything.
+    act(cx, lh, |w, cx| w.click("set-Server", cx));
+    act(cx, lh, |w, cx| w.click("org-leave", cx));
+    session(cx, &lea, |s| {
+        let c = s.confirm.as_ref().expect("asked");
+        assert_eq!(c.action, cleis_app::app::ConfirmAction::OpenDeleteOrg);
+        assert!(
+            c.alt
+                .as_ref()
+                .is_some_and(|a| a.2 == cleis_app::app::ConfirmAction::GoMembers)
+        );
+    });
+    assert!(window_has(cx, lh, "confirm-alt"));
+    act(cx, lh, |w, cx| w.click("confirm-alt", cx));
+    session(cx, &lea, |s| {
+        assert!(s.confirm.is_none() && s.org.is_some());
+        assert_eq!(s.settings_page, "Members");
+    });
 
     act(cx, lh, |w, cx| w.click("tab-Vault", cx));
     act(cx, lh, |w, cx| w.click("new-space", cx));

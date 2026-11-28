@@ -547,9 +547,9 @@ pub fn vault_rows(s: &Session) -> Vec<ListRow<usize>> {
     out
 }
 
-/// A folder's line (mockup 48a): the vault's name before the folder's when the list holds
-/// several vaults, the count on the right, on a lighter background than the items. Right-click:
-/// the folder's menu.
+/// A folder's line (mockups 48a, 49b): the folder's name, then at the right the vault's name
+/// when the list holds several vaults and the count, on a lighter background than the items.
+/// Right-click: the folder's menu.
 pub fn folder_line(
     space: cleis_core::SpaceId,
     vault: &str,
@@ -572,17 +572,17 @@ pub fn folder_line(
         .border_color(t.line)
         .text_size(TEXT_XS)
         .font_weight(W_MEDIUM)
-        .when(!vault.is_empty(), |d| {
-            d.child(div().text_color(t.text_muted).child(vault.to_owned()))
-                .child(
-                    gpui_kit::svg()
-                        .path("icons/chevronR.svg")
-                        .size(px(12.))
-                        .text_color(t.text_faint),
-                )
-        })
         .child(div().text_color(t.text).child(name.to_owned()))
         .child(div().flex_1())
+        // Mockup 49b: the vault at the right, next to the count, when the list mixes vaults.
+        .when(!vault.is_empty(), |d| {
+            d.child(
+                div()
+                    .mr(px(8.))
+                    .text_color(t.text_muted)
+                    .child(vault.to_owned()),
+            )
+        })
         .child(div().text_color(t.text_faint).child(n.to_string()))
         .when(menu, |d| {
             d.on_mouse_down(
@@ -1104,6 +1104,36 @@ fn filter_menu(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
         .top(px(36.))
         .left_0()
         .w(px(240.))
+        .child(head("Show"));
+    // Mockup 49a: favorites and items with recovery keys, first.
+    for (key, label, on, n) in [
+        ("fav", "Favorites", f.favorites, count(&|e| e.favorite)),
+        (
+            "recovery",
+            "With recovery keys",
+            f.recovery,
+            count(&|e| !e.recovery.is_empty()),
+        ),
+    ] {
+        m = m.child(
+            opt(format!("vf-{key}"), label, on, n)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        let f = &mut s.vault_filter;
+                        if key == "fav" {
+                            f.favorites = !f.favorites;
+                        } else {
+                            f.recovery = !f.recovery;
+                        }
+                        s.refilter();
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+        );
+    }
+    m = m
+        .child(div().h(px(1.)).my(px(4.)).bg(t.line))
         .child(head("Subscription"));
     for (sub, label) in [
         (Sub::Active, "Active"),
@@ -1275,7 +1305,8 @@ fn vault_page(s: &Session, t: &Tokens, window: &mut Window, cx: &mut Context<Cle
                 .collect();
                 let all_cols = s.columns.clone();
                 let lines = vault_rows(s);
-                let with_vault = s.filter == crate::app::Filter::All;
+                // Mockup 49c: the vault's name only when the list holds more than one vault.
+                let with_vault = s.mixes_vaults(s.visible.iter().map(|i| s.entries[*i].space));
                 let rows: Vec<ListRow<(usize, EntryId, Entry)>> = range
                     .filter_map(|r| match lines.get(r)? {
                         ListRow::Folder(sp, n) => Some(ListRow::Folder(*sp, *n)),

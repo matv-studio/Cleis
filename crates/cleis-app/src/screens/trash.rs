@@ -7,7 +7,7 @@ use crate::theme::*;
 use crate::ui::*;
 use gpui_kit::TestSupportExt;
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Div, SharedString, div, px};
+use gpui_kit::{Context, Div, SharedString, Window, div, px};
 
 pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let mut items: Vec<_> = s.trash.iter().collect();
@@ -63,6 +63,7 @@ pub fn page(s: &Session, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                     .into(),
                                 button: tr("Delete").into(),
                                 action: ConfirmAction::PurgeEntry(id),
+                                alt: None,
                             },
                             cx,
                         )
@@ -162,10 +163,26 @@ pub fn dialog(c: &Confirm, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
                                 }))
                                 .test_support(),
                         )
+                        .when_some(c.alt.clone(), |d, (label, ico, action)| {
+                            d.child(
+                                button("confirm-alt", t, BtnKind::Default, false)
+                                    .child(icon(ico, 14., t.text))
+                                    .child(crate::i18n::tr_dynamic(&label))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        if let Some(s) = this.session() {
+                                            s.confirm = None;
+                                        }
+                                        this.run_confirmed(action, window, cx);
+                                    }))
+                                    .test_support(),
+                            )
+                        })
                         .child(
                             button("confirm-ok", t, BtnKind::Danger, false)
                                 .child(crate::i18n::tr_dynamic(&c.button))
-                                .on_click(cx.listener(|this, _, _, cx| this.confirmed(cx)))
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.confirmed(window, cx)),
+                                )
                                 .test_support(),
                         ),
                 ),
@@ -233,6 +250,31 @@ impl CleisApp {
                 tr("Its code stops working.").to_owned(),
                 "Revoke",
             ),
+            // Mockup 49l: the only member who can invite would be locked out for good.
+            A::LeaveOrg if s.org.as_ref().is_some_and(|o| !o.others_can_invite()) => {
+                let is_super = s
+                    .org
+                    .as_ref()
+                    .and_then(|o| o.role())
+                    .is_some_and(|r| r.is_super());
+                s.confirm = Some(Confirm {
+                    title: crate::trf!("Leave {}?", org).into(),
+                    body: tr("You are the only member who can invite people. After leaving, no one could let you back in.").into(),
+                    button: if is_super {
+                        tr("Delete the organization").into()
+                    } else {
+                        tr("Members").into()
+                    },
+                    action: if is_super {
+                        A::OpenDeleteOrg
+                    } else {
+                        A::GoMembers
+                    },
+                    alt: is_super.then(|| (tr("Members").into(), "users", A::GoMembers)),
+                });
+                cx.notify();
+                return;
+            }
             A::LeaveOrg => (
                 crate::trf!("Leave {}?", org),
                 "Its spaces are removed from this vault. Joining again needs a new invitation."
@@ -291,6 +333,7 @@ impl CleisApp {
             body: body.into(),
             button: button.into(),
             action,
+            alt: None,
         });
         cx.notify();
     }
@@ -303,10 +346,39 @@ impl CleisApp {
         cx.notify();
     }
 
-    fn confirmed(&mut self, cx: &mut Context<Self>) {
+    fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let Some(c) = s.confirm.take() else { return };
-        match c.action {
+        self.run_confirmed(c.action, window, cx);
+    }
+
+    fn run_confirmed(
+        &mut self,
+        action: ConfirmAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self.session() else { return };
+        match action {
+            ConfirmAction::DeleteBackup => {
+                if let Some(p) = s.backup_to_delete.take() {
+                    s.toast = Some(match std::fs::remove_file(&p) {
+                        Ok(()) => tr("Backup deleted").into(),
+                        Err(e) => crate::trf!("Not deleted: {}", e).into(),
+                    });
+                }
+            }
+            ConfirmAction::GoMembers => {
+                s.tab = crate::app::Tab::Settings;
+                s.settings_page = "Members";
+            }
+            ConfirmAction::OpenDeleteOrg => {
+                s.tab = crate::app::Tab::Settings;
+                s.settings_page = "Server";
+                self.open_delete_org(window, cx);
+                cx.notify();
+                return;
+            }
             ConfirmAction::PurgeEntry(id) => {
                 if s.vault.purge_entry(id).is_ok() {
                     s.trash.retain(|e| e.id != id);
@@ -374,6 +446,27 @@ impl CleisApp {
 }
 
 impl CleisApp {
+    /// Mockup 49i: one backup deleted, asked first (it cannot come back).
+    pub fn ask_delete_backup(&mut self, file: std::path::PathBuf, cx: &mut Context<Self>) {
+        let name = file
+            .file_stem()
+            .map(|n| n.to_string_lossy().trim_start_matches("vault-").to_owned())
+            .unwrap_or_default();
+        if let Some(s) = self.session() {
+            s.backup_to_delete = Some(file);
+        }
+        self.ask(
+            Confirm {
+                title: crate::trf!("Delete the backup of {}?", name).into(),
+                body: tr("This dated copy is erased from this computer. The vault stays.").into(),
+                button: tr("Delete").into(),
+                action: ConfirmAction::DeleteBackup,
+                alt: None,
+            },
+            cx,
+        )
+    }
+
     /// Empty trash (the Trash page's button, the sidebar's right-click): asked first.
     pub fn ask_empty_trash(&mut self, cx: &mut Context<Self>) {
         let Some(n) = self.session().map(|s| s.trash.len()).filter(|n| *n > 0) else {
@@ -390,6 +483,7 @@ impl CleisApp {
                 body: "They are erased from this computer and cannot be restored.".into(),
                 button: tr("Empty trash").into(),
                 action: ConfirmAction::EmptyTrash,
+                alt: None,
             },
             cx,
         )

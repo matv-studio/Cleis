@@ -238,8 +238,13 @@ impl CleisApp {
             return;
         }
         let restoring = matches!(self.phase, Phase::Welcome(_));
+        // Mockup 49f: a main place already: this one becomes a copy place.
+        let copy_id = (!restoring && self.session().is_some_and(|s| s.sync.place.is_some()))
+            .then(|| uuid::Uuid::new_v4().to_string());
         let cache = if restoring {
             std::env::temp_dir().join(format!("cleis-restore-{}.cleis", std::process::id()))
+        } else if let Some(id) = &copy_id {
+            crate::sync::copy_cache(&self.path, id)
         } else {
             cache
         };
@@ -376,13 +381,30 @@ impl CleisApp {
                         }
                     }
                     Ok((None, _)) => {
-                        let key = s.sync.secret_key();
-                        let _ = s.vault.set_org_setting(&key, &Some(secret));
-                        s.sync.remote = Some(place);
-                        s.sync.provider = kind;
-                        s.sync.place = Some(crate::sync::remote_cache(&path));
-                        s.sync.last_error = None;
-                        s.sync.last_sync = None;
+                        match copy_id {
+                            Some(id) => {
+                                let key = s.sync.copy_secret_key(&id);
+                                let _ = s.vault.set_org_setting(&key, &Some(secret));
+                                s.sync.copies.push(crate::sync::CopyPlace {
+                                    id: id.clone(),
+                                    provider: kind,
+                                    place: crate::sync::copy_cache(&path, &id),
+                                    remote: Some(place),
+                                    last_sync: None,
+                                    last_error: None,
+                                    busy: false,
+                                });
+                            }
+                            None => {
+                                let key = s.sync.secret_key();
+                                let _ = s.vault.set_org_setting(&key, &Some(secret));
+                                s.sync.remote = Some(place);
+                                s.sync.provider = kind;
+                                s.sync.place = Some(crate::sync::remote_cache(&path));
+                                s.sync.last_error = None;
+                                s.sync.last_sync = None;
+                            }
+                        }
                         s.place = None;
                         crate::sync::save_config(&path, &s.sync);
                         app.sync_now(cx);

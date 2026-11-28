@@ -61,6 +61,8 @@ pub struct SyncConfig {
     /// no password, taken away once it has one.
     #[serde(default)]
     pub key_sent: bool,
+    /// Mockup 49f: the other places, kept in step after this one (the main place).
+    pub copies: Vec<CopyPlace>,
     /// Last try, successful or not: paces automatic syncs (not saved).
     #[serde(skip)]
     pub last_attempt: Option<i64>,
@@ -83,10 +85,47 @@ impl Default for SyncConfig {
             last_backup: None,
             remote: None,
             device: uuid::Uuid::new_v4().to_string(),
+            copies: vec![],
             last_attempt: None,
             busy: false,
         }
     }
+}
+
+/// A place besides the main one (mockup 49f): it gets what the main place holds, merged at
+/// each sync right after it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopyPlace {
+    /// Names its secret and its local copy.
+    pub id: String,
+    pub provider: Provider,
+    /// The copy itself (a folder), or the local copy of a remote file.
+    pub place: PathBuf,
+    #[serde(default)]
+    pub remote: Option<crate::remote::RemotePlace>,
+    #[serde(default)]
+    pub last_sync: Option<i64>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// A network sync is under way (not saved).
+    #[serde(skip)]
+    pub busy: bool,
+}
+
+impl CopyPlace {
+    /// Where it is, as shown.
+    pub fn label(&self) -> String {
+        self.remote
+            .as_ref()
+            .map_or_else(|| self.place.display().to_string(), |r| r.label())
+    }
+}
+
+/// Local copy of a copy place's remote file.
+pub fn copy_cache(vault: &Path, id: &str) -> PathBuf {
+    let mut p = vault.as_os_str().to_owned();
+    p.push(format!(".remote-{id}"));
+    PathBuf::from(p)
 }
 
 /// Minutes between automatic syncs while Cleis is open.
@@ -114,6 +153,20 @@ impl SyncConfig {
     /// Name of this device's place secret in the vault (audit L-8).
     pub fn secret_key(&self) -> String {
         format!("{}:{}", crate::remote::SECRET_SETTING, self.device)
+    }
+
+    /// The same for a copy place (mockup 49f).
+    pub fn copy_secret_key(&self, id: &str) -> String {
+        format!("{}:{}:{id}", crate::remote::SECRET_SETTING, self.device)
+    }
+
+    pub fn copy_secret(&self, vault: &cleis_store::Vault, id: &str) -> crate::remote::Secret {
+        vault
+            .org_setting::<Option<crate::remote::Secret>>(&self.copy_secret_key(id))
+            .ok()
+            .flatten()
+            .flatten()
+            .unwrap_or_default()
     }
 
     /// This device's place secret (or the one shared by an earlier version).
@@ -266,12 +319,99 @@ impl CleisApp {
             .map(|n| n.to_owned())
             .unwrap_or_else(|| "vault.cleis".into());
         if let Some(s) = self.session() {
-            s.sync.place = Some(dir.join(name));
-            s.sync.provider = provider;
-            s.sync.last_error = None;
+            if s.sync.place.is_some() {
+                // Mockup 49f: a main place already: this one keeps a copy of it.
+                s.sync.copies.push(CopyPlace {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    provider,
+                    place: dir.join(name),
+                    remote: None,
+                    last_sync: None,
+                    last_error: None,
+                    busy: false,
+                });
+            } else {
+                s.sync.place = Some(dir.join(name));
+                s.sync.provider = provider;
+                s.sync.last_error = None;
+            }
         }
         self.save_sync();
         self.sync_now(cx);
+    }
+
+    /// Mockup 49f: a copy place becomes the main one; the main one becomes a copy.
+    pub fn make_main(&mut self, id: &str, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let Some(ix) = s.sync.copies.iter().position(|c| c.id == id) else {
+            return;
+        };
+        let c = s.sync.copies.remove(ix);
+        let main_secret = s.sync.secret(&s.vault);
+        let copy_secret = s.sync.copy_secret(&s.vault, &c.id);
+        // The main one, as a copy under the same id (its secret and local copy follow it).
+        let old = s.sync.place.take().map(|place| CopyPlace {
+            id: c.id.clone(),
+            provider: s.sync.provider,
+            place: if s.sync.remote.is_some() {
+                copy_cache(&path, &c.id)
+            } else {
+                place
+            },
+            remote: s.sync.remote.take(),
+            last_sync: s.sync.last_sync,
+            last_error: s.sync.last_error.take(),
+            busy: false,
+        });
+        let (main_cache, cache) = (remote_cache(&path), copy_cache(&path, &c.id));
+        let swap = main_cache.with_extension("swap");
+        let _ = std::fs::rename(&main_cache, &swap);
+        let _ = std::fs::rename(&cache, &main_cache);
+        let _ = std::fs::rename(&swap, &cache);
+        s.sync.provider = c.provider;
+        s.sync.place = Some(if c.remote.is_some() {
+            main_cache
+        } else {
+            c.place
+        });
+        s.sync.remote = c.remote;
+        s.sync.last_sync = c.last_sync;
+        s.sync.last_error = c.last_error;
+        // D-96: the account key goes to the new main place at the next sync.
+        s.sync.key_sent = false;
+        let (mk, ck) = (s.sync.secret_key(), s.sync.copy_secret_key(&c.id));
+        let has = |x: &crate::remote::Secret| !x.token.is_empty() || !x.key.is_empty();
+        let _ = s
+            .vault
+            .set_org_setting(&mk, &has(&copy_secret).then_some(copy_secret));
+        let _ = s
+            .vault
+            .set_org_setting(&ck, &has(&main_secret).then_some(main_secret));
+        if let Some(o) = old {
+            s.sync.copies.insert(0, o);
+        }
+        self.save_sync();
+        self.sync_now(cx);
+    }
+
+    /// Mockup 49f: a copy place disconnected (its file there stays).
+    pub fn disconnect_copy(&mut self, id: &str, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        if let Some(s) = self.session()
+            && let Some(ix) = s.sync.copies.iter().position(|c| c.id == id)
+        {
+            let c = s.sync.copies.remove(ix);
+            if c.remote.is_some() {
+                let _ = std::fs::remove_file(copy_cache(&path, &c.id));
+                let key = s.sync.copy_secret_key(&c.id);
+                let _ = s
+                    .vault
+                    .set_org_setting(&key, &None::<crate::remote::Secret>);
+            }
+        }
+        self.save_sync();
+        cx.notify();
     }
 
     pub fn disconnect_sync(&mut self, cx: &mut Context<Self>) {
@@ -288,8 +428,17 @@ impl CleisApp {
             s.sync.last_sync = None;
             s.sync.last_error = None;
         }
-        self.save_sync();
-        cx.notify();
+        // Mockup 49f: the first copy place becomes the main one.
+        let next = self
+            .session()
+            .and_then(|s| s.sync.copies.first().map(|c| c.id.clone()));
+        match next {
+            Some(id) => self.make_main(&id, cx),
+            None => {
+                self.save_sync();
+                cx.notify();
+            }
+        }
     }
 
     /// Merges with the place now. Takes milliseconds: the rows stay sealed.
@@ -324,92 +473,12 @@ impl CleisApp {
             return;
         };
         let secret = s.sync.secret(&s.vault);
+        let key = s.sync.secret_key();
         s.sync.busy = true;
         s.sync.last_attempt = Some(cleis_core::now());
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let mut outcome: Result<cleis_store::SyncReport, String> = Err(String::new());
-            // D-101: a GitHub App token (8 hours) renewed first, kept for the next times.
-            let mut secret = secret;
-            let (r, sec) = (remote.clone(), secret.clone());
-            if let Some(renewed) = cx
-                .background_spawn(async move { crate::remote::renewed(&r, &sec) })
-                .await
-            {
-                match renewed {
-                    Ok(next) => {
-                        let kept = next.clone();
-                        this.update(cx, |app, _| {
-                            if let Some(s) = app.session() {
-                                let key = s.sync.secret_key();
-                                let _ = s.vault.set_org_setting(&key, &Some(kept));
-                            }
-                        })
-                        .ok();
-                        secret = next;
-                    }
-                    Err(e) => {
-                        this.update(cx, |app, cx| {
-                            if let Some(s) = app.session() {
-                                s.sync.busy = false;
-                            }
-                            app.sync_done(quiet, Err(e), cx);
-                        })
-                        .ok();
-                        return;
-                    }
-                }
-            }
-            for _ in 0..3 {
-                let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
-                let version = match cx
-                    .background_spawn(async move { crate::remote::download(&r, &sec, &c) })
-                    .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        outcome = Err(e.to_string());
-                        break;
-                    }
-                };
-                let merged = this
-                    .update(cx, |app, _| {
-                        app.session()
-                            .map(|s| s.vault.sync_with(&cache).map_err(|e| e.to_string()))
-                    })
-                    .ok()
-                    .flatten();
-                let Some(merged) = merged else { return };
-                let rep = match merged {
-                    Ok(r) => r,
-                    Err(e) => {
-                        outcome = Err(e);
-                        break;
-                    }
-                };
-                if rep.sent == 0 && !rep.created {
-                    outcome = Ok(rep);
-                    break;
-                }
-                let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
-                match cx
-                    .background_spawn(async move { crate::remote::upload(&r, &sec, &c, version) })
-                    .await
-                {
-                    Ok(()) => {
-                        outcome = Ok(rep);
-                        break;
-                    }
-                    Err(crate::remote::RemoteError::Conflict) => {
-                        outcome = Err(tr("the file kept changing; try again").into());
-                        continue;
-                    }
-                    Err(e) => {
-                        outcome = Err(e.to_string());
-                        break;
-                    }
-                }
-            }
+            let outcome = remote_round(&this, cx, remote, secret, key, cache).await;
             let ok = outcome.is_ok();
             this.update(cx, |app, cx| {
                 if let Some(s) = app.session() {
@@ -424,6 +493,84 @@ impl CleisApp {
             .ok();
         })
         .detach();
+    }
+
+    /// Mockup 49f: after the main place, each copy place merged in turn (a folder at once, a
+    /// remote file read, merged and sent back off the interface). Only failures are told.
+    fn sync_copies(&mut self, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        let Some(s) = self.session() else { return };
+        let mut received = 0;
+        let mut remotes = vec![];
+        for c in s.sync.copies.iter_mut() {
+            match &c.remote {
+                None => match s.vault.sync_with(&c.place) {
+                    Ok(r) => {
+                        received += r.received;
+                        c.last_sync = Some(cleis_core::now());
+                        c.last_error = None;
+                    }
+                    Err(e) => {
+                        c.last_error = Some(e.to_string());
+                        s.toast = Some(
+                            crate::trf!("Not synced with {}: {}", c.provider.name(), e).into(),
+                        );
+                    }
+                },
+                Some(r) if !c.busy => {
+                    c.busy = true;
+                    remotes.push((c.id.clone(), r.clone()));
+                }
+                Some(_) => {}
+            }
+        }
+        if received > 0 {
+            let _ = reload(s);
+        }
+        let jobs: Vec<_> = remotes
+            .into_iter()
+            .map(|(id, r)| {
+                let secret = s.sync.copy_secret(&s.vault, &id);
+                let key = s.sync.copy_secret_key(&id);
+                (id.clone(), r, secret, key, copy_cache(&path, &id))
+            })
+            .collect();
+        for (id, remote, secret, key, cache) in jobs {
+            cx.spawn(async move |this, cx| {
+                let outcome = remote_round(&this, cx, remote, secret, key, cache).await;
+                this.update(cx, |app, cx| {
+                    let path = app.path.clone();
+                    let Some(s) = app.session() else { return };
+                    let mut got = 0;
+                    if let Some(c) = s.sync.copies.iter_mut().find(|c| c.id == id) {
+                        c.busy = false;
+                        match outcome {
+                            Ok(r) => {
+                                got = r.received;
+                                c.last_sync = Some(cleis_core::now());
+                                c.last_error = None;
+                            }
+                            Err(e) => {
+                                s.toast = Some(
+                                    crate::trf!("Not synced with {}: {}", c.provider.name(), e)
+                                        .into(),
+                                );
+                                c.last_error = Some(e);
+                            }
+                        }
+                    }
+                    if got > 0 {
+                        let _ = reload(s);
+                    }
+                    save_config(&path, &s.sync);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        self.save_sync();
+        cx.notify();
     }
 
     /// D-96: without a password the vault's key is kept beside it in the account (a new computer
@@ -523,6 +670,13 @@ impl CleisApp {
                 if let Some(m) = msg {
                     s.toast = Some(m.into());
                 }
+                let copies = !s.sync.copies.is_empty();
+                self.save_sync();
+                if copies {
+                    self.sync_copies(cx);
+                }
+                cx.notify();
+                return;
             }
             Err(e) => {
                 s.sync.last_error = Some(e.to_string());
@@ -672,40 +826,135 @@ impl CleisApp {
     }
 }
 
+/// One round with a remote place (D-65, D-104): its token renewed if due (kept under `key`),
+/// then up to three times: read into `cache`, merged, sent back when this vault had something
+/// new (another device's copy sent meanwhile: read and merge again).
+async fn remote_round(
+    this: &gpui_kit::WeakEntity<CleisApp>,
+    cx: &mut gpui_kit::AsyncApp,
+    remote: crate::remote::RemotePlace,
+    secret: crate::remote::Secret,
+    key: String,
+    cache: PathBuf,
+) -> Result<cleis_store::SyncReport, String> {
+    let mut outcome: Result<cleis_store::SyncReport, String> = Err(String::new());
+    // D-101: a GitHub App token (8 hours) renewed first, kept for the next times.
+    let mut secret = secret;
+    let (r, sec) = (remote.clone(), secret.clone());
+    if let Some(renewed) = cx
+        .background_spawn(async move { crate::remote::renewed(&r, &sec) })
+        .await
+    {
+        let next = renewed?;
+        let kept = next.clone();
+        this.update(cx, |app, _| {
+            if let Some(s) = app.session() {
+                let _ = s.vault.set_org_setting(&key, &Some(kept));
+            }
+        })
+        .ok();
+        secret = next;
+    }
+    for _ in 0..3 {
+        let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
+        let version = match cx
+            .background_spawn(async move { crate::remote::download(&r, &sec, &c) })
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => return Err(e.to_string()),
+        };
+        let merged = this
+            .update(cx, |app, _| {
+                app.session()
+                    .map(|s| s.vault.sync_with(&cache).map_err(|e| e.to_string()))
+            })
+            .ok()
+            .flatten()
+            .ok_or_else(|| tr("Cleis is locked").to_owned())?;
+        let rep = merged?;
+        if rep.sent == 0 && !rep.created {
+            return Ok(rep);
+        }
+        let (r, c, sec) = (remote.clone(), cache.clone(), secret.clone());
+        match cx
+            .background_spawn(async move { crate::remote::upload(&r, &sec, &c, version) })
+            .await
+        {
+            Ok(()) => return Ok(rep),
+            Err(crate::remote::RemoteError::Conflict) => {
+                outcome = Err(tr("the file kept changing; try again").into());
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    outcome
+}
+
 /// GitHub / SFTP sync run off the interface with the vault moved in (on lock, audit L-5): read,
-/// merge, send back when this vault had something new; the vault is dropped at the end.
+/// merge, send back when this vault had something new; then the copy places (mockup 49f); the
+/// vault is dropped at the end.
 pub fn remote_sync_detached(
     mut vault: cleis_store::Vault,
     mut cfg: SyncConfig,
     vault_path: &Path,
 ) -> Result<(), String> {
-    let Some(remote) = cfg.remote.clone() else {
-        return Ok(());
-    };
-    let secret = cfg.secret(&vault);
-    let cache = remote_cache(vault_path);
-    let mut result = Err(tr("the file kept changing").to_owned());
-    for _ in 0..3 {
-        let version =
-            crate::remote::download(&remote, &secret, &cache).map_err(|e| e.to_string())?;
-        let rep = vault.sync_with(&cache).map_err(|e| e.to_string())?;
-        if rep.sent == 0 && !rep.created {
-            result = Ok(());
-            break;
+    match (cfg.remote.clone(), cfg.place.clone()) {
+        (Some(remote), _) => {
+            let secret = cfg.secret(&vault);
+            blocking_round(&mut vault, &remote, &secret, &remote_cache(vault_path))?;
         }
-        match crate::remote::upload(&remote, &secret, &cache, version) {
-            Ok(()) => {
-                result = Ok(());
-                break;
+        (None, Some(place)) => {
+            vault.sync_with(&place).map_err(|e| e.to_string())?;
+        }
+        (None, None) => return Ok(()),
+    }
+    cfg.last_sync = Some(cleis_core::now());
+    cfg.last_error = None;
+    for i in 0..cfg.copies.len() {
+        let c = cfg.copies[i].clone();
+        let r = match &c.remote {
+            Some(remote) => {
+                let secret = cfg.copy_secret(&vault, &c.id);
+                blocking_round(&mut vault, remote, &secret, &copy_cache(vault_path, &c.id))
             }
+            None => vault
+                .sync_with(&c.place)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+        };
+        let c = &mut cfg.copies[i];
+        match r {
+            Ok(()) => {
+                c.last_sync = Some(cleis_core::now());
+                c.last_error = None;
+            }
+            Err(e) => c.last_error = Some(e),
+        }
+    }
+    save_config(vault_path, &cfg);
+    Ok(())
+}
+
+/// [`remote_round`] without the interface: read, merge, send back (three tries).
+fn blocking_round(
+    vault: &mut cleis_store::Vault,
+    remote: &crate::remote::RemotePlace,
+    secret: &crate::remote::Secret,
+    cache: &Path,
+) -> Result<(), String> {
+    for _ in 0..3 {
+        let version = crate::remote::download(remote, secret, cache).map_err(|e| e.to_string())?;
+        let rep = vault.sync_with(cache).map_err(|e| e.to_string())?;
+        if rep.sent == 0 && !rep.created {
+            return Ok(());
+        }
+        match crate::remote::upload(remote, secret, cache, version) {
+            Ok(()) => return Ok(()),
             Err(crate::remote::RemoteError::Conflict) => continue,
             Err(e) => return Err(e.to_string()),
         }
     }
-    if result.is_ok() {
-        cfg.last_sync = Some(cleis_core::now());
-        cfg.last_error = None;
-        save_config(vault_path, &cfg);
-    }
-    result
+    Err(tr("the file kept changing").to_owned())
 }

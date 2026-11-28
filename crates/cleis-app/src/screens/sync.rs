@@ -30,7 +30,7 @@ pub(crate) fn ago(ts: i64) -> String {
 }
 
 fn place_row(
-    id: &'static str,
+    id: impl Into<SharedString>,
     t: &Tokens,
     ico: &str,
     name: &str,
@@ -53,11 +53,12 @@ fn place_row(
         )
         .child(
             div()
-                .id(id)
+                .id(id.into())
                 .flex_1()
                 .min_w_0()
                 .child(crate::i18n::tr_owned(name))
-                .tooltip(crate::ui::tip(crate::i18n::tr_owned(sub))),
+                .tooltip(crate::ui::tip(crate::i18n::tr_owned(sub)))
+                .test_support(),
         )
         .child(action)
 }
@@ -102,45 +103,228 @@ pub fn page_with(
             .id("sync-title")
             .child(section_title(t, tr("Sync")))
             .tooltip(tip(
-                "Your encrypted vault, kept the same on every device using this place. Your password stays on your devices.",
+                "Your encrypted vault, kept the same on every device using these places. Your password stays on your devices.",
             )),
     );
+    let ico = |p: Provider| match p {
+        Provider::GitHub => "repo",
+        Provider::Sftp => "server",
+        Provider::Folder => "folder",
+        _ => "cloud",
+    };
+    let status = |busy: bool, err: &Option<String>, last: Option<i64>| match (err, last) {
+        _ if busy => chip(t, Tone::Neutral, tr("Syncing…"), false),
+        (Some(_), _) => chip(t, Tone::Danger, tr("Not synced"), true),
+        (None, Some(ts)) => chip(t, Tone::Ok, crate::trf!("Synced {}", ago(ts)), true),
+        (None, None) => chip(t, Tone::Neutral, tr("Never synced"), false),
+    };
+    let open = s.place_menu.clone();
+    // A place's "…" and its menu (Make main for a copy, Disconnect).
+    let more = |key: String, copy: bool, cx: &mut Context<CleisApp>| {
+        let shown = open.as_deref() == Some(key.as_str());
+        let k = key.clone();
+        let mut menu = menu_box(t).top(px(28.)).right_0().w(px(200.));
+        if copy {
+            let id = key.clone();
+            menu = menu.child(
+                menu_item(
+                    SharedString::from(format!("place-main-{key}")),
+                    t,
+                    Some("star"),
+                    tr("Make main").to_owned(),
+                    false,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.place_menu = None;
+                    }
+                    this.make_main(&id, cx)
+                }))
+                .test_support(),
+            );
+        }
+        let id = key.clone();
+        menu = menu.child(
+            menu_item(
+                SharedString::from(format!("place-off-{key}")),
+                t,
+                Some("x"),
+                tr("Disconnect").to_owned(),
+                false,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.session() {
+                    s.place_menu = None;
+                }
+                if copy {
+                    this.disconnect_copy(&id, cx)
+                } else {
+                    this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
+                }
+            }))
+            .test_support(),
+        );
+        div()
+            .relative()
+            .child(
+                icon_button(
+                    SharedString::from(format!("place-more-{key}")),
+                    t,
+                    "more",
+                    true,
+                )
+                .tooltip(tip(if copy {
+                    "Make main, disconnect"
+                } else {
+                    "Disconnect"
+                }))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.session() {
+                        s.place_menu = if s.place_menu.as_deref() == Some(k.as_str()) {
+                            None
+                        } else {
+                            Some(k.clone())
+                        };
+                    }
+                    cx.notify();
+                }))
+                .test_support(),
+            )
+            .when(shown, |d| d.child(deferred(menu)))
+    };
+    // "Add a place" and its menu (mockup 49g).
+    let add = |first: bool, cx: &mut Context<CleisApp>| {
+        let shown = open.as_deref() == Some("add");
+        let item = |id: &'static str, icon_name: &'static str, label: &'static str, p: Provider| {
+            menu_item(id, t, Some(icon_name), tr(label).to_owned(), false)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(s) = this.session() {
+                        s.place_menu = None;
+                    }
+                    match p {
+                        Provider::GoogleDrive => {
+                            this.start_cloud(crate::cloud::Cloud::Google, window, cx)
+                        }
+                        Provider::OneDrive => {
+                            this.start_cloud(crate::cloud::Cloud::Microsoft, window, cx)
+                        }
+                        Provider::Folder => this.choose_sync_folder(Provider::Folder, cx),
+                        Provider::GitHub | Provider::Sftp => this.open_place(p, window, cx),
+                    }
+                }))
+                .test_support()
+        };
+        let menu = menu_box(t)
+            .top(px(32.))
+            .right_0()
+            .w(px(220.))
+            .child(item(
+                "add-gdrive",
+                "cloud",
+                "Google Drive",
+                Provider::GoogleDrive,
+            ))
+            .child(item(
+                "add-onedrive",
+                "cloud",
+                "OneDrive",
+                Provider::OneDrive,
+            ))
+            .child(item("add-folder", "folder", "Folder", Provider::Folder))
+            .child(item("add-github", "repo", "GitHub", Provider::GitHub))
+            .child(item("add-sftp", "server", "SFTP", Provider::Sftp));
+        div()
+            .relative()
+            .child(
+                button("place-add", t, BtnKind::Default, true)
+                    .child(icon("plus", 14., t.text))
+                    .child(tr("Add a place"))
+                    .tooltip(tip(if first {
+                        "Where your vault is kept in step"
+                    } else {
+                        "Gets a copy of the main place at each sync"
+                    }))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.place_menu = if s.place_menu.as_deref() == Some("add") {
+                                None
+                            } else {
+                                Some("add".into())
+                            };
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .when(shown, |d| d.child(deferred(menu)))
+    };
     match &c.place {
         Some(p) => {
-            let status = match (&c.last_error, c.last_sync) {
-                _ if c.busy => chip(t, Tone::Neutral, tr("Syncing…"), false),
-                (Some(_), _) => chip(t, Tone::Danger, tr("Not synced"), true),
-                (None, Some(ts)) => chip(t, Tone::Ok, crate::trf!("Synced {}", ago(ts)), true),
-                (None, None) => chip(t, Tone::Neutral, tr("Never synced"), false),
-            };
             let err = c.last_error.clone().map(|e| crate::i18n::tr_dynamic(&e));
             sync = sync
                 .child(place_row(
                     "sync-place",
                     t,
-                    match c.provider {
-                        Provider::GitHub => "repo",
-                        Provider::Sftp => "server",
-                        Provider::Folder => "folder",
-                        _ => "cloud",
-                    },
+                    ico(c.provider),
                     c.provider.name(),
                     &c.remote
                         .as_ref()
                         .map_or_else(|| p.display().to_string(), |r| r.label()),
-                    div().flex().items_center().gap(px(8.)).child(status).child(
-                        button("sync-disconnect", t, BtnKind::Ghost, true)
-                            .child(tr("Disconnect"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.ask_action(crate::app::ConfirmAction::DisconnectPlace, cx)
-                            }))
-                            .test_support(),
-                    ),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .when(!c.copies.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .id("place-main-chip")
+                                    .child(chip(t, Tone::Set, tr("Main"), false))
+                                    .tooltip(tip(
+                                        "Merged with this computer at each sync; the other places hold a copy of it",
+                                    ))
+                                    .test_support(),
+                            )
+                        })
+                        .child(status(c.busy, &c.last_error, c.last_sync))
+                        .child(more("main".into(), false, cx)),
                     true,
                 ))
                 .when_some(err, |d, e| {
                     d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
-                })
+                });
+            let main_name = c.provider.name();
+            for (n, cp) in c.copies.iter().enumerate() {
+                let err = cp.last_error.clone().map(|e| crate::i18n::tr_dynamic(&e));
+                sync = sync
+                    .child(place_row(
+                        format!("sync-copy-{n}"),
+                        t,
+                        ico(cp.provider),
+                        cp.provider.name(),
+                        &cp.label(),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("copy-chip-{n}")))
+                                    .child(chip(t, Tone::Neutral, tr("Copy@@place"), false))
+                                    .tooltip(crate::ui::tip(crate::trf!(
+                                        "Gets a copy of {} at each sync",
+                                        main_name
+                                    )))
+                                    .test_support(),
+                            )
+                            .child(status(cp.busy, &cp.last_error, cp.last_sync))
+                            .child(more(cp.id.clone(), true, cx)),
+                        false,
+                    ))
+                    .when_some(err, |d, e| {
+                        d.child(div().text_size(TEXT_SM).text_color(t.danger_text).child(e))
+                    });
+            }
+            sync = sync
                 .child(
                     row(t, false)
                         .child(div().flex_1().child(tr("Sync automatically")))
@@ -161,112 +345,35 @@ pub fn page_with(
                                 }))
                                 .test_support(),
                         ),
-                );
+                )
+                .child(row(t, false).child(div().flex_1()).child(add(false, cx)));
         }
         None => {
             sync = sync.child(
-                row(t, true).child(icon("laptop", 16., t.text_muted)).child(
-                    div()
-                        .id("sync-local")
-                        .flex_1()
-                        .child(tr("Local"))
-                        .tooltip(tip(tr("This vault stays on this computer"))),
-                ),
+                row(t, true)
+                    .child(
+                        div()
+                            .size(px(28.))
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .rounded(RADIUS_MD)
+                            .bg(t.surface_active)
+                            .child(icon("laptop", 16., t.text)),
+                    )
+                    .child(
+                        div()
+                            .id("sync-local")
+                            .flex_1()
+                            .child(tr("Local"))
+                            .tooltip(tip(tr("This vault stays on this computer")))
+                            .test_support(),
+                    )
+                    .child(add(true, cx)),
             );
         }
     }
-    let choose = |id: &'static str, p: Provider, cx: &mut Context<CleisApp>| {
-        button(id, t, BtnKind::Default, true)
-            .child(tr("Choose folder"))
-            .on_click(cx.listener(move |this, _, _, cx| this.choose_sync_folder(p, cx)))
-            .test_support()
-    };
-    // One "Sync" block (27/11/2026): what is connected and its switch, a line, then the places
-    // not connected (the connected one is not offered again).
-    let here = c.place.as_ref().map(|_| c.provider);
-    let offer = |p: Provider| here != Some(p);
-    let mut others: Vec<Div> = vec![];
-    if offer(Provider::OneDrive) {
-        others.push(place_row(
-            "p-onedrive",
-            t,
-            "cloud",
-            "OneDrive",
-            "Folder kept by the OneDrive app",
-            choose("sync-onedrive", Provider::OneDrive, cx),
-            others.is_empty(),
-        ));
-    }
-    if offer(Provider::GoogleDrive) {
-        others.push(place_row(
-            "p-gdrive",
-            t,
-            "cloud",
-            "Google Drive",
-            "Folder kept by Google Drive for desktop",
-            choose("sync-gdrive", Provider::GoogleDrive, cx),
-            others.is_empty(),
-        ));
-    }
-    if offer(Provider::Folder) {
-        others.push(place_row(
-            "p-folder",
-            t,
-            "folder",
-            "Folder",
-            "Network share, Dropbox, USB drive",
-            choose("sync-folder", Provider::Folder, cx),
-            others.is_empty(),
-        ));
-    }
-    if offer(Provider::GitHub) {
-        others.push(place_row(
-            "p-github",
-            t,
-            "repo",
-            "GitHub",
-            "Private repository",
-            button("sync-github", t, BtnKind::Default, true)
-                .child(tr("Connect"))
-                .tooltip(tip(
-                    "A file in one of your private repositories, with an access token",
-                ))
-                .on_click(
-                    cx.listener(|this, _, window, cx| {
-                        this.open_place(Provider::GitHub, window, cx)
-                    }),
-                )
-                .test_support(),
-            others.is_empty(),
-        ));
-    }
-    if offer(Provider::Sftp) {
-        others.push(place_row(
-            "p-sftp",
-            t,
-            "server",
-            "SFTP",
-            "Your own server",
-            button("sync-sftp", t, BtnKind::Default, true)
-                .child(tr("Set up"))
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.open_place(Provider::Sftp, window, cx)),
-                )
-                .test_support(),
-            others.is_empty(),
-        ));
-    }
-    let sync = sync
-        .child(
-            div()
-                .id("places-line")
-                .h(px(1.))
-                .bg(t.line_strong)
-                .tooltip(tip(tr(
-                    "One place at a time; choosing another moves the copy.",
-                ))),
-        )
-        .children(others);
     let device = section(t)
         .child(
             div()
@@ -323,9 +430,17 @@ pub fn page_with(
         );
     }
     let list = backups(&s.vault.path().unwrap_or_default());
+    // Mockup 49i: the 5 latest, the others under "Show N more"; each one can be deleted.
+    const SHOWN: usize = 5;
+    let more = list.len().saturating_sub(SHOWN);
     let mut history = div().flex().flex_col();
-    for (i, (file, size, _)) in list.iter().take(5).enumerate() {
+    for (i, (file, size, _)) in list
+        .iter()
+        .take(if s.backups_all { usize::MAX } else { SHOWN })
+        .enumerate()
+    {
         let f = file.clone();
+        let gone = file.clone();
         let name = file
             .file_stem()
             .map(|n| n.to_string_lossy().trim_start_matches("vault-").to_owned())
@@ -352,7 +467,51 @@ pub fn page_with(
                     ))
                     .on_click(cx.listener(move |this, _, _, cx| this.restore_backup(f.clone(), cx)))
                     .test_support(),
+                )
+                .child(
+                    icon_button(
+                        SharedString::from(format!("del-backup-{i}")),
+                        t,
+                        "trash",
+                        true,
+                    )
+                    .tooltip(tip("Delete this backup"))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.ask_delete_backup(gone.clone(), cx)),
+                    )
+                    .test_support(),
                 ),
+        );
+    }
+    if more > 0 {
+        history = history.child(
+            row(t, false).child(div().flex_1()).child(
+                button("backups-more", t, BtnKind::Ghost, true)
+                    .child(
+                        gpui_kit::svg()
+                            .path("icons/chevron.svg")
+                            .size(px(14.))
+                            .flex_none()
+                            .text_color(t.text_muted)
+                            .when(s.backups_all, |d| {
+                                d.with_transformation(gpui_kit::Transformation::rotate(
+                                    gpui_kit::radians(std::f32::consts::PI),
+                                ))
+                            }),
+                    )
+                    .child(if s.backups_all {
+                        tr("Show fewer").to_owned()
+                    } else {
+                        crate::trf!("Show {} more", more)
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(s) = this.session() {
+                            s.backups_all = !s.backups_all;
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            ),
         );
     }
     let backups_sec = section(t)

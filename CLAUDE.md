@@ -4,7 +4,7 @@ Gestionnaire de mots de passe et carnet de contacts interne (Windows, macOS), us
 d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/Cleis`.
 
 ## Reprise
-1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-109,
+1. Lire `docs/ETAT.md` (où on en est, prochaines étapes) puis `docs/DECISIONS.md` (D-01 à D-112,
    « En suspens »). Les décisions récentes priment sur les anciennes qu'elles remplacent.
 2. Outils : Rust stable (voir `rust-toolchain.toml`), `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
@@ -16,7 +16,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
    profile|devices|spaces|server-here|shortcuts] [--menu filter|columns|new-column|open-code|invite|invite-code|
    new-role|new-space|rekey|server-code|super-admin|rename-space|delete-space|new-folder|folder-menu|
    delete-folder|create-elsewhere|create-folder|server-sms|server-email|server-identity|place-github|place-sftp|
-   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive|kind-menu|birthday-cal|ctx-space-icon|search-text|price-period]
+   ctx-entry|ctx-space|ctx-contact|ctx-member|ctx-list|ctx-sidebar|customize|calendar|wheel|contact-photo|org-pin|policy-pin|recovery-key|confirm-transfer|confirm-remove|health-vault|rename-folder|pin-setup|erase-account|github|ctx-password|policy-access|org-password|delete-org|contacts-org|health-change|github-create|github-install|profile-menu|profile-edit|website|space-members|ctx-trash|recovery|create-server|create-server-here|pick-microsoft|pick-google|cloud-microsoft|cloud-google|onedrive|gdrive|kind-menu|birthday-cal|ctx-space-icon|search-text|price-period|sync-places|add-place|backups|filter-show|leave-refused|onedrive-folders]
    [--no-org] [--two-orgs [--vault-tab personal]] [--org-welcome] [--import FICHIER [--review]]
    [--quick-access] [--restore] [--welcome-local|--welcome-signin] [--unlock-with hello|nothing|pin]
    [--theme light] [--lang fr] [--update 0.2.1 [--menu update]]` (`--tab activity` aussi). Serveur : `cargo run -p cleis-server -- init --data DIR
@@ -90,7 +90,7 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
   Windows Hello, PIN ou sans rien, fichier `<coffre>.unlock`, D-76, D-83), `screens/pin.rs` (cases du
   PIN), `github_login.rs` + `screens/github.rs` (connexion GitHub par code, D-84 ; GitHub App, D-101),
   `cloud.rs` + `screens/cloud.rs` (coffre dans OneDrive / Google Drive : connexion PKCE par le
-  navigateur, jetons renouvelés, D-104), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
+  navigateur, jetons renouvelés, D-104 ; dossier choisi, D-110), `screens/profile.rs` (profil de Cleis en haut à droite, D-101), `screens/keys.rs`
   (Paramètres › Shortcuts, D-85), `screens/erase.rs` (suppression des sauvegardes et du compte, D-82), `instance.rs` (une seule
   copie, D-75), installateur `packaging/windows/` (NSIS), `packaging/macos/` (Info.plist et icône de
   Cleis.app, image disque construite par `release.yml`, D-109),
@@ -191,5 +191,11 @@ d'équipe. Rust, interface GPUI (rendu GPU natif). Dépôt public `matv-studio/C
   l'appli n'émet pas `InputEvent::Change` : l'émettre (`cx.emit`) si la liste doit suivre.
 - Disque : ne pas effacer `target/debug/build/*/out` à la main (compilation cassée : `rm -rf
   target/debug` puis tout refaire).
+- Plusieurs emplacements (D-110) : le principal dans `SyncConfig` (`place`, `remote`, secret
+  `secret_key()`), les copies dans `copies` (secret `copy_secret_key(id)`, copie locale
+  `copy_cache`) ; ajouter un emplacement quand un principal existe en fait une copie.
+- Essais de connexion OneDrive / Google : ne jamais `run_until_parked` entre le clic qui lance la
+  connexion et la réponse du navigateur (`click_now`, `browser_refuses`, `browser_returns` de
+  `tests/cloud.rs`).
 - Dossier partagé supprimé (D-98) : seule `deleted.json` reste ; le registre `folder_org` a pour clé le
   chemin de la copie (`replica_dir(...).display()`), pas la clé de l'organisation.

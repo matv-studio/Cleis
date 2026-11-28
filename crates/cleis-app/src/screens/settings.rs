@@ -288,8 +288,9 @@ fn toggle(
         .test_support()
 }
 
-/// Mockup 32c: the personal vault in its own tab, and its name (D-69).
-fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
+/// Mockup 49d: one "Navigation" card, what the tabs and the sidebar show: the personal vault in
+/// its own tab and its name (D-69, mockup 32c), the tabs that can be hidden, the shortcuts.
+fn navigation_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<CleisApp>) -> Div {
     let tip = |text: &'static str| {
         move |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
             gpui_kit::component::tooltip::Tooltip::new(crate::i18n::tr_dynamic(text))
@@ -297,8 +298,32 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
         }
     };
     let has_org = s.all_orgs().next().is_some();
+    let tab_row = |id: &'static str,
+                   ico: &'static str,
+                   label: &'static str,
+                   on: bool,
+                   f: fn(&mut Preferences),
+                   cx: &mut Context<CleisApp>| {
+        row(t, false)
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(icon(ico, 16., t.text_muted))
+                    .child(tr(label)),
+            )
+            .child(toggle(id, t, on, f, cx))
+    };
     section(t)
-        .child(section_title(t, tr("Vaults")))
+        .child(
+            div()
+                .id("navigation-title")
+                .child(section_title(t, tr("Navigation")))
+                .tooltip(tip(tr("Tabs at the top, shortcuts in the sidebar")))
+                .test_support(),
+        )
         // Without an organization there is one vault: no tab of its own to offer.
         .when(has_org, |d| {
             d.child(
@@ -319,9 +344,8 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
                     )),
             )
         })
-        .child(shortcut_rows(s, p, t, cx))
         .child(
-            row(t, false)
+            row(t, !has_org)
                 .child(div().flex_1().child(tr("Personal vault name")))
                 .child(
                     div()
@@ -331,6 +355,34 @@ fn vaults_section(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Cle
                         }),
                 ),
         )
+        .child(tab_row(
+            "tab-contacts",
+            "users",
+            "Contacts tab",
+            p.tabs.contacts,
+            |p| p.tabs.contacts = !p.tabs.contacts,
+            cx,
+        ))
+        .child(tab_row(
+            "tab-health",
+            "shield",
+            "Health tab",
+            p.tabs.health,
+            |p| p.tabs.health = !p.tabs.health,
+            cx,
+        ))
+        // Audit L-18 (D-40): Activity can be hidden too, when an organization shows it.
+        .when(s.org.is_some(), |d| {
+            d.child(tab_row(
+                "tab-activity",
+                "journal",
+                "Activity tab",
+                p.tabs.activity,
+                |p| p.tabs.activity = !p.tabs.activity,
+                cx,
+            ))
+        })
+        .child(shortcut_rows(s, p, t, cx))
 }
 
 /// Mockups 45a, 45b (27/11/2026): the sidebar's shortcuts as a grid, one row per shortcut, one
@@ -483,7 +535,7 @@ fn shortcut_rows(s: &Session, p: &Preferences, t: &Tokens, cx: &mut Context<Clei
         .flex()
         .flex_col()
         .child(
-            row(t, true)
+            row(t, false)
                 .child(
                     div()
                         .id("shortcuts-label")
@@ -603,29 +655,8 @@ fn preferences(
                 .font_weight(W_STRONG)
                 .child(tr("Preferences")),
         )
-        .child(vaults_section(s, p, t, cx))
-        // Mockup 48l: the folder lines of the lists can be turned off.
-        .child(
-            section(t).child(section_title(t, tr("Lists"))).child(
-                row(t, true)
-                    .child(
-                        div()
-                            .id("folder-lines-label")
-                            .flex_1()
-                            .child(tr("Folder lines"))
-                            .tooltip(crate::ui::tip(tr(
-                                "In All items, a vault, All contacts: a line with each folder's name before its items",
-                            ))),
-                    )
-                    .child(toggle(
-                        "folder-lines",
-                        t,
-                        p.folder_lines,
-                        |p| p.folder_lines = !p.folder_lines,
-                        cx,
-                    )),
-            ),
-        )
+        // Mockup 49d: Appearance first (the folder lines, the language and the currency
+        // there too), Startup second, Navigation third.
         .child(
             section(t)
                 .child(section_title(t, tr("Appearance")))
@@ -654,78 +685,30 @@ fn preferences(
                     row(t, false)
                         .child(div().flex_1().child(tr("Accent scope")))
                         .child(scope_buttons(p, t, cx)),
-                ),
-        )
-        .child(
-            section(t)
-                .child(section_title(t, tr("Tabs")))
-                .child(
-                    row(t, true)
-                        .child(
-                            div()
-                                .flex_1()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(icon("users", 16., t.text_muted))
-                                .child(tr("Contacts")),
-                        )
-                        .child(toggle(
-                            "tab-contacts",
-                            t,
-                            p.tabs.contacts,
-                            |p| p.tabs.contacts = !p.tabs.contacts,
-                            cx,
-                        )),
                 )
+                // Mockup 48l: the folder lines of the lists can be turned off.
                 .child(
                     row(t, false)
                         .child(
                             div()
+                                .id("folder-lines-label")
                                 .flex_1()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(icon("shield", 16., t.text_muted))
-                                .child(tr("Health")),
+                                .child(tr("Folder lines"))
+                                .tooltip(crate::ui::tip(tr(
+                                    "In All items, a vault, All contacts: a line with each folder's name before its items",
+                                ))),
                         )
                         .child(toggle(
-                            "tab-health",
+                            "folder-lines",
                             t,
-                            p.tabs.health,
-                            |p| p.tabs.health = !p.tabs.health,
+                            p.folder_lines,
+                            |p| p.folder_lines = !p.folder_lines,
                             cx,
                         )),
                 )
-                // Audit L-18 (D-40): Activity can be hidden too, when an organization shows it.
-                .when(s.org.is_some(), |d| {
-                    d.child(
-                        row(t, false)
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .child(icon("journal", 16., t.text_muted))
-                                    .child(tr("Activity")),
-                            )
-                            .child(toggle(
-                                "tab-activity",
-                                t,
-                                p.tabs.activity,
-                                |p| p.tabs.activity = !p.tabs.activity,
-                                cx,
-                            )),
-                    )
-                }),
-        )
-        .child(
-            section(t)
-                .child(section_title(t, tr("Language and region")))
                 .child(
                     // Audit U-9: English or French, applied at once.
-                    row(t, true)
+                    row(t, false)
                         .child(div().flex_1().child(tr("Language")))
                         .child(pref_select(
                             "lang",
@@ -782,6 +765,7 @@ fn preferences(
                         )),
                 ),
         )
+        .child(navigation_section(s, p, t, cx))
 }
 
 const CURRENCIES: [(&str, &str); 5] = [
@@ -794,9 +778,10 @@ const CURRENCIES: [(&str, &str); 5] = [
 
 /// Start in (mockup 37k): with vaults in their own tabs, each vault tab first, then the views.
 fn start_options(s: &Session, p: &Preferences) -> Vec<(String, String, bool)> {
-    let mut v = vec![];
+    // Mockup 49e: the personal vault always (its own tab, or its section of the one Vault
+    // tab); the organizations when they have their own tabs.
+    let mut v = vec![("vault:personal".to_owned(), s.personal_name())];
     if s.vault_tabs() {
-        v.push(("vault:personal".to_owned(), s.personal_name()));
         for (k, name) in s.org_tabs() {
             v.push((format!("vault:{k}"), name));
         }

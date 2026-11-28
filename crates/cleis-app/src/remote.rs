@@ -29,9 +29,10 @@ pub enum RemotePlace {
         #[serde(default)]
         host_key: String,
     },
-    /// The app folder of the Microsoft account's OneDrive (D-104).
+    /// The app folder of the Microsoft account's OneDrive (D-104), or a folder the person chose
+    /// (D-110).
     OneDrive {
-        /// Path in the app folder.
+        /// Path in the app folder (or in `folder`).
         path: String,
         /// Microsoft Graph (a stand-in in the tests).
         #[serde(default = "graph_api")]
@@ -39,8 +40,13 @@ pub enum RemotePlace {
         /// The account's address, shown in Settings › Account.
         #[serde(default)]
         account: String,
+        /// D-110: a folder of the drive (`id` is its path from the drive's top) in place of the
+        /// app folder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        folder: Option<DriveFolder>,
     },
-    /// The hidden app data folder of the Google account's Drive (D-104).
+    /// The hidden app data folder of the Google account's Drive (D-104), or a folder picked in
+    /// Google's own window (D-110).
     GoogleDrive {
         /// File name in the folder.
         name: String,
@@ -48,7 +54,20 @@ pub enum RemotePlace {
         api: String,
         #[serde(default)]
         account: String,
+        /// D-110: the folder picked (`id` is Drive's), in place of the app data folder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        folder: Option<DriveFolder>,
     },
+}
+
+/// A folder of OneDrive or Google Drive chosen for the vault (D-110).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveFolder {
+    /// OneDrive: the path from the drive's top (`Documents/Admin`); Google Drive: the folder's
+    /// id.
+    pub id: String,
+    /// As shown (`Documents / Admin`).
+    pub name: String,
 }
 
 fn graph_api() -> String {
@@ -71,12 +90,24 @@ impl RemotePlace {
             RemotePlace::Sftp {
                 host, user, path, ..
             } => format!("{user}@{host}:{path}"),
-            RemotePlace::OneDrive { path, account, .. } => {
-                format!("{account} · OneDrive › Apps › {path}")
-            }
-            RemotePlace::GoogleDrive { name, account, .. } => {
-                format!("{account} · Google Drive › {name}")
-            }
+            RemotePlace::OneDrive {
+                path,
+                account,
+                folder,
+                ..
+            } => match folder {
+                Some(f) => format!("{account} · OneDrive › {} › {path}", f.name),
+                None => format!("{account} · OneDrive › Apps › {path}"),
+            },
+            RemotePlace::GoogleDrive {
+                name,
+                account,
+                folder,
+                ..
+            } => match folder {
+                Some(f) => format!("{account} · Google Drive › {} › {name}", f.name),
+                None => format!("{account} · Google Drive › {name}"),
+            },
         }
     }
 
@@ -85,6 +116,16 @@ impl RemotePlace {
         match self {
             RemotePlace::OneDrive { .. } => Some(crate::cloud::Cloud::Microsoft),
             RemotePlace::GoogleDrive { .. } => Some(crate::cloud::Cloud::Google),
+            _ => None,
+        }
+    }
+
+    /// D-110: a folder chosen in the drive (a wider access than the app's own folder).
+    pub fn custom_folder(&self) -> Option<&DriveFolder> {
+        match self {
+            RemotePlace::OneDrive { folder, .. } | RemotePlace::GoogleDrive { folder, .. } => {
+                folder.as_ref()
+            }
             _ => None,
         }
     }
@@ -141,8 +182,9 @@ pub fn renewed(place: &RemotePlace, secret: &Secret) -> Option<Result<Secret, St
             return None;
         }
         let e = crate::cloud::Endpoints::of_api(c, api);
+        let custom = place.custom_folder().is_some();
         return Some(
-            crate::cloud::refresh(c, &e, &secret.refresh).map(|g| Secret {
+            crate::cloud::refresh(c, &e, &secret.refresh, custom).map(|g| Secret {
                 token: g.token,
                 key: String::new(),
                 refresh: g.refresh,
@@ -220,12 +262,18 @@ pub fn download(place: &RemotePlace, secret: &Secret, to: &Path) -> Result<Versi
             }
         }
         RemotePlace::Sftp { .. } => crate::sftp::download(place, secret, to),
-        RemotePlace::OneDrive { path, api, .. } => {
-            stored(crate::cloud::onedrive_read(api, path, &secret.token)?, to)
-        }
-        RemotePlace::GoogleDrive { name, api, .. } => {
-            stored(crate::cloud::gdrive_read(api, name, &secret.token)?, to)
-        }
+        RemotePlace::OneDrive {
+            path, api, folder, ..
+        } => stored(
+            crate::cloud::onedrive_read(api, folder.as_ref(), path, &secret.token)?,
+            to,
+        ),
+        RemotePlace::GoogleDrive {
+            name, api, folder, ..
+        } => stored(
+            crate::cloud::gdrive_read(api, folder.as_ref(), name, &secret.token)?,
+            to,
+        ),
     }
 }
 
@@ -259,12 +307,14 @@ pub fn upload(
             api,
         } => GitHub::new(api, repo, path, branch, &secret.token)?.write(&bytes, version),
         RemotePlace::Sftp { .. } => crate::sftp::upload(place, secret, &bytes),
-        RemotePlace::OneDrive { path, api, .. } => {
-            crate::cloud::onedrive_write(api, path, &secret.token, &bytes, version)
+        RemotePlace::OneDrive {
+            path, api, folder, ..
+        } => {
+            crate::cloud::onedrive_write(api, folder.as_ref(), path, &secret.token, &bytes, version)
         }
-        RemotePlace::GoogleDrive { name, api, .. } => {
-            crate::cloud::gdrive_write(api, name, &secret.token, &bytes, version)
-        }
+        RemotePlace::GoogleDrive {
+            name, api, folder, ..
+        } => crate::cloud::gdrive_write(api, folder.as_ref(), name, &secret.token, &bytes, version),
     }
 }
 
@@ -371,12 +421,12 @@ pub fn remove(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
             api,
         } => GitHub::new(api, repo, path, branch, &secret.token)?.delete(),
         RemotePlace::Sftp { .. } => crate::sftp::remove(place, secret),
-        RemotePlace::OneDrive { path, api, .. } => {
-            crate::cloud::onedrive_delete(api, path, &secret.token)
-        }
-        RemotePlace::GoogleDrive { name, api, .. } => {
-            crate::cloud::gdrive_delete(api, name, &secret.token)
-        }
+        RemotePlace::OneDrive {
+            path, api, folder, ..
+        } => crate::cloud::onedrive_delete(api, folder.as_ref(), path, &secret.token),
+        RemotePlace::GoogleDrive {
+            name, api, folder, ..
+        } => crate::cloud::gdrive_delete(api, folder.as_ref(), name, &secret.token),
     }
 }
 
@@ -419,20 +469,28 @@ impl RemotePlace {
                 path: join(&path),
                 host_key,
             },
-            RemotePlace::OneDrive { path, api, account } => RemotePlace::OneDrive {
+            RemotePlace::OneDrive {
+                path,
+                api,
+                account,
+                folder,
+            } => RemotePlace::OneDrive {
                 path: join(&path),
                 api,
                 account,
+                folder,
             },
             // The app data folder has no folders: the name carries the path.
             RemotePlace::GoogleDrive {
                 name: dir,
                 api,
                 account,
+                folder,
             } => RemotePlace::GoogleDrive {
                 name: join(&dir).replace('/', "-"),
                 api,
                 account,
+                folder,
             },
         }
     }
@@ -465,8 +523,12 @@ pub fn check(place: &RemotePlace, secret: &Secret) -> Result<(), RemoteError> {
             }
         }
         RemotePlace::Sftp { .. } => crate::sftp::server_key(place, secret).map(|_| ()),
-        RemotePlace::OneDrive { api, .. } => crate::cloud::onedrive_check(api, &secret.token),
-        RemotePlace::GoogleDrive { api, .. } => crate::cloud::gdrive_check(api, &secret.token),
+        RemotePlace::OneDrive { api, folder, .. } => {
+            crate::cloud::onedrive_check(api, folder.as_ref(), &secret.token)
+        }
+        RemotePlace::GoogleDrive { api, folder, .. } => {
+            crate::cloud::gdrive_check(api, folder.as_ref(), &secret.token)
+        }
     }
 }
 

@@ -5,8 +5,8 @@
 //! vault, like the GitHub ones. Then the file is read and written with the provider's API, merged
 //! here like any other place (rows stay sealed).
 
-use crate::oidc::{pct, random_b64, wait_code};
-use crate::remote::{RemoteError, Version};
+use crate::oidc::{pct, random_b64, wait_callback};
+use crate::remote::{DriveFolder, RemoteError, Version};
 use data_encoding::BASE64URL_NOPAD as B64;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
@@ -74,12 +74,19 @@ impl Cloud {
         }
     }
 
-    fn scopes(self) -> &'static str {
-        match self {
-            Cloud::Microsoft => {
+    /// `custom` (D-110): a folder of the person's choice. Microsoft: the whole drive
+    /// (`Files.ReadWrite`, to list its folders). Google: only the files Cleis makes or that are
+    /// picked in Google's own window (`drive.file`, which that window wants alone).
+    fn scopes(self, custom: bool) -> &'static str {
+        match (self, custom) {
+            (Cloud::Microsoft, false) => {
                 "openid profile email offline_access User.Read Files.ReadWrite.AppFolder"
             }
-            Cloud::Google => "openid email https://www.googleapis.com/auth/drive.appdata",
+            (Cloud::Microsoft, true) => {
+                "openid profile email offline_access User.Read Files.ReadWrite"
+            }
+            (Cloud::Google, false) => "openid email https://www.googleapis.com/auth/drive.appdata",
+            (Cloud::Google, true) => "https://www.googleapis.com/auth/drive.file",
         }
     }
 }
@@ -216,8 +223,9 @@ pub struct Pending {
     pub cancel: Arc<AtomicBool>,
 }
 
-/// The loopback listener and the provider's address (no network).
-pub fn prepare(cloud: Cloud, e: &Endpoints, hint: &str) -> Result<Pending, String> {
+/// The loopback listener and the provider's address (no network). `custom` (D-110): the vault
+/// goes to a folder the person chooses (Google: its folder picker opens after the sign-in).
+pub fn prepare(cloud: Cloud, e: &Endpoints, hint: &str, custom: bool) -> Result<Pending, String> {
     checked(&e.auth)?;
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -231,12 +239,19 @@ pub fn prepare(cloud: Cloud, e: &Endpoints, hint: &str) -> Result<Pending, Strin
         if e.auth.contains('?') { '&' } else { '?' },
         pct(&e.client_id),
         pct(&redirect),
-        pct(cloud.scopes()),
+        pct(cloud.scopes(custom)),
     );
     match cloud {
         // A refresh token every time (Google gives one only when asked to consent).
         Cloud::Google => url.push_str("&access_type=offline&prompt=consent%20select_account"),
         Cloud::Microsoft => url.push_str("&prompt=select_account"),
+    }
+    // Google Picker for desktop apps: shown after the consent, folders only.
+    if cloud == Cloud::Google && custom {
+        url.push_str(&format!(
+            "&trigger_onepick=true&allow_folder_selection=true&mimetypes={}",
+            pct(FOLDER_MIME)
+        ));
     }
     if !hint.is_empty() {
         url.push_str(&format!("&login_hint={}", pct(hint)));
@@ -253,8 +268,10 @@ pub fn prepare(cloud: Cloud, e: &Endpoints, hint: &str) -> Result<Pending, Strin
     })
 }
 
+const FOLDER_MIME: &str = "application/vnd.google-apps.folder";
+
 /// What a sign-in or a renewal gives.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Grant {
     pub token: String,
     pub refresh: String,
@@ -262,6 +279,8 @@ pub struct Grant {
     pub expires: i64,
     /// The account's e-mail address (from the ID token), when it came with the grant.
     pub account: String,
+    /// Google's folder picker (D-110): the ids of what was picked.
+    pub picked: Vec<String>,
 }
 
 fn grant_of(v: &serde_json::Value, old_refresh: &str) -> Result<Grant, String> {
@@ -300,6 +319,7 @@ fn grant_of(v: &serde_json::Value, old_refresh: &str) -> Result<Grant, String> {
         refresh,
         expires,
         account,
+        picked: vec![],
     })
 }
 
@@ -323,28 +343,42 @@ fn post_token(e: &Endpoints, form: String) -> Result<serde_json::Value, String> 
 
 /// Waits for the browser (5 minutes at most), then exchanges the code for the tokens.
 pub fn finish(p: Pending) -> Result<Grant, String> {
-    let code = wait_code(&p.listener, &p.state, &p.cancel)?;
+    let (code, extra) = wait_callback(&p.listener, &p.state, &p.cancel)?;
+    let picked: Vec<String> = extra
+        .iter()
+        .filter(|(k, _)| k == "picked_file_ids")
+        .flat_map(|(_, v)| v.split(','))
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+        .collect();
     let form = format!(
         "grant_type=authorization_code&code={}&redirect_uri={}&code_verifier={}",
         pct(&code),
         pct(&p.redirect),
         pct(&p.verifier)
     );
-    let g = grant_of(&post_token(&p.endpoints, form)?, "")?;
+    let mut g = grant_of(&post_token(&p.endpoints, form)?, "")?;
     if g.refresh.is_empty() {
         return Err("The provider gave no lasting access: sign in again".into());
     }
+    g.picked = picked;
     Ok(g)
 }
 
-/// A new access token from the refresh token (no browser).
-pub fn refresh(c: Cloud, e: &Endpoints, refresh_token: &str) -> Result<Grant, String> {
+/// A new access token from the refresh token (no browser); `custom`: the place is in a folder
+/// the person chose (D-110), with the wider access asked for it.
+pub fn refresh(
+    c: Cloud,
+    e: &Endpoints,
+    refresh_token: &str,
+    custom: bool,
+) -> Result<Grant, String> {
     let mut form = format!(
         "grant_type=refresh_token&refresh_token={}",
         pct(refresh_token)
     );
     if c == Cloud::Microsoft {
-        form.push_str(&format!("&scope={}", pct(c.scopes())));
+        form.push_str(&format!("&scope={}", pct(c.scopes(custom))));
     }
     grant_of(&post_token(e, form)?, refresh_token)
 }
@@ -443,23 +477,76 @@ fn call(
     Ok((status, bytes, etag))
 }
 
-// OneDrive: the app folder, `/me/drive/special/approot:/<path>`.
+// OneDrive: the app folder, `/me/drive/special/approot:/<path>`, or a folder chosen in the
+// drive (D-110), `/me/drive/root:/<folder>/<path>` (its parents are made when the file is).
 
-fn od_item(api: &str, path: &str) -> String {
-    format!(
-        "{}/me/drive/special/approot:/{}",
-        api.trim_end_matches('/'),
-        path_enc(path)
-    )
+fn od_item(api: &str, folder: Option<&DriveFolder>, path: &str) -> String {
+    match folder {
+        Some(f) if f.id.trim_matches('/').is_empty() => format!(
+            "{}/me/drive/root:/{}",
+            api.trim_end_matches('/'),
+            path_enc(path)
+        ),
+        Some(f) => format!(
+            "{}/me/drive/root:/{}/{}",
+            api.trim_end_matches('/'),
+            path_enc(&f.id),
+            path_enc(path)
+        ),
+        None => format!(
+            "{}/me/drive/special/approot:/{}",
+            api.trim_end_matches('/'),
+            path_enc(path)
+        ),
+    }
+}
+
+/// The folders in a folder of the drive (`path` from the drive's top; empty: the top), by name
+/// (D-110, mockup 49k).
+pub fn onedrive_folders(api: &str, path: &str, token: &str) -> Result<Vec<String>, RemoteError> {
+    let c = Cloud::Microsoft;
+    let api = api.trim_end_matches('/');
+    let base = if path.trim_matches('/').is_empty() {
+        format!("{api}/me/drive/root/children")
+    } else {
+        format!("{api}/me/drive/root:/{}:/children", path_enc(path))
+    };
+    let mut url = format!("{base}?$select=name,folder&$top=200");
+    let mut out = vec![];
+    // A few pages at most: a folder's own folders, not the whole drive.
+    for _ in 0..10 {
+        let (st, body, _) = call(c, "GET", &url, token, &[], None)?;
+        match st {
+            200 => {}
+            404 => return Ok(out),
+            _ => return Err(status_error(c, st, &body)),
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|e| RemoteError::Other(e.to_string()))?;
+        for it in v["value"].as_array().into_iter().flatten() {
+            if it.get("folder").is_some_and(|f| !f.is_null())
+                && let Some(n) = it["name"].as_str()
+            {
+                out.push(n.to_owned());
+            }
+        }
+        match v["@odata.nextLink"].as_str() {
+            Some(next) => url = next.to_owned(),
+            None => break,
+        }
+    }
+    out.sort_by_key(|n| cleis_core::text::fold(n));
+    Ok(out)
 }
 
 pub fn onedrive_read(
     api: &str,
+    folder: Option<&DriveFolder>,
     path: &str,
     token: &str,
 ) -> Result<Option<(String, Vec<u8>)>, RemoteError> {
     let c = Cloud::Microsoft;
-    let (st, body, _) = call(c, "GET", &od_item(api, path), token, &[], None)?;
+    let (st, body, _) = call(c, "GET", &od_item(api, folder, path), token, &[], None)?;
     match st {
         404 => return Ok(None),
         200 => {}
@@ -490,7 +577,7 @@ pub fn onedrive_read(
             let (st, b, _) = call(
                 c,
                 "GET",
-                &format!("{}:/content", od_item(api, path)),
+                &format!("{}:/content", od_item(api, folder, path)),
                 token,
                 &[],
                 None,
@@ -506,6 +593,7 @@ pub fn onedrive_read(
 
 pub fn onedrive_write(
     api: &str,
+    folder: Option<&DriveFolder>,
     path: &str,
     token: &str,
     bytes: &[u8],
@@ -520,7 +608,7 @@ pub fn onedrive_write(
     let (st, body, _) = call(
         c,
         "PUT",
-        &format!("{}:/content", od_item(api, path)),
+        &format!("{}:/content", od_item(api, folder, path)),
         token,
         &[("Content-Type", "application/octet-stream"), cond],
         Some(bytes),
@@ -531,18 +619,30 @@ pub fn onedrive_write(
     }
 }
 
-pub fn onedrive_delete(api: &str, path: &str, token: &str) -> Result<(), RemoteError> {
+pub fn onedrive_delete(
+    api: &str,
+    folder: Option<&DriveFolder>,
+    path: &str,
+    token: &str,
+) -> Result<(), RemoteError> {
     let c = Cloud::Microsoft;
-    let (st, body, _) = call(c, "DELETE", &od_item(api, path), token, &[], None)?;
+    let (st, body, _) = call(c, "DELETE", &od_item(api, folder, path), token, &[], None)?;
     match st {
         200 | 204 | 404 => Ok(()),
         _ => Err(status_error(c, st, &body)),
     }
 }
 
-pub fn onedrive_check(api: &str, token: &str) -> Result<(), RemoteError> {
+pub fn onedrive_check(
+    api: &str,
+    folder: Option<&DriveFolder>,
+    token: &str,
+) -> Result<(), RemoteError> {
     let c = Cloud::Microsoft;
-    let url = format!("{}/me/drive/special/approot", api.trim_end_matches('/'));
+    let url = match folder {
+        Some(_) => format!("{}/me/drive/root", api.trim_end_matches('/')),
+        None => format!("{}/me/drive/special/approot", api.trim_end_matches('/')),
+    };
     let (st, body, _) = call(c, "GET", &url, token, &[], None)?;
     if st == 200 {
         Ok(())
@@ -551,16 +651,30 @@ pub fn onedrive_check(api: &str, token: &str) -> Result<(), RemoteError> {
     }
 }
 
-// Google Drive: the hidden app data folder; files found by name.
+// Google Drive: the hidden app data folder, or a folder picked in Google's window (D-110,
+// `drive.file`: Cleis sees only that folder and the files it made); files found by name.
 
-fn gd_find(api: &str, name: &str, token: &str) -> Result<Option<(String, String)>, RemoteError> {
+fn gd_quote(v: &str) -> String {
+    v.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn gd_find(
+    api: &str,
+    folder: Option<&DriveFolder>,
+    name: &str,
+    token: &str,
+) -> Result<Option<(String, String)>, RemoteError> {
     let c = Cloud::Google;
-    let q = format!(
-        "name = '{}' and trashed = false",
-        name.replace('\\', "\\\\").replace('\'', "\\'")
-    );
+    let mut q = format!("name = '{}' and trashed = false", gd_quote(name));
+    let space = match folder {
+        Some(f) => {
+            q.push_str(&format!(" and '{}' in parents", gd_quote(&f.id)));
+            "drive"
+        }
+        None => "appDataFolder",
+    };
     let url = format!(
-        "{}/drive/v3/files?spaces=appDataFolder&fields={}&q={}",
+        "{}/drive/v3/files?spaces={space}&fields={}&q={}",
         api.trim_end_matches('/'),
         pct("files(id,version)"),
         pct(&q)
@@ -581,11 +695,12 @@ fn gd_find(api: &str, name: &str, token: &str) -> Result<Option<(String, String)
 
 pub fn gdrive_read(
     api: &str,
+    folder: Option<&DriveFolder>,
     name: &str,
     token: &str,
 ) -> Result<Option<(String, Vec<u8>)>, RemoteError> {
     let c = Cloud::Google;
-    let Some((id, version)) = gd_find(api, name, token)? else {
+    let Some((id, version)) = gd_find(api, folder, name, token)? else {
         return Ok(None);
     };
     let url = format!(
@@ -602,6 +717,7 @@ pub fn gdrive_read(
 
 pub fn gdrive_write(
     api: &str,
+    folder: Option<&DriveFolder>,
     name: &str,
     token: &str,
     bytes: &[u8],
@@ -609,7 +725,7 @@ pub fn gdrive_write(
 ) -> Result<(), RemoteError> {
     let c = Cloud::Google;
     let api = api.trim_end_matches('/');
-    let found = gd_find(api, name, token)?;
+    let found = gd_find(api, folder, name, token)?;
     match (version, found) {
         // Drive has no conditional upload: the file's version is compared just before.
         (Some(read), Some((id, now))) => {
@@ -633,7 +749,8 @@ pub fn gdrive_write(
         }
         (None, None) => {
             let boundary = format!("cleis{}", cleis_core::now());
-            let meta = serde_json::json!({ "name": name, "parents": ["appDataFolder"] });
+            let parent = folder.map_or("appDataFolder", |f| f.id.as_str());
+            let meta = serde_json::json!({ "name": name, "parents": [parent] });
             let mut body = format!(
                 "--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta}\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n"
             )
@@ -661,9 +778,14 @@ pub fn gdrive_write(
     }
 }
 
-pub fn gdrive_delete(api: &str, name: &str, token: &str) -> Result<(), RemoteError> {
+pub fn gdrive_delete(
+    api: &str,
+    folder: Option<&DriveFolder>,
+    name: &str,
+    token: &str,
+) -> Result<(), RemoteError> {
     let c = Cloud::Google;
-    let Some((id, _)) = gd_find(api, name, token)? else {
+    let Some((id, _)) = gd_find(api, folder, name, token)? else {
         return Ok(());
     };
     let url = format!("{}/drive/v3/files/{}", api.trim_end_matches('/'), pct(&id));
@@ -674,8 +796,52 @@ pub fn gdrive_delete(api: &str, name: &str, token: &str) -> Result<(), RemoteErr
     }
 }
 
-pub fn gdrive_check(api: &str, token: &str) -> Result<(), RemoteError> {
-    gd_find(api, "vault.cleis", token).map(|_| ())
+pub fn gdrive_check(
+    api: &str,
+    folder: Option<&DriveFolder>,
+    token: &str,
+) -> Result<(), RemoteError> {
+    gd_find(api, folder, "vault.cleis", token).map(|_| ())
+}
+
+/// The folder picked in Google's window (D-110): its name, and the account's address (the
+/// `drive.file` sign-in carries no ID token).
+pub fn gdrive_picked(
+    api: &str,
+    id: &str,
+    token: &str,
+) -> Result<(DriveFolder, String), RemoteError> {
+    let c = Cloud::Google;
+    let api = api.trim_end_matches('/');
+    let url = format!(
+        "{api}/drive/v3/files/{}?fields={}",
+        pct(id),
+        pct("id,name,mimeType")
+    );
+    let (st, body, _) = call(c, "GET", &url, token, &[], None)?;
+    if st != 200 {
+        return Err(status_error(c, st, &body));
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|e| RemoteError::Other(e.to_string()))?;
+    if v["mimeType"].as_str() != Some(FOLDER_MIME) {
+        return Err(RemoteError::Other("Google Drive: choose a folder".into()));
+    }
+    let folder = DriveFolder {
+        id: id.to_owned(),
+        name: v["name"].as_str().unwrap_or("Google Drive").to_owned(),
+    };
+    let url = format!("{api}/drive/v3/about?fields={}", pct("user(emailAddress)"));
+    let (st, body, _) = call(c, "GET", &url, token, &[], None)?;
+    let account = if st == 200 {
+        serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v["user"]["emailAddress"].as_str().map(str::to_owned))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Ok((folder, account))
 }
 
 #[cfg(test)]
@@ -685,7 +851,7 @@ mod tests {
     #[test]
     fn authorization_addresses() {
         let e = Endpoints::stand_in(Cloud::Google, "http://127.0.0.1:9");
-        let p = prepare(Cloud::Google, &e, "lea@example-studio.com").unwrap();
+        let p = prepare(Cloud::Google, &e, "lea@example-studio.com", false).unwrap();
         assert!(
             p.url
                 .starts_with("http://127.0.0.1:9/authorize?response_type=code")
@@ -698,10 +864,27 @@ mod tests {
         assert!(p.url.contains("code_challenge_method=S256"));
         let m = Endpoints::official(Cloud::Microsoft);
         assert!(m.auth.contains("/common/"));
-        let p = prepare(Cloud::Microsoft, &m, "").unwrap();
+        let p = prepare(Cloud::Microsoft, &m, "", false).unwrap();
         assert!(p.url.contains("Files.ReadWrite.AppFolder"));
         assert!(p.url.contains("offline_access"));
         assert!(!p.url.contains("login_hint"));
+        assert!(!p.url.contains("trigger_onepick"));
+        // D-110, "Custom folder": the whole OneDrive; Google's picker with drive.file alone.
+        let p = prepare(Cloud::Microsoft, &m, "", true).unwrap();
+        assert!(p.url.contains("Files.ReadWrite&"));
+        assert!(!p.url.contains("AppFolder"));
+        let p = prepare(Cloud::Google, &e, "", true).unwrap();
+        assert!(
+            p.url
+                .contains("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&")
+        );
+        assert!(!p.url.contains("openid"));
+        assert!(p.url.contains("trigger_onepick=true"));
+        assert!(p.url.contains("allow_folder_selection=true"));
+        assert!(
+            p.url
+                .contains("mimetypes=application%2Fvnd.google-apps.folder")
+        );
         // A place keeps its API; the official one gives back the official addresses.
         assert_eq!(
             Endpoints::of_api(Cloud::Microsoft, MICROSOFT_API),
@@ -734,5 +917,29 @@ mod tests {
         let e = grant_of(&serde_json::json!({"error":"invalid_grant"}), "r").unwrap_err();
         assert!(e.contains("sign in again"));
         assert_eq!(path_enc("/a b/vault.cleis"), "a%20b/vault.cleis");
+    }
+
+    #[test]
+    fn chosen_folders() {
+        let f = DriveFolder {
+            id: "Documents/Admin files".into(),
+            name: "Documents / Admin files".into(),
+        };
+        assert_eq!(
+            od_item("https://g/v1.0", Some(&f), "vault.cleis"),
+            "https://g/v1.0/me/drive/root:/Documents/Admin%20files/vault.cleis"
+        );
+        let top = DriveFolder {
+            id: String::new(),
+            name: "OneDrive".into(),
+        };
+        assert_eq!(
+            od_item("https://g/v1.0", Some(&top), "vault.cleis"),
+            "https://g/v1.0/me/drive/root:/vault.cleis"
+        );
+        assert_eq!(
+            od_item("https://g/v1.0", None, "vault.cleis"),
+            "https://g/v1.0/me/drive/special/approot:/vault.cleis"
+        );
     }
 }

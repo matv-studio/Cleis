@@ -187,8 +187,8 @@ fn first_launch_creates_vault(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("new-item", cx));
     act(cx, h, |w, cx| w.click("fav", cx));
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
-    // Tabs is under the shortcuts' grid (mockup 45a).
-    settings_down(cx, h, "sc-all-0", 420.);
+    // The tabs are in Navigation, the third card (mockup 49d).
+    settings_down(cx, h, "folder-lines", 600.);
     act(cx, h, |w, cx| w.click("tab-contacts", cx));
     act(cx, h, |w, cx| w.click("lock", cx));
     act(cx, h, |w, cx| {
@@ -1695,7 +1695,8 @@ fn sync_github_place(cx: &mut TestAppContext) {
     });
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
-    act(cx, h, |w, cx| w.click("sync-github", cx));
+    act(cx, h, |w, cx| w.click("place-add", cx));
+    act(cx, h, |w, cx| w.click("add-github", cx));
     act(cx, h, |w, cx| {
         w.click("gh-repo", cx);
         w.input(&format!("{addr}/lea-example/cleis-vault"), cx);
@@ -2109,7 +2110,7 @@ fn server_address_and_activity_tab(cx: &mut TestAppContext) {
     });
 
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
-    settings_down(cx, h, "sc-all-0", 420.);
+    settings_down(cx, h, "folder-lines", 600.);
     act(cx, h, |w, cx| w.click("tab-activity", cx));
     app.read_with(cx, |a, _| {
         let Phase::Main(s) = &a.phase else { panic!() };
@@ -2256,6 +2257,7 @@ fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
     act(cx, h, |w, cx| w.click("vault-tabs", cx));
+    settings_bottom(cx, h, "vault-tabs");
     act(cx, h, |w, cx| w.click("sc-personal-2", cx));
     act(cx, h, |w, cx| w.click("tab-vault-personal", cx));
     let has = |cx: &mut TestAppContext, id: &str| {
@@ -2279,6 +2281,7 @@ fn sidebar_sections_and_shortcuts(cx: &mut TestAppContext) {
     // The same everywhere: one choice for every vault.
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    settings_bottom(cx, h, "settings-body");
     act(cx, h, |w, cx| w.click("shortcuts-same", cx));
     act(cx, h, |w, cx| w.click("sc-all-1", cx));
     act(cx, h, |w, cx| w.click(format!("tab-vault-{acme}"), cx));
@@ -2908,6 +2911,7 @@ fn split_shortcuts_start_in_and_password_menu(cx: &mut TestAppContext) {
     assert!(!window_has(cx, h, "fv-personal-1"));
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    settings_bottom(cx, h, "settings-body");
     act(cx, h, |w, cx| w.click("shortcuts-same", cx));
     // Per vault: All items is the vault's own name, so only two tags each.
     assert!(window_has(cx, h, "sc-personal-1"));
@@ -2934,7 +2938,8 @@ fn split_shortcuts_start_in_and_password_menu(cx: &mut TestAppContext) {
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
     act(cx, h, |w, cx| w.click("vault-tabs", cx));
-    settings_bottom(cx, h, "vault-tabs");
+    // Startup is the second card (mockup 49d): back to the top.
+    settings_down(cx, h, "vault-tabs", -4000.);
     act(cx, h, |w, cx| w.click("start", cx));
     assert!(window_has(cx, h, format!("start-vault:{studio}").as_str()));
     act(cx, h, |w, cx| w.click("start-vault:personal", cx));
@@ -3675,11 +3680,8 @@ fn account_page_holds_security(cx: &mut TestAppContext) {
         let Phase::Main(s) = &a.phase else { panic!() };
         assert!(s.sync.place.is_some(), "connected");
     });
-    assert!(
-        window_has(cx, h, "sync-onedrive"),
-        "the other places are offered"
-    );
-    assert!(!window_has(cx, h, "sync-github"), "not the one connected");
+    // Mockup 49f: one line to add another place (a copy of this one).
+    assert!(window_has(cx, h, "place-add") && window_has(cx, h, "sync-place"));
     // Revoke: GitHub forgotten here (then GitHub's page is opened).
     act(cx, h, |w, cx| w.click("set-Account", cx));
     act(cx, h, |w, cx| w.click("acc-revoke", cx));
@@ -3934,6 +3936,7 @@ fn organization_view_targets(cx: &mut TestAppContext) {
     // The grid of Preferences hides Birthdays soon.
     act(cx, h, |w, cx| w.click("tab-Settings", cx));
     act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    settings_bottom(cx, h, "settings-body");
     act(cx, h, |w, cx| w.click("sc-contacts-2", cx));
     act(cx, h, |w, cx| w.click("tab-Contacts", cx));
     assert!(!window_has(cx, h, "cf-bday"));
@@ -4361,4 +4364,91 @@ fn middle_click_scrolls(cx: &mut TestAppContext) {
         cx.run_until_parked();
     }
     assert_eq!(offset(cx), down, "no more scrolling");
+}
+
+/// Scenario (mockups 49a, 49c, 49d, 49e, 49i, 28/11/2026): the filter shows favorites, then items
+/// with recovery keys; one vault, so its folder lines name no vault; Preferences in three cards
+/// with Start in › My vault (one Vault tab) used at the next unlock; the backups list shows the 5
+/// latest, the others on demand, and one is deleted after a confirmation.
+#[gpui_kit::test]
+fn show_filters_preferences_and_backups(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    let unlock = |cx: &mut TestAppContext| {
+        act(cx, h, |w, cx| {
+            w.click("master-password", cx);
+            w.input(cleis_app::demo::PASSWORD, cx);
+            w.press("enter", cx);
+        })
+    };
+    unlock(cx);
+    act(cx, h, |w, cx| w.click("filter", cx));
+    act(cx, h, |w, cx| w.click("vf-fav", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(!s.visible.is_empty());
+        assert!(s.visible.iter().all(|i| s.entries[*i].favorite));
+        assert_eq!(s.vault_filter.count(), 1);
+    });
+    act(cx, h, |w, cx| w.click("vf-fav", cx));
+    act(cx, h, |w, cx| w.click("vf-recovery", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let want = s.entries.iter().filter(|e| !e.recovery.is_empty()).count();
+        assert!(want > 0);
+        assert_eq!(s.visible.len(), want);
+        // One vault only: the folder lines do not name it (mockup 49c).
+        assert!(!s.mixes_vaults(s.visible.iter().map(|i| s.entries[*i].space)));
+    });
+    act(cx, h, |w, cx| w.click("vf-clear", cx));
+
+    // Preferences: Appearance (with the folder lines, language, currency), Startup, Navigation.
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Preferences", cx));
+    for id in [
+        "folder-lines",
+        "lang",
+        "currency",
+        "start",
+        "navigation-title",
+    ] {
+        assert!(window_has(cx, h, id), "{id}");
+    }
+    act(cx, h, |w, cx| w.click("start", cx));
+    assert!(window_has(cx, h, "start-vault:personal"));
+    act(cx, h, |w, cx| w.click("start-vault:personal", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.prefs.start_in, "vault:personal");
+    });
+
+    // Backups: 7 dated copies; the 5 latest shown, "Show 2 more", one deleted.
+    let bdir = cleis_app::sync::backups_dir(&path);
+    std::fs::create_dir_all(&bdir).unwrap();
+    for d in 1..=7 {
+        std::fs::copy(&path, bdir.join(format!("vault-2026-11-0{d}-090000.cleis"))).unwrap();
+    }
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+    assert!(window_has(cx, h, "del-backup-4") && !window_has(cx, h, "del-backup-5"));
+    act(cx, h, |w, cx| w.click("backups-more", cx));
+    assert!(window_has(cx, h, "del-backup-6"));
+    act(cx, h, |w, cx| w.click("del-backup-0", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    let left = cleis_app::sync::backups(&path);
+    assert_eq!(left.len(), 6);
+    assert!(
+        !bdir.join("vault-2026-11-07-090000.cleis").exists(),
+        "the latest one went"
+    );
+
+    // Next unlock: My vault's section.
+    act(cx, h, |w, cx| w.press("ctrl-l", cx));
+    unlock(cx);
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.filter, cleis_app::app::Filter::Personal);
+    });
 }

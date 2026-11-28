@@ -62,6 +62,9 @@ pub struct Confirm {
     pub body: SharedString,
     pub button: SharedString,
     pub action: ConfirmAction,
+    /// A second, harmless way out between Cancel and the destructive button (mockup 49l):
+    /// its label, icon and action.
+    pub alt: Option<(SharedString, &'static str, ConfirmAction)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +91,12 @@ pub enum ConfirmAction {
     RemovePassword,
     /// Mockup 37l: every dated copy on this computer.
     DeleteBackups,
+    /// Mockup 49i: one dated copy (`Session::backup_to_delete`).
+    DeleteBackup,
+    /// Mockup 49l: leaving refused, Settings › Members instead.
+    GoMembers,
+    /// Mockup 49l: leaving refused, the organization's deletion instead (Server page).
+    OpenDeleteOrg,
 }
 
 pub struct Welcome {
@@ -185,6 +194,10 @@ pub struct Session {
     pub history_tab: bool,
     /// Question shown over the window.
     pub confirm: Option<Confirm>,
+    /// The backup the confirmation is about (mockup 49i).
+    pub backup_to_delete: Option<std::path::PathBuf>,
+    /// Sync & backups: every backup listed, not only the 5 latest (mockup 49i).
+    pub backups_all: bool,
     /// Columns menu of the vault (screen 02).
     pub columns_menu: Option<crate::screens::columns::ColumnsMenu>,
     /// Settings › Import & export, kept while moving between pages.
@@ -204,6 +217,8 @@ pub struct Session {
     /// This device's sync place and backups (Settings › Sync & backups).
     pub sync: crate::sync::SyncConfig,
     pub sync_menu: bool,
+    /// Sync & backups (mockups 49f, 49g): `add`, `main` or a copy place's id, its menu open.
+    pub place_menu: Option<String>,
     /// The account's menu, under its picture at the top right (mockup 40d).
     pub account_menu: bool,
     /// Mockup 46c: the profile edited under its picture.
@@ -273,11 +288,26 @@ pub struct VaultFilter {
     pub subs: std::collections::BTreeSet<cleis_core::Subscription>,
     /// `Some(true)`: with a 2FA code, `Some(false)`: without.
     pub two_fa: Option<bool>,
+    /// Mockup 49a, "Show": favorites only.
+    pub favorites: bool,
+    /// Mockup 49a, "Show": items holding recovery codes only.
+    pub recovery: bool,
 }
 
 impl VaultFilter {
     pub fn count(&self) -> usize {
-        self.subs.len() + usize::from(self.two_fa.is_some())
+        self.subs.len()
+            + usize::from(self.two_fa.is_some())
+            + usize::from(self.favorites)
+            + usize::from(self.recovery)
+    }
+
+    /// Whether `e` passes the filters that are on.
+    pub fn keeps(&self, e: &cleis_core::Entry) -> bool {
+        (self.subs.is_empty() || self.subs.contains(&e.subscription))
+            && self.two_fa.is_none_or(|w| e.totp.is_some() == w)
+            && (!self.favorites || e.favorite)
+            && (!self.recovery || !e.recovery.is_empty())
     }
 }
 
@@ -387,6 +417,21 @@ impl Session {
     /// The name on a folder line: the folder, after its vault's name when the list holds
     /// several vaults (`with_vault`); a vault's root (or an organization's contacts outside any
     /// folder) is named after the vault.
+    /// Whether these spaces belong to more than one vault (the personal one, an organization):
+    /// only then do the folder lines name their vault (mockup 49b, 49c).
+    pub fn mixes_vaults(&self, spaces: impl IntoIterator<Item = cleis_core::SpaceId>) -> bool {
+        let mut first: Option<Option<String>> = None;
+        for sp in spaces {
+            let v = self.org_of(sp).map(|o| o.m.key());
+            match &first {
+                None => first = Some(v),
+                Some(f) if *f != v => return true,
+                Some(_) => {}
+            }
+        }
+        false
+    }
+
     pub fn folder_label(&self, space: cleis_core::SpaceId, with_vault: bool) -> (String, String) {
         let sp = self.spaces.iter().find(|x| x.id == space);
         let vault = match self.org_of(space) {
@@ -454,11 +499,7 @@ impl Session {
             })
             .filter(|(_, e)| q.is_empty() || matches(&e.search_text(), &q))
             .filter(|(_, e)| self.in_scope(e.space))
-            .filter(|(_, e)| {
-                let f = &self.vault_filter;
-                (f.subs.is_empty() || f.subs.contains(&e.subscription))
-                    && f.two_fa.is_none_or(|w| e.totp.is_some() == w)
-            })
+            .filter(|(_, e)| self.vault_filter.keeps(e))
             .map(|(i, _)| i)
             .collect();
         self.sort(&mut v);
@@ -1354,6 +1395,8 @@ impl CleisApp {
             editor: None,
             history_tab: false,
             confirm: None,
+            backup_to_delete: None,
+            backups_all: false,
             columns_menu: None,
             import: Default::default(),
             contacts_ui: Default::default(),
@@ -1364,6 +1407,7 @@ impl CleisApp {
             last_activity: std::time::Instant::now(),
             sync: crate::sync::load_config(&self.path),
             sync_menu: false,
+            place_menu: None,
             account_menu: false,
             profile_edit: None,
             health: Default::default(),
@@ -1396,6 +1440,8 @@ impl CleisApp {
         match s.prefs.start_in.as_str() {
             "favorites" => s.filter = Filter::Favorites,
             "contacts" if s.prefs.tabs.contacts => s.tab = Tab::Contacts,
+            // Mockup 49e: one Vault tab, My vault's section (all its folders).
+            "vault:personal" if !s.vault_tabs() => s.filter = Filter::Personal,
             _ => {}
         }
         s.refilter();
@@ -1432,8 +1478,10 @@ impl CleisApp {
         // What was typed and not saved yet goes first.
         self.flush_edits(cx);
         // Last changes sent before the keys are wiped.
+        // A remote place, main or copy (mockup 49f): sent off the interface after locking.
         let remote = matches!(&self.phase, Phase::Main(s)
-            if s.sync.auto && s.sync.place.is_some() && s.gate.is_none() && s.sync.remote.is_some());
+            if s.sync.auto && s.sync.place.is_some() && s.gate.is_none()
+                && (s.sync.remote.is_some() || s.sync.copies.iter().any(|c| c.remote.is_some())));
         if let Phase::Main(s) = &self.phase
             && s.sync.auto
             && s.sync.place.is_some()

@@ -75,8 +75,10 @@ struct Cloud {
     /// Name → (version, bytes); one store per provider.
     onedrive: Mutex<HashMap<String, (u32, Vec<u8>)>>,
     gdrive: Mutex<HashMap<String, (u32, Vec<u8>)>>,
-    /// The access token the API accepts now.
+    /// The access token given last.
     token: Mutex<String>,
+    /// Every token given: two places (OneDrive and Google, D-110) each keep their own.
+    given: Mutex<Vec<String>>,
     tokens: AtomicU32,
     refreshes: AtomicU32,
     revoked: AtomicU32,
@@ -84,6 +86,8 @@ struct Cloud {
     expiring: AtomicBool,
     /// The account named in the ID token.
     email: Mutex<String>,
+    /// D-110: OneDrive's folders (paths from the top) for the folder list.
+    od_folders: Mutex<Vec<String>>,
 }
 
 fn id_token(email: &str) -> String {
@@ -190,6 +194,7 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                     }
                     let token = format!("at{n}");
                     *st.token.lock().unwrap() = token.clone();
+                    st.given.lock().unwrap().push(token.clone());
                     let expires = if st.expiring.load(Ordering::SeqCst) {
                         1
                     } else {
@@ -219,11 +224,53 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                     }
                     return;
                 }
-                let ok = headers
-                    .get("authorization")
-                    .is_some_and(|a| *a == format!("Bearer {}", st.token.lock().unwrap()));
+                let ok = headers.get("authorization").is_some_and(|a| {
+                    *a == format!("Bearer {}", st.token.lock().unwrap())
+                        || st
+                            .given
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .any(|t| *a == format!("Bearer {t}"))
+                });
                 if !ok {
                     reply(&mut stream, 401, &[], b"{}");
+                    return;
+                }
+                // D-110: OneDrive's own folders (a whole-drive access).
+                if path == "/me/drive/root" {
+                    reply(&mut stream, 200, &[], b"{}");
+                    return;
+                }
+                let children = if path == "/me/drive/root/children" {
+                    Some(String::new())
+                } else {
+                    path.strip_prefix("/me/drive/root:/")
+                        .and_then(|p| p.strip_suffix(":/children"))
+                        .map(unpct)
+                };
+                if let Some(under) = children {
+                    let all = st.od_folders.lock().unwrap();
+                    let value: Vec<_> = all
+                        .iter()
+                        .filter_map(|f| {
+                            let rest = if under.is_empty() {
+                                f.as_str()
+                            } else {
+                                f.strip_prefix(&format!("{under}/"))?
+                            };
+                            (!rest.contains('/')).then(
+                                || serde_json::json!({"name": rest, "folder": {"childCount": 0}}),
+                            )
+                        })
+                        .chain(std::iter::once(serde_json::json!({"name": "notes.txt"})))
+                        .collect();
+                    reply(
+                        &mut stream,
+                        200,
+                        &[],
+                        &json(serde_json::json!({ "value": value })),
+                    );
                     return;
                 }
                 // OneDrive's app folder.
@@ -231,10 +278,14 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                     reply(&mut stream, 200, &[], b"{}");
                     return;
                 }
-                if let Some(rest) = path.strip_prefix("/me/drive/special/approot:/") {
+                let item = path
+                    .strip_prefix("/me/drive/special/approot:/")
+                    .map(|r| (r, ""))
+                    .or_else(|| path.strip_prefix("/me/drive/root:/").map(|r| (r, "root:/")));
+                if let Some((rest, at)) = item {
                     let (name, content) = match rest.strip_suffix(":/content") {
-                        Some(n) => (unpct(n), true),
-                        None => (unpct(rest), false),
+                        Some(n) => (format!("{at}{}", unpct(n)), true),
+                        None => (format!("{at}{}", unpct(rest)), false),
                     };
                     let mut files = st.onedrive.lock().unwrap();
                     match (method.as_str(), content) {
@@ -242,7 +293,7 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                             Some((v, _)) => {
                                 let meta = serde_json::json!({
                                     "eTag": format!("\"e{v}\""),
-                                    "@microsoft.graph.downloadUrl": format!("{base}/dl/{name}"),
+                                    "@microsoft.graph.downloadUrl": format!("{base}/dl/{}", name.replace('/', "%2F")),
                                 });
                                 reply(&mut stream, 200, &[], &json(meta));
                             }
@@ -274,9 +325,16 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                 }
                 // Google Drive's app data folder (files by id = their name here).
                 if path == "/drive/v3/files" && method == "GET" {
-                    assert_eq!(q.get("spaces").map(String::as_str), Some("appDataFolder"));
                     let want = q.get("q").cloned().unwrap_or_default();
-                    let name = want.split('\'').nth(1).unwrap_or_default().to_owned();
+                    let mut name = want.split('\'').nth(1).unwrap_or_default().to_owned();
+                    // D-110: a picked folder: the drive's space, files by their parent.
+                    if want.contains(" in parents") {
+                        assert_eq!(q.get("spaces").map(String::as_str), Some("drive"));
+                        let parent = want.split('\'').nth(3).unwrap_or_default();
+                        name = format!("{parent}/{name}");
+                    } else {
+                        assert_eq!(q.get("spaces").map(String::as_str), Some("appDataFolder"));
+                    }
                     let files = st.gdrive.lock().unwrap();
                     let list: Vec<_> = files
                         .get(&name)
@@ -291,8 +349,24 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                     );
                     return;
                 }
+                if path == "/drive/v3/about" {
+                    let email = st.email.lock().unwrap().clone();
+                    reply(
+                        &mut stream,
+                        200,
+                        &[],
+                        &json(serde_json::json!({"user": {"emailAddress": email}})),
+                    );
+                    return;
+                }
                 if let Some(id) = path.strip_prefix("/drive/v3/files/") {
                     let id = unpct(id);
+                    // The folder picked in Google's window (D-110).
+                    if q.contains_key("fields") && id == "fold1" {
+                        let meta = serde_json::json!({"id": "fold1", "name": "Admin", "mimeType": "application/vnd.google-apps.folder"});
+                        reply(&mut stream, 200, &[], &json(meta));
+                        return;
+                    }
                     let mut files = st.gdrive.lock().unwrap();
                     match method.as_str() {
                         "GET" => match files.get(&id) {
@@ -318,8 +392,12 @@ fn fake_cloud() -> (String, Arc<Cloud>) {
                     let meta_end = s[meta_start..].find("}\r\n").unwrap() + meta_start + 1;
                     let meta: serde_json::Value =
                         serde_json::from_str(&s[meta_start..meta_end]).unwrap();
-                    assert_eq!(meta["parents"][0], "appDataFolder");
-                    let name = meta["name"].as_str().unwrap().to_owned();
+                    let parent = meta["parents"][0].as_str().unwrap_or_default().to_owned();
+                    let name = if parent == "appDataFolder" {
+                        meta["name"].as_str().unwrap().to_owned()
+                    } else {
+                        format!("{parent}/{}", meta["name"].as_str().unwrap())
+                    };
                     // The file: after the second part's blank line, up to the last separator.
                     let second = find(&text, sep.as_bytes(), meta_end).unwrap();
                     let start = find(&text, b"\r\n\r\n", second).unwrap() + 4;
@@ -389,25 +467,65 @@ fn browser_returns(cx: &mut TestAppContext, app: &Entity<CleisApp>) {
     let redirect = q["redirect_uri"].clone();
     assert!(redirect.starts_with("http://127.0.0.1:"));
     assert_eq!(q["code_challenge_method"], "S256");
-    if q["scope"].contains("drive.appdata") {
+    // D-110: Google's picker comes with drive.file alone, folders only.
+    let picker = q.get("trigger_onepick").is_some_and(|v| v == "true");
+    if picker {
+        assert_eq!(q["scope"], "https://www.googleapis.com/auth/drive.file");
+        assert_eq!(q["allow_folder_selection"], "true");
+        assert_eq!(q["access_type"], "offline");
+    } else if q["scope"].contains("drive.appdata") {
         assert_eq!(q["access_type"], "offline");
     } else {
-        assert!(
-            q["scope"].contains("Files.ReadWrite.AppFolder")
-                && q["scope"].contains("offline_access")
-        );
+        assert!(q["scope"].contains("Files.ReadWrite") && q["scope"].contains("offline_access"));
     }
     let state = q["state"].clone();
     let addr = redirect.trim_start_matches("http://").to_owned();
+    let picked = if picker { "&picked_file_ids=fold1" } else { "" };
     std::thread::spawn(move || {
         let mut s = std::net::TcpStream::connect(addr).unwrap();
         let _ = s.write_all(
-            format!("GET /?code=4%2Fabc&state={state} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+            format!("GET /?code=4%2Fabc&state={state}{picked} HTTP/1.1\r\nHost: x\r\n\r\n")
+                .as_bytes(),
         );
         let mut out = String::new();
         let _ = s.read_to_string(&mut out);
         assert!(out.contains("Signed in"), "{out}");
     });
+}
+
+/// The browser comes back refused (the person closed Google's or Microsoft's page): the wait
+/// ends at once and the dialog offers to try again.
+fn browser_refuses(cx: &mut TestAppContext, app: &Entity<CleisApp>) {
+    let url = app.read_with(cx, |a, _| {
+        a.cloud.as_ref().and_then(|c| c.url.clone()).unwrap()
+    });
+    let q: HashMap<String, String> = url
+        .split_once('?')
+        .unwrap()
+        .1
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (k.to_owned(), unpct(v)))
+        .collect();
+    let (state, addr) = (
+        q["state"].clone(),
+        q["redirect_uri"].trim_start_matches("http://").to_owned(),
+    );
+    std::thread::spawn(move || {
+        let mut s = std::net::TcpStream::connect(addr).unwrap();
+        let _ = s.write_all(
+            format!("GET /?error=access_denied&state={state} HTTP/1.1\r\nHost: x\r\n\r\n")
+                .as_bytes(),
+        );
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+    });
+}
+
+/// Clicks `id` without letting the test executor run the browser wait (see [`sign_in_with`]).
+fn click_now(cx: &mut TestAppContext, h: WindowHandle<Root>, id: &'static str) {
+    cx.update_window(h.into(), |_, w, cx| w.click(id, cx))
+        .unwrap();
 }
 
 fn unlock(cx: &mut TestAppContext, h: WindowHandle<Root>) {
@@ -594,6 +712,7 @@ fn onedrive_conflict_merges(cx: &mut TestAppContext) {
         path: "vault.cleis".into(),
         api,
         account: "lea@example-studio.com".into(),
+        folder: None,
     };
     *st.token.lock().unwrap() = "t".into();
     let secret = cleis_app::remote::Secret {
@@ -630,6 +749,7 @@ fn onedrive_conflict_merges(cx: &mut TestAppContext) {
         name: "vault.cleis".into(),
         api: base,
         account: String::new(),
+        folder: None,
     };
     let v = cleis_app::remote::download(&g, &secret, &tmp).unwrap();
     assert!(v.is_none());
@@ -655,4 +775,254 @@ fn onedrive_conflict_merges(cx: &mut TestAppContext) {
     let e = cleis_app::remote::check(&g, &bad).unwrap_err();
     assert!(e.to_string().contains("sign in again"), "{e}");
     let _ = cx;
+}
+
+fn settings_sync(cx: &mut TestAppContext, h: WindowHandle<Root>) {
+    act(cx, h, |w, cx| w.click("tab-Settings", cx));
+    act(cx, h, |w, cx| w.click("set-Sync & backups", cx));
+}
+
+/// Scenario (mockups 49f, 49g, D-110): Sync & backups, no place: Add a place › OneDrive, tick
+/// Custom folder; signed in, OneDrive's folders are listed; Cleis (new) is opened and used: the
+/// vault goes to `Cleis/vault.cleis` at the drive's top. Then Add a place › Google Drive with
+/// Custom folder: Google's picker gives the folder; that place becomes a copy of the first and
+/// gets the vault in the folder picked.
+#[gpui_kit::test]
+fn chosen_folders_and_a_copy_place(cx: &mut TestAppContext) {
+    let (base, st) = fake_cloud();
+    *st.od_folders.lock().unwrap() = vec!["Documents".into(), "Documents/Admin".into()];
+    let hosts = cleis_app::cloud::CloudHosts::stand_in(&base);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (h, app) = open(cx, &path);
+    app.update(cx, |a, _| a.cloud_hosts = hosts.clone());
+    cx.run_until_parked();
+    unlock(cx, h);
+    settings_sync(cx, h);
+    assert!(window_has(cx, h, "sync-local"));
+    act(cx, h, |w, cx| w.click("place-add", cx));
+    for id in [
+        "add-gdrive",
+        "add-onedrive",
+        "add-folder",
+        "add-github",
+        "add-sftp",
+    ] {
+        assert!(window_has(cx, h, id), "{id}");
+    }
+    click_now(cx, h, "add-onedrive");
+    let first = app.read_with(cx, |a, _| a.cloud.as_ref().unwrap().url.clone().unwrap());
+    assert!(first.contains("AppFolder"), "unticked: the app folder only");
+    // Closed in the browser: the dialog stays, with the box to tick.
+    browser_refuses(cx, &app);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    assert!(window_has(cx, h, "cloud-custom") && window_has(cx, h, "cloud-retry"));
+    // Ticked: the sign-in starts again with the wider access.
+    click_now(cx, h, "cloud-custom");
+    app.read_with(cx, |a, _| {
+        let c = a.cloud.as_ref().unwrap();
+        assert!(c.custom);
+        assert!(!c.url.as_ref().unwrap().contains("AppFolder"));
+    });
+    browser_returns(cx, &app);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    until(cx, "OneDrive's folders listed", |cx| {
+        app.read_with(cx, |a, _| {
+            a.cloud
+                .as_ref()
+                .and_then(|c| c.pick.as_ref())
+                .is_some_and(|p| p.items.is_some())
+        })
+    });
+    app.read_with(cx, |a, _| {
+        let p = a.cloud.as_ref().unwrap().pick.as_ref().unwrap();
+        // Folders only (the file is not listed), and Cleis offered first since it is not there.
+        assert_eq!(p.items.as_deref(), Some(&["Documents".to_owned()][..]));
+    });
+    act(cx, h, |w, cx| w.click("folder-1", cx));
+    until(cx, "Documents opened", |cx| {
+        app.read_with(cx, |a, _| {
+            a.cloud
+                .as_ref()
+                .and_then(|c| c.pick.as_ref())
+                .is_some_and(|p| p.items.as_deref() == Some(&["Admin".to_owned()][..]))
+        })
+    });
+    act(cx, h, |w, cx| w.click("folder-up", cx));
+    until(cx, "back at the top", |cx| {
+        app.read_with(cx, |a, _| {
+            a.cloud
+                .as_ref()
+                .and_then(|c| c.pick.as_ref())
+                .is_some_and(|p| p.path.is_empty() && p.items.is_some())
+        })
+    });
+    act(cx, h, |w, cx| w.click("folder-0", cx));
+    act(cx, h, |w, cx| w.click("folder-use", cx));
+    until(cx, "the vault sent to Cleis/ in OneDrive", |_| {
+        st.onedrive
+            .lock()
+            .unwrap()
+            .contains_key("root:/Cleis/vault.cleis")
+    });
+    until(cx, "main place synced", |cx| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else {
+                return false;
+            };
+            a.cloud.is_none() && !s.sync.busy && s.sync.last_sync.is_some()
+        })
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        let r = s.sync.remote.as_ref().unwrap();
+        assert_eq!(r.custom_folder().map(|f| f.id.as_str()), Some("Cleis"));
+        assert!(r.label().contains("OneDrive › Cleis › vault.cleis"));
+        assert!(s.sync.copies.is_empty());
+    });
+
+    // Google Drive, Custom folder: its picker; the place is a copy of OneDrive.
+    act(cx, h, |w, cx| w.click("place-add", cx));
+    click_now(cx, h, "add-gdrive");
+    browser_refuses(cx, &app);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    click_now(cx, h, "cloud-custom");
+    browser_returns(cx, &app);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    until(cx, "the vault sent to the folder picked", |_| {
+        st.gdrive.lock().unwrap().contains_key("fold1/vault.cleis")
+    });
+    until(cx, "the copy synced", |cx| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else {
+                return false;
+            };
+            s.sync
+                .copies
+                .first()
+                .is_some_and(|c| !c.busy && c.last_sync.is_some())
+        })
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(s.sync.provider, cleis_app::sync::Provider::OneDrive);
+        let c = &s.sync.copies[0];
+        assert_eq!(c.provider, cleis_app::sync::Provider::GoogleDrive);
+        let r = c.remote.as_ref().unwrap();
+        assert_eq!(r.account(), Some("lea@example-studio.com"));
+        assert!(c.label().contains("Google Drive › Admin › vault.cleis"));
+        // Each place has its own secret, sealed in the vault.
+        assert!(!s.sync.copy_secret(&s.vault, &c.id).token.is_empty());
+        assert_ne!(
+            s.sync.copy_secret(&s.vault, &c.id).refresh,
+            s.sync.secret(&s.vault).refresh
+        );
+    });
+    assert!(window_has(cx, h, "place-main-chip") && window_has(cx, h, "copy-chip-0"));
+
+    // Make main: Google Drive leads, OneDrive becomes its copy; both still in step.
+    let copy = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.sync.copies[0].id.clone()
+    });
+    act(cx, h, |w, cx| {
+        w.click(
+            gpui_kit::SharedString::from(format!("place-more-{copy}")),
+            cx,
+        )
+    });
+    act(cx, h, |w, cx| {
+        w.click(
+            gpui_kit::SharedString::from(format!("place-main-{copy}")),
+            cx,
+        )
+    });
+    until(cx, "swapped and synced", |cx| {
+        app.read_with(cx, |a, _| {
+            let Phase::Main(s) = &a.phase else {
+                return false;
+            };
+            s.sync.provider == cleis_app::sync::Provider::GoogleDrive
+                && !s.sync.busy
+                && s.sync.copies.first().is_some_and(|c| !c.busy)
+        })
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(
+            s.sync.copies[0].provider,
+            cleis_app::sync::Provider::OneDrive
+        );
+        assert!(s.sync.last_error.is_none() && s.sync.copies[0].last_error.is_none());
+    });
+    // Disconnect the copy: one place left.
+    let copy = app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        s.sync.copies[0].id.clone()
+    });
+    act(cx, h, |w, cx| {
+        w.click(
+            gpui_kit::SharedString::from(format!("place-more-{copy}")),
+            cx,
+        )
+    });
+    act(cx, h, |w, cx| {
+        w.click(
+            gpui_kit::SharedString::from(format!("place-off-{copy}")),
+            cx,
+        )
+    });
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert!(s.sync.copies.is_empty());
+        assert!(s.sync.copy_secret(&s.vault, &copy).token.is_empty());
+    });
+}
+
+/// Scenario (mockup 49f): two folders; the second added becomes a copy and gets the vault;
+/// disconnecting the main one makes the copy the main place.
+#[gpui_kit::test]
+fn folder_places_main_and_copy(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.cleis");
+    cleis_app::demo::create(&path).unwrap();
+    let (a_dir, b_dir) = (dir.path().join("a"), dir.path().join("b"));
+    std::fs::create_dir_all(&a_dir).unwrap();
+    std::fs::create_dir_all(&b_dir).unwrap();
+    let (h, app) = open(cx, &path);
+    cx.run_until_parked();
+    unlock(cx, h);
+    app.update(cx, |a, cx| {
+        a.set_sync_folder(&a_dir, cleis_app::sync::Provider::Folder, cx);
+        a.set_sync_folder(&b_dir, cleis_app::sync::Provider::Folder, cx);
+    });
+    cx.run_until_parked();
+    assert!(a_dir.join("demo.cleis").exists() && b_dir.join("demo.cleis").exists());
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(
+            s.sync.place.as_deref(),
+            Some(a_dir.join("demo.cleis").as_path())
+        );
+        assert_eq!(s.sync.copies.len(), 1);
+        assert!(s.sync.copies[0].last_sync.is_some());
+    });
+    // Kept beside the vault, read again after a restart.
+    let conf = cleis_app::sync::load_config(&path);
+    assert_eq!(conf.copies.len(), 1);
+    settings_sync(cx, h);
+    act(cx, h, |w, cx| w.click("place-more-main", cx));
+    act(cx, h, |w, cx| w.click("place-off-main", cx));
+    act(cx, h, |w, cx| w.click("confirm-ok", cx));
+    app.read_with(cx, |a, _| {
+        let Phase::Main(s) = &a.phase else { panic!() };
+        assert_eq!(
+            s.sync.place.as_deref(),
+            Some(b_dir.join("demo.cleis").as_path())
+        );
+        assert!(s.sync.copies.is_empty());
+    });
 }

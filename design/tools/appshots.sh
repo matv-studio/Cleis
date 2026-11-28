@@ -52,6 +52,15 @@ for theme in ${THEMES:-dark}; do
   shot "website-column-$theme" --demo --unlocked --menu website --theme $theme
   shot "space-members-$theme" --demo --unlocked --tab settings --page spaces --menu space-members --theme $theme
   shot "account-page-$theme" --demo --unlocked --tab settings --page account --theme $theme
+  # 28/11/2026 (mockups 49): filters, preferences, places, backups, chosen folders, leaving.
+  shot "filter-show-$theme" --demo --unlocked --menu filter-show --theme $theme
+  shot "all-items-lines-$theme" --demo --unlocked --theme $theme
+  shot "preferences-$theme" --demo --unlocked --tab settings --page preferences --theme $theme
+  shot "sync-places-$theme" --demo --unlocked --tab settings --page sync --menu sync-places --theme $theme
+  shot "sync-add-place-$theme" --demo --unlocked --tab settings --page sync --menu add-place --theme $theme
+  shot "sync-backups-$theme" --demo --unlocked --tab settings --page sync --menu backups --theme $theme
+  shot "onedrive-folders-$theme" --demo --unlocked --tab settings --page sync --menu onedrive-folders --theme $theme
+  shot "leave-refused-$theme" --demo --unlocked --tab settings --page server --menu leave-refused --theme $theme
   # 27/11/2026 (D-104): Microsoft and Google sync.
   shot "account-pick-microsoft-$theme" --demo --unlocked --tab settings --page account --menu pick-microsoft --theme $theme
   shot "cloud-microsoft-$theme" --demo --unlocked --tab settings --page account --menu cloud-microsoft --theme $theme

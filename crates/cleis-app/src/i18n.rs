@@ -1,7 +1,8 @@
 //! Interface language (audit U-9, D-71): English in the code, French from `i18n/fr.json`
 //! (English text → French text). `tr` gives the text of the language chosen in Preferences;
 //! `trf!` fills `{}` (or `{0}`, `{1}`…) in a translated template. A text missing from the file
-//! stays in English.
+//! stays in English. The same English word with two meanings carries its context after `@@`
+//! (`Copy@@place`: a copy, not the verb), shown without it.
 
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -41,19 +42,22 @@ pub fn is_french() -> bool {
 
 /// The text in the chosen language.
 pub fn tr(s: &'static str) -> &'static str {
+    let plain = s.split("@@").next().unwrap_or(s);
     if is_french() {
-        FR.get(s).copied().unwrap_or(s)
+        FR.get(s).copied().unwrap_or(plain)
     } else {
-        s
+        plain
     }
 }
 
 /// A text known only at run time (a label from a list): translated when the file has it.
 pub fn tr_owned(s: &str) -> String {
+    let plain = s.split("@@").next().unwrap_or(s);
     if is_french() {
-        FR.get(s).map_or_else(|| s.to_owned(), |t| (*t).to_owned())
+        FR.get(s)
+            .map_or_else(|| plain.to_owned(), |t| (*t).to_owned())
     } else {
-        s.to_owned()
+        plain.to_owned()
     }
 }
 
@@ -184,6 +188,14 @@ mod tests {
             d("Price: price “a lot” not understood").unwrap(),
             "Price : prix « a lot » non compris"
         );
+    }
+
+    #[test]
+    fn context_after_two_ats() {
+        // English shows the word alone; French has its own text for this meaning.
+        assert_eq!(tr("Copy@@place"), "Copy");
+        assert_eq!(FR.get("Copy@@place").copied(), Some("Copie"));
+        assert_eq!(FR.get("Copy").copied(), Some("Copier"));
     }
 
     #[test]

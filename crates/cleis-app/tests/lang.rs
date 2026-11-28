@@ -89,11 +89,11 @@ fn switch_to_french(cx: &mut TestAppContext) {
     );
 
     act(cx, &|w, cx| w.click("tab-Settings", cx));
-    // Language and region is under the shortcuts' grid (mockup 45a).
+    // The language is in Appearance, the first card (mockup 49d): at the top of the page.
     act(cx, &|w, cx| {
         w.scroll(
             "settings-body",
-            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(4000.))),
             cx,
         )
     });
@@ -131,11 +131,11 @@ fn switch_to_french(cx: &mut TestAppContext) {
 
     // Back to English (the appearance file of this machine says English again).
     act(cx, &|w, cx| w.click("tab-Settings", cx));
-    // Language and region is under the shortcuts' grid (mockup 45a).
+    // The language is in Appearance, the first card (mockup 49d): at the top of the page.
     act(cx, &|w, cx| {
         w.scroll(
             "settings-body",
-            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
+            gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(4000.))),
             cx,
         )
     });

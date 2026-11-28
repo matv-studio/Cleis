@@ -1026,6 +1026,48 @@ Gestionnaire de mots de passe interne, usage personnel et d'équipe. Décisions 
   ni notarisation (adhésion payante), la première ouverture passe par Réglages › Confidentialité et
   sécurité › Ouvrir quand même ; aucun essai sur un vrai Mac de ce côté.
 
+- **D-110 Plusieurs emplacements de synchro, dossier choisi dans OneDrive / Google Drive** (28/11/2026,
+  demande de l'utilisateur ; maquettes 49f à 49k validées). Sync & backups ne liste plus les places
+  non utilisées : celles en service, puis une ligne « Add a place » (Google Drive, OneDrive, Folder,
+  GitHub, SFTP). Le premier emplacement est le principal (`SyncConfig` : `place`, `remote`…), les
+  suivants sont des copies (`SyncConfig::copies`, `CopyPlace` : id, secret propre
+  `place_secret:<appareil>:<id>`, copie locale `<coffre>.remote-<id>`), fusionnées juste après le
+  principal à chaque synchro (et au verrouillage, `remote_sync_detached`) ; « Make main » échange ;
+  déconnecter le principal promeut la première copie. Pourquoi des fusions plutôt qu'un simple
+  envoi : rien ne se perd si un autre appareil a écrit sur une copie. La boucle réseau commune est
+  `sync::remote_round` (renouvellement du jeton, trois essais).
+  Dossier choisi : la case « Custom folder » de la fenêtre de connexion relance la connexion avec un
+  accès plus large, seulement si elle est cochée (le parcours par défaut ne change pas, demande de
+  l'utilisateur). OneDrive : portée `Files.ReadWrite`, dossiers listés dans Cleis
+  (`cloud::onedrive_folders`, « Cleis » proposé en haut), fichier sous `/me/drive/root:/<dossier>/`.
+  Google : portée `drive.file` seule et le sélecteur de Google pour applis de bureau
+  (`trigger_onepick`, `allow_folder_selection`, dossiers seulement), retour `picked_file_ids` ;
+  nom du dossier et compte lus par l'API (`gdrive_picked`). Écartée : une liste des dossiers Google
+  dans Cleis, qui demande une portée « restreinte » (vérification Google, avertissement, 100
+  comptes) : choix de l'utilisateur. Réglages faits par l'utilisateur dans Google Cloud : portée
+  `drive.file` ajoutée (28/11) ; API Google Picker à activer. `RemotePlace::{OneDrive,GoogleDrive}`
+  ont `folder: Option<DriveFolder>` (absent : dossier d'application, comme avant).
+- **D-111 Listes, préférences, sauvegardes, départ d'une organisation** (28/11/2026, maquettes 49a à
+  49e, 49i, 49l validées). Filtre : groupe « Show » (Favorites, With recovery keys). Lignes de
+  dossier : plus de « › » ; le coffre à droite près du nombre, et seulement quand la liste mêle
+  plusieurs coffres (`Session::mixes_vaults`). Préférences : Appearance (avec Folder lines,
+  Language, Currency), Startup (Start in propose toujours My vault), Navigation (coffres, onglets,
+  raccourcis). Sauvegardes : les 5 dernières, « Show N more », suppression une à une après
+  confirmation. Quitter une organisation est refusé au seul membre qui peut inviter (personne ne
+  pourrait le faire revenir : constaté sur un dossier partagé) : Members ou suppression de
+  l'organisation à la place (`OrgSession::others_can_invite`, `Confirm::alt`). Traduction : une
+  clé peut porter un contexte après `@@` (`Copy@@place` : « Copie », pas « Copier »).
+- **D-112 Remplissage : connexion en une page d'abord** (28/11/2026, bug de la 0.2.4). Le focus lu
+  60 ms après Tab désignait encore le champ e-mail dans les navigateurs : la connexion passait pour
+  « en deux pages » (Maj+Tab, Entrée, formulaire envoyé sans mot de passe). Le focus est relu jusqu'à
+  600 ms ; sinon le champ mot de passe visible de la fenêtre reçoit le clavier (UI Automation,
+  `IsPassword`) ; seule une page sans champ mot de passe est en deux pages ; sans recherche
+  possible, rien n'est envoyé. Un seul remplissage à la fois : un second appui interrompt l'attente
+  du premier et reprend où il s'est arrêté (avant : deux remplissages tapaient lettre à lettre en
+  alternance). Raccourcis globaux : `global-hotkey` 0.10 ne garde que le premier gestionnaire
+  (`OnceCell`), un raccourci changé restait muet jusqu'au redémarrage : un seul gestionnaire qui
+  lit la route courante (`hotkeys::route`).
+
 ## En suspens
 1. ~~Serveur de l'entreprise : système~~ (D-63 : tous).
 2. Safari : résultat de l'essai (D-34), puis adhésion Apple ou non.

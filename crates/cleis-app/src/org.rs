@@ -706,6 +706,26 @@ impl OrgSession {
         self.role().is_some_and(|r| r.can(p))
     }
 
+    /// Whether someone other than this member could still invite people (mockup 49l): leaving
+    /// otherwise shuts the organization to them for good. Unknown (state not loaded): yes.
+    pub fn others_can_invite(&self) -> bool {
+        let Some(st) = self.state.as_ref() else {
+            return true;
+        };
+        if !self.can(Perm::Manage) {
+            return true;
+        }
+        st.members
+            .iter()
+            .filter(|m| m.id != st.me.id && !m.revoked)
+            .any(|m| {
+                st.roles
+                    .iter()
+                    .find(|r| r.id == m.role)
+                    .is_some_and(|r| r.can(Perm::Manage) || r.is_super())
+            })
+    }
+
     pub fn policy(&self) -> Option<&Policy> {
         self.state.as_ref().map(|s| &s.policy)
     }

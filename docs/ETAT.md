@@ -9,6 +9,10 @@
   arrêté (les deux tapaient la même adresse lettre à lettre).
 - Raccourcis globaux : `global-hotkey` ne garde que le premier gestionnaire d'événements (`OnceCell`) ;
   changer un raccourci le rendait muet jusqu'au redémarrage. Un seul gestionnaire, une route mise à jour.
+- Maquettes 49 validées et codées (D-110, D-111) : plusieurs emplacements (principal + copies),
+  dossier choisi dans OneDrive (liste dans Cleis) et Google Drive (sélecteur de Google), filtres
+  Show, préférences en trois cartes, sauvegardes (5 + Show more, suppression), départ refusé au
+  seul invitant. Essais : 244 réussis. Reste à l'utilisateur : activer l'API Google Picker.
 - Maquettes 49a à 49m envoyées (filtres Show, lignes de dossier, Préférences réordonnées, places de
   synchro principale + copies, sauvegardes, dossier Drive / OneDrive, départ refusé du seul invitant).
 

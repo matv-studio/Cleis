@@ -123,11 +123,21 @@ pub fn prepare(p: &Provider, auth: &str, token: &str, hint: &str) -> Result<Pend
 
 /// `code` from the browser's request line, once `state` matches.
 pub fn parse_callback(line: &str, state: &str) -> Result<String, String> {
+    parse_callback_full(line, state).map(|(code, _)| code)
+}
+
+/// The same, with the other parameters of the answer (Google's picker adds
+/// `picked_file_ids`, D-110).
+pub fn parse_callback_full(
+    line: &str,
+    state: &str,
+) -> Result<(String, Vec<(String, String)>), String> {
     let target = line.split_whitespace().nth(1).ok_or("bad request")?;
     let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
     let mut code = None;
     let mut got_state = None;
     let mut error = None;
+    let mut extra = vec![];
     for kv in query.split('&') {
         let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
         match k {
@@ -135,7 +145,7 @@ pub fn parse_callback(line: &str, state: &str) -> Result<String, String> {
             "state" => got_state = Some(unpct(v)),
             "error" => error = Some(unpct(v)),
             "error_description" => error = Some(unpct(v)),
-            _ => {}
+            _ => extra.push((k.to_owned(), unpct(v))),
         }
     }
     if let Some(e) = error {
@@ -144,7 +154,7 @@ pub fn parse_callback(line: &str, state: &str) -> Result<String, String> {
     if got_state.as_deref() != Some(state) {
         return Err("the sign-in did not come from this request".into());
     }
-    code.ok_or_else(|| "no code".into())
+    Ok((code.ok_or("no code")?, extra))
 }
 
 /// The browser's answer on the loopback address (5 minutes at most): the authorization code,
@@ -154,6 +164,15 @@ pub(crate) fn wait_code(
     state: &str,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<String, String> {
+    wait_callback(listener, state, cancel).map(|(code, _)| code)
+}
+
+/// [`wait_code`] with the other parameters of the answer.
+pub(crate) fn wait_callback(
+    listener: &TcpListener,
+    state: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<(String, Vec<(String, String)>), String> {
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + Duration::from_secs(300);
     let code = loop {
@@ -173,7 +192,7 @@ pub(crate) fn wait_code(
                     );
                     continue;
                 }
-                let r = parse_callback(&line, state);
+                let r = parse_callback_full(&line, state);
                 let page = match &r {
                     Ok(_) => "Signed in. You can close this tab and go back to Cleis.",
                     Err(_) => "Sign-in refused. Go back to Cleis to try again.",

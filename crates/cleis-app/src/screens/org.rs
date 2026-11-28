@@ -4982,6 +4982,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                             path: crate::screens::cloud::VAULT_FILE.into(),
                             api: "https://graph.microsoft.com/v1.0".into(),
                             account: "lea@example-studio.com".into(),
+                            folder: None,
                         },
                     )
                 } else {
@@ -4991,6 +4992,7 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                             name: crate::screens::cloud::VAULT_FILE.into(),
                             api: "https://www.googleapis.com".into(),
                             account: "lea@example-studio.com".into(),
+                            folder: None,
                         },
                     )
                 };
@@ -5027,6 +5029,30 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                 error: None,
                 finishing: false,
                 round: 1,
+                custom: false,
+                pick: None,
+            });
+        }
+        // Mockup 49k: OneDrive's folders after signing in with "Custom folder" (shown only).
+        "onedrive-folders" => {
+            app.cloud = Some(super::cloud::CloudSignIn {
+                cloud: crate::cloud::Cloud::Microsoft,
+                url: None,
+                cancel: None,
+                error: None,
+                finishing: false,
+                round: 1,
+                custom: true,
+                pick: Some(super::cloud::FolderPick {
+                    api: "https://graph.microsoft.com/v1.0".into(),
+                    grant: crate::cloud::Grant {
+                        account: "lea@example-studio.com".into(),
+                        ..Default::default()
+                    },
+                    path: vec!["Documents".into()],
+                    items: Some(vec!["Admin".into(), "Invoices".into(), "Personal".into()]),
+                    error: None,
+                }),
             });
         }
         // Mockup 46f: Spaces, Design unfolded.
@@ -5362,6 +5388,89 @@ pub fn demo_dialog(app: &mut CleisApp, m: &str, window: &mut Window, cx: &mut Co
                         month: b.map_or(now.month(), |b| u32::from(b.month)),
                     });
                 }
+            }
+        }
+        // Mockups 49f, 49g: a main place and two copies (shown only, nothing sent); `add-place`:
+        // the Add a place menu open.
+        "sync-places" | "add-place" => {
+            let path = app.path.clone();
+            if let Some(s) = app.session() {
+                let now = cleis_core::now();
+                s.sync.provider = crate::sync::Provider::GoogleDrive;
+                s.sync.place = Some(path.clone());
+                s.sync.last_sync = Some(now - 40);
+                s.sync.auto = false;
+                s.sync.remote = Some(crate::remote::RemotePlace::GoogleDrive {
+                    name: crate::screens::cloud::VAULT_FILE.into(),
+                    api: "https://www.googleapis.com".into(),
+                    account: "lea@example-studio.com".into(),
+                    folder: None,
+                });
+                s.sync.copies = vec![
+                    crate::sync::CopyPlace {
+                        id: "demo-onedrive".into(),
+                        provider: crate::sync::Provider::OneDrive,
+                        place: path.clone(),
+                        remote: Some(crate::remote::RemotePlace::OneDrive {
+                            path: crate::screens::cloud::VAULT_FILE.into(),
+                            api: "https://graph.microsoft.com/v1.0".into(),
+                            account: "lea@example-studio.com".into(),
+                            folder: Some(crate::remote::DriveFolder {
+                                id: "Documents/Admin".into(),
+                                name: "Documents / Admin".into(),
+                            }),
+                        }),
+                        last_sync: Some(now - 40),
+                        last_error: None,
+                        busy: false,
+                    },
+                    crate::sync::CopyPlace {
+                        id: "demo-folder".into(),
+                        provider: crate::sync::Provider::Folder,
+                        place: std::path::PathBuf::from("D:/Backups/Cleis/vault.cleis"),
+                        remote: None,
+                        last_sync: Some(now - 40),
+                        last_error: None,
+                        busy: false,
+                    },
+                ];
+                if m == "add-place" {
+                    s.place_menu = Some("add".into());
+                }
+            }
+        }
+        // Mockup 49i: 12 dated copies, the 5 latest listed (shown only, in the demo's folder).
+        "backups" => {
+            let dir = crate::sync::backups_dir(&app.path);
+            let _ = std::fs::create_dir_all(&dir);
+            for d in 0..12 {
+                let f = dir.join(format!(
+                    "vault-2026-11-{:02}-0915{:02}.cleis",
+                    28 - d / 2,
+                    d
+                ));
+                let _ = std::fs::copy(&app.path, f);
+            }
+        }
+        // Mockup 49a: the filter's Show group, Favorites on.
+        "filter-show" => {
+            if let Some(s) = app.session() {
+                s.vault_filter.favorites = true;
+                s.filter_menu = true;
+                s.refilter();
+            }
+        }
+        // Mockup 49l: leaving, refused to the only member who can invite (shown only).
+        "leave-refused" => {
+            if let Some(s) = app.session() {
+                let org = s.org.as_ref().map(|o| o.m.name.clone()).unwrap_or_default();
+                s.confirm = Some(crate::app::Confirm {
+                    title: crate::trf!("Leave {}?", org).into(),
+                    body: tr("You are the only member who can invite people. After leaving, no one could let you back in.").into(),
+                    button: tr("Delete the organization").into(),
+                    action: crate::app::ConfirmAction::OpenDeleteOrg,
+                    alt: Some((tr("Members").into(), "users", crate::app::ConfirmAction::GoMembers)),
+                });
             }
         }
         // Mockup 48c: a search typed, its clear button.

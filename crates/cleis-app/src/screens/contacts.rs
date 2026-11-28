@@ -823,7 +823,8 @@ fn table(
             super::ctx::on_right(super::ctx::CtxTarget::ContactsVoid, cx),
         );
     let lines = folder_lines(s);
-    let with_vault = s.contacts_ui.filter == ContactFilter::All;
+    // Mockup 49c: the vault's name only when the list holds more than one vault.
+    let with_vault = s.mixes_vaults(list.iter().map(|c| c.space));
     let mut current = None;
     for (k, c) in list.iter().enumerate() {
         if lines && current != Some(c.space) {
@@ -2476,6 +2477,7 @@ impl CleisApp {
             body: tr("The contact is removed from every device. This cannot be undone.").into(),
             button: tr("Delete").into(),
             action: ConfirmAction::DeleteContact(id),
+            alt: None,
         });
         cx.notify();
     }

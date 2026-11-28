@@ -226,6 +226,7 @@ pub fn menu_open(s: &Session) -> bool {
         || s.calendar.is_some()
         || s.wheel.is_some()
         || s.sync_menu
+        || s.place_menu.is_some()
         || s.account_menu
         || s.profile_edit.is_some()
         || s.pref_menu.is_some()
@@ -1455,6 +1456,7 @@ impl CleisApp {
         s.calendar = None;
         let wheel = s.wheel.take().is_some();
         s.sync_menu = false;
+        s.place_menu = None;
         s.account_menu = false;
         s.profile_edit = None;
         s.pref_menu = None;
@@ -1643,10 +1645,15 @@ impl CleisApp {
             s.security.dialog = None;
             s.security.menu = None;
             true
-        } else if s.filter_menu || s.sync_menu || s.pref_menu.is_some() || s.columns_menu.is_some()
+        } else if s.filter_menu
+            || s.sync_menu
+            || s.place_menu.is_some()
+            || s.pref_menu.is_some()
+            || s.columns_menu.is_some()
         {
             s.filter_menu = false;
             s.sync_menu = false;
+            s.place_menu = None;
             s.pref_menu = None;
             s.columns_menu = None;
             true
